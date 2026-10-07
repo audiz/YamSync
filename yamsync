@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARG="$1"
+
+# 1. Если YamSync уже запущен (слушает порт 48293), передаем ссылку через сокет и завершаем:
+if python3 -c "import socket, sys; s = socket.socket(); s.settimeout(0.5); s.connect(('127.0.0.1', 48293)); s.sendall((sys.argv[1] + '\n').encode()); s.close()" "$ARG" 2>/dev/null; then
+    exit 0
+fi
+
+# 2. Если YamSync не запущен, запускаем приложение
+cd "$PROJECT_DIR" || exit 1
+if [ -z "$JAVA_HOME" ] && [ -d "/home/nout/.gradle/jdks/azul_systems__inc_-21-amd64-linux.2" ]; then
+    export JAVA_HOME="/home/nout/.gradle/jdks/azul_systems__inc_-21-amd64-linux.2"
+fi
+
+if [ -n "$ARG" ]; then
+    nohup ./gradlew :desktopApp:run --args="$ARG" >/dev/null 2>&1 &
+else
+    nohup ./gradlew :desktopApp:run >/dev/null 2>&1 &
+fi
