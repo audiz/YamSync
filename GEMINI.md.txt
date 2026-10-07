@@ -1,0 +1,7 @@
+# Workspace Rules
+Exclude paths from context:
+- **/.gradle/**
+- **/build/**
+- **/.kotlin/**
+- **/iosApp/Pods/**
+- **/build/generated/ksp/**

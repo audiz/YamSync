@@ -1,0 +1,239 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  LIB_ACCESS_KEY: ${{ secrets.LIB_ACCESS_KEY }}
+
+jobs:
+  # ========================================================
+  # 1. Сборка для Windows (.msi, .exe)
+  # ========================================================
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4.4.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Windows Packages
+        run: .\gradlew.bat :desktopApp:packageDistributionForCurrentOS --stacktrace
+
+      - name: Collect Windows Artifacts
+        run: |
+          mkdir release-windows
+          Get-ChildItem -Path desktopApp\build\compose\binaries\main -Include *.msi,*.exe -Recurse | ForEach-Object {
+              Copy-Item $_.FullName -Destination release-windows\
+          }
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: release-windows/*
+
+  # ========================================================
+  # 2. Сборка для Linux (.deb)
+  # ========================================================
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4.4.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Linux Package
+        run: ./gradlew :desktopApp:packageDeb --stacktrace
+
+      - name: Collect Linux Artifacts
+        run: |
+          mkdir -p release-linux
+          find desktopApp/build/compose/binaries/main -name "*.deb" -exec cp {} release-linux/ \;
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: release-linux/*
+
+  # ========================================================
+  # 3. Сборка для Android (.apk)
+  # ========================================================
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4.4.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Android APK
+        run: ./gradlew :androidApp:assembleDebug --stacktrace
+
+      - name: Collect Android Artifacts
+        run: |
+          mkdir -p release-android
+          cp androidApp/build/outputs/apk/debug/*.apk release-android/
+
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-binaries
+          path: release-android/*
+
+  # ========================================================
+  # 4. Сборка для macOS (.dmg)
+  # ========================================================
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4.4.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build macOS Package
+        run: |
+          chmod +x gradlew
+          ./gradlew :desktopApp:packageDmg --stacktrace
+
+      - name: Collect macOS Artifacts
+        run: |
+          mkdir -p release-macos
+          find desktopApp/build/compose/binaries/main -name "*.dmg" -exec cp {} release-macos/ \;
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: release-macos/*
+
+  # ========================================================
+  # 5. Сборка для iOS (.ipa)
+  # ========================================================
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4.4.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build iOS Archive & Package IPA
+        run: |
+          chmod +x gradlew
+          mkdir -p build release-ios/Payload
+          xcodebuild -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/iosApp.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+          mkdir -p release-ios/Payload
+          cp -r build/iosApp.xcarchive/Products/Applications/*.app release-ios/Payload/
+          cd release-ios && zip -r yamusic-ios.ipa Payload
+
+      - name: Upload iOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-binaries
+          path: release-ios/yamusic-ios.ipa
+
+  # ========================================================
+  # 6. Публикация GitHub Release со всеми собранными файлами
+  # ========================================================
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-linux, build-android, build-macos, build-ios]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2 # Обновлено
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-releases
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-files
+          find all-releases -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.deb" -o -name "*.apk" -o -name "*.dmg" -o -name "*.ipa" \) -exec cp {} release-files/ \;
+          ls -lh release-files
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
