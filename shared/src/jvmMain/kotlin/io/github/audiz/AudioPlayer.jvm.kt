@@ -252,9 +252,17 @@ actual class AudioPlayer actual constructor() {
 
     actual fun playFromFile(filePath: String, crossfadeMs: Long) {
         prepareForNewPlayback(crossfadeMs)
-        val file = File(filePath)
+        val cleanPath = filePath.trim().removePrefix("local:").removePrefix("file://").removePrefix("file:")
+        val resolvedPath = resolveLocalPath(cleanPath)
+        var file = File(resolvedPath)
         if (!file.exists()) {
-            println("AudioPlayer: Файл не найден: $filePath")
+            file = File(cleanPath)
+        }
+        if (!file.exists()) {
+            file = File(filePath)
+        }
+        if (!file.exists()) {
+            println("AudioPlayer: Файл не найден: $filePath (разрешенный: $resolvedPath)")
             isPlayingState = false
             return
         }

@@ -430,6 +430,77 @@ class MusicStorageTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun testResolveLocalPathCrossPlatformAndFast() {
+        val tempDir = File.createTempFile("music_resolve_test", "").apply {
+            delete()
+            mkdirs()
+        }
+        try {
+            saveMusicStoragePath(tempDir.absolutePath)
+            val artistDir = File(tempDir, "The Beatles")
+            artistDir.mkdirs()
+            val trackFile = File(artistDir, "Yesterday.mp3")
+            trackFile.writeBytes("dummy audio".toByteArray())
+
+            // 1. Cross-platform Unix path on Windows format or vice-versa
+            val linuxPath = "/home/user/Music/The Beatles/Yesterday.mp3"
+            val resolvedLinux = resolveLocalPath(linuxPath)
+            assertEquals(trackFile.absolutePath, resolvedLinux, "Should resolve Linux path to local file")
+
+            val windowsPath = "C:\\Users\\user\\Music\\The Beatles\\Yesterday.mp3"
+            val resolvedWindows = resolveLocalPath(windowsPath)
+            assertEquals(trackFile.absolutePath, resolvedWindows, "Should resolve Windows path to local file")
+
+            // 2. Non-existent file should return quickly without error
+            val nonExistent = "/some/remote/path/Unknown Artist/NonExistent.mp3"
+            val t0 = System.currentTimeMillis()
+            val resolvedNonExistent = resolveLocalPath(nonExistent)
+            val duration = System.currentTimeMillis() - t0
+            assertTrue(duration < 200, "Resolution of non-existent file should take < 200ms, took $duration ms")
+            assertEquals(File(nonExistent).absolutePath, resolvedNonExistent)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testLoadLocalPlaylistsStrictDeduplication() {
+        val tempDir = File.createTempFile("music_dedup_test", "").apply {
+            delete()
+            mkdirs()
+        }
+        try {
+            saveMusicStoragePath(tempDir.absolutePath)
+            val artistDir = File(tempDir, "Pink Floyd")
+            artistDir.mkdirs()
+            val songFile = File(artistDir, "Comfortably Numb.mp3")
+            songFile.writeBytes("dummy".toByteArray())
+
+            // 3 paths for the same file in different cross-platform formats
+            val path1 = songFile.absolutePath
+            val path2 = "/home/other/Music/Pink Floyd/Comfortably Numb.mp3"
+            val path3 = "C:\\Music\\Pink Floyd\\Comfortably Numb.mp3"
+
+            val playlist = io.github.audiz.models.LocalPlaylist(
+                id = "pl-dedup",
+                title = "Rock Legends",
+                description = "",
+                createdAt = 1000L,
+                updatedAt = 1000L,
+                trackPaths = listOf(path1, path2, path3)
+            )
+            saveLocalPlaylists(tempDir.absolutePath, listOf(playlist))
+
+            val loaded = loadLocalPlaylists(tempDir.absolutePath)
+            assertEquals(1, loaded.size)
+            assertEquals(1, loaded[0].trackPaths.size, "Duplicate entries across platforms must be deduplicated to 1 track")
+            assertEquals(songFile.absolutePath, loaded[0].trackPaths[0])
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 }
 
 

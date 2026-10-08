@@ -88,7 +88,8 @@ class YamSyncClient {
         val totalBytes = response.contentLength() ?: track.fileSize
         val channel: ByteReadChannel = response.bodyAsChannel()
         val buffer = ByteArray(32 * 1024)
-        val outBytes = ArrayList<Byte>(if (totalBytes > 0 && totalBytes < 50_000_000) totalBytes.toInt() else 1024 * 1024)
+        val chunks = mutableListOf<ByteArray>()
+        var totalRead = 0
 
         var downloaded = 0L
         var lastTime = currentTimeMillis()
@@ -98,9 +99,9 @@ class YamSyncClient {
         while (!channel.isClosedForRead) {
             val read = channel.readAvailable(buffer, 0, buffer.size)
             if (read <= 0) break
-            for (i in 0 until read) {
-                outBytes.add(buffer[i])
-            }
+            val chunk = buffer.copyOf(read)
+            chunks.add(chunk)
+            totalRead += read
             downloaded += read
 
             val now = currentTimeMillis()
@@ -123,7 +124,12 @@ class YamSyncClient {
             }
         }
 
-        val finalBytes = outBytes.toByteArray()
+        val finalBytes = ByteArray(totalRead)
+        var offset = 0
+        for (chunk in chunks) {
+            chunk.copyInto(finalBytes, offset)
+            offset += chunk.size
+        }
         onProgress(
             YamSyncTransferProgress(
                 fileName = track.fileName,

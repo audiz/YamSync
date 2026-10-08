@@ -65,11 +65,12 @@ actual class YamSyncServer actual constructor(
                         handleClient(client)
                     }
                 } catch (e: SocketException) {
-                    if (!running) break
+                    if (!running || socket.isClosed) break
+                    try { Thread.sleep(50) } catch (_: InterruptedException) { break }
                 } catch (e: Throwable) {
-                    if (running) {
-                        println("⚡ [YamSyncServer] Ошибка accept: ${e.message}")
-                    }
+                    if (!running || socket.isClosed) break
+                    println("⚡ [YamSyncServer] Ошибка accept: ${e.message}")
+                    try { Thread.sleep(50) } catch (_: InterruptedException) { break }
                 }
             }
         }

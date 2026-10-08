@@ -1,6 +1,7 @@
 package io.github.audiz.player
 
 import io.github.audiz.localFileExists
+import io.github.audiz.resolveLocalPath
 import io.github.audiz.sanitizeKeepSpaces
 import io.github.audiz.trackFileExists
 
@@ -33,12 +34,14 @@ class LocalTrackResolver(
     ): String? {
         if (trackId.startsWith("local:")) {
             val candidate = trackId.removePrefix("local:")
-            if (localFileExists(candidate)) {
-                return candidate
+            val resolved = resolveLocalPath(candidate)
+            if (localFileExists(resolved)) {
+                return resolved
             }
         }
-        if (localFileExists(trackId)) {
-            return trackId
+        val resolvedTrackId = resolveLocalPath(trackId)
+        if (localFileExists(resolvedTrackId)) {
+            return resolvedTrackId
         }
 
         val musicStoragePath = getMusicStoragePath().trim()
@@ -64,8 +67,10 @@ class LocalTrackResolver(
                 ).distinct()
 
                 for (candidateName in candidateNames) {
-                    if (trackFileExists(folder, cleanArtist, candidateName)) {
-                        return "$folder/$sanitizedArtist/$candidateName"
+                    val fullPath = "$folder/$sanitizedArtist/$candidateName"
+                    val resolved = resolveLocalPath(fullPath)
+                    if (localFileExists(resolved)) {
+                        return resolved
                     }
                 }
             }
@@ -122,11 +127,10 @@ class LocalTrackResolver(
                 ).distinct()
 
                 for (candidateName in candidateNames) {
-                    if (trackFileExists(basePath, cleanArtist, candidateName)) {
-                        val fullPath = "$basePath/$sanitizedArtist/$candidateName"
-                        if (localFileExists(fullPath)) {
-                            return fullPath
-                        }
+                    val fullPath = "$basePath/$sanitizedArtist/$candidateName"
+                    val resolved = resolveLocalPath(fullPath)
+                    if (localFileExists(resolved)) {
+                        return resolved
                     }
                 }
             }

@@ -252,9 +252,10 @@ fun PlaylistsDialog(
                                     renameTitle = it.title
                                 },
                                 onOpenPlaylist = {
-                                    viewModel.openLocalPlaylist(it)
+                                    viewModel.openLocalPlaylist(it, autoPlayFirst = true)
                                     onDismiss()
-                                }
+                                },
+                                onDismiss = onDismiss
                             )
                             1 -> YandexUserPlaylistsTab(
                                 viewModel = viewModel,
@@ -595,7 +596,8 @@ private fun LocalPlaylistsTab(
     onBrowseFolder: (CustomMediaSource) -> Unit,
     onCreateClick: () -> Unit,
     onRenameClick: (LocalPlaylist) -> Unit,
-    onOpenPlaylist: (LocalPlaylist) -> Unit
+    onOpenPlaylist: (LocalPlaylist) -> Unit,
+    onDismiss: () -> Unit
 ) {
     var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
 
@@ -966,7 +968,13 @@ private fun LocalPlaylistsTab(
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
                                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                                modifier = Modifier.fillMaxWidth()
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        viewModel.openLocalPlaylist(playlist, restoreTrackId = trackPath, autoPlayFirst = true)
+                                                        onDismiss()
+                                                    }
+                                                    .pointerHoverIcon(PointerIcon.Hand)
                                             ) {
                                                 Row(
                                                     modifier = Modifier

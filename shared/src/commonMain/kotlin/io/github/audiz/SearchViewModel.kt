@@ -1169,7 +1169,11 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /**
      * 📂 Открыть локальный плейлист для воспроизведения
      */
-    fun openLocalPlaylist(playlist: LocalPlaylist, restoreTrackId: String? = null) {
+    fun openLocalPlaylist(
+        playlist: LocalPlaylist,
+        restoreTrackId: String? = null,
+        autoPlayFirst: Boolean = false
+    ) {
         if (isLoading) return
         playbackSessionManager.recordSession(
             LastPlaybackSession(
@@ -1206,7 +1210,17 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     if (tracks.size < playlist.trackPaths.size) {
                         println("SearchViewModel: Найдено ${tracks.size} из ${playlist.trackPaths.size} треков плейлиста '${playlist.title}'")
                     }
-                    if (restoreTrackId != null) {
+                    if (autoPlayFirst) {
+                        val target = restoreTrackId?.let { rid ->
+                            tracks.firstOrNull { it.id == rid || it.realId == rid }
+                        } ?: tracks.first()
+                        playTrack(
+                            trackId = target.id,
+                            trackTitle = target.title,
+                            artistName = target.artists.firstOrNull()?.name ?: "",
+                            source = TrackPlaySource.PLAY
+                        )
+                    } else if (restoreTrackId != null) {
                         val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
                         if (target != null) {
                             playbackManager.setInitialTrack(target)

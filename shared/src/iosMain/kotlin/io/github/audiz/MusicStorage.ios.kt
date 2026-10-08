@@ -545,7 +545,7 @@ actual fun loadLocalPlaylists(basePath: String): List<LocalPlaylist> {
             nsStr
         )
 
-        // 🔥 Авто-миграция: обновляем устаревшие пути со старыми UUID контейнера
+        // 🔥 Авто-миграция: обновляем устаревшие пути со старыми UUID контейнера и устраняем дубликаты
         var anyMigrated = false
         val migratedList = loaded.map { playlist ->
             var plChanged = false
@@ -558,10 +558,15 @@ actual fun loadLocalPlaylists(basePath: String): List<LocalPlaylist> {
                     originalPath
                 }
             }
-            val distinctPaths = updatedPaths.distinctBy { path ->
-                val resolved = resolveIosLocalPath(path)
-                val fileName = resolved.substringAfterLast('/')
-                fileName.lowercase()
+            val seenNames = mutableSetOf<String>()
+            val distinctPaths = mutableListOf<String>()
+            for (p in updatedPaths) {
+                val normName = p.substringAfterLast('/').substringAfterLast('\\').trim().lowercase()
+                if (normName.isNotBlank() && seenNames.add(normName)) {
+                    distinctPaths.add(p)
+                } else if (normName.isBlank() && !distinctPaths.contains(p)) {
+                    distinctPaths.add(p)
+                }
             }
             if (distinctPaths.size != playlist.trackPaths.size) {
                 plChanged = true
