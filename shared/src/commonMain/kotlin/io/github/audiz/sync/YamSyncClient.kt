@@ -76,11 +76,9 @@ class YamSyncClient {
         track: YamSyncTrack,
         onProgress: (YamSyncTransferProgress) -> Unit
     ): Result<ByteArray> = runCatching {
-        val encName = track.fileName
-        val encHash = track.checksum
-        val url = "http://$ip:$port/yamsync/v1/file?name=$encName&hash=$encHash"
-
-        val response = httpClient.get(url) {
+        val response = httpClient.get("http://$ip:$port/yamsync/v1/file") {
+            parameter("name", track.fileName)
+            parameter("hash", track.checksum)
             header("X-YamSync-Token", token)
         }
         if (!response.status.isSuccess()) {

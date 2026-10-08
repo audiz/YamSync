@@ -28,9 +28,18 @@ data class YamSyncTrack(
     val fileSize: Long = 0L,
     val checksum: String = "" // Хеш для сопоставления идентичности файлов
 ) {
-    /** Уникальный ключ трека для дедупликации */
+    /** Уникальный ключ трека для надежной дедупликации без привязки к наличию файла на диске */
     val matchKey: String
-        get() = if (checksum.isNotBlank()) checksum else "${artist.trim().lowercase()}_${title.trim().lowercase()}_${durationMs / 1000}"
+        get() {
+            if (checksum.isNotBlank()) return checksum.trim().lowercase()
+            val a = artist.trim().lowercase()
+            val t = title.trim().lowercase()
+            if (a.isNotBlank() && a != "unknown" && a != "unknown artist" && t.isNotBlank()) {
+                return "${a}_${t}"
+            }
+            val baseName = fileName.substringBeforeLast('.').trim().lowercase()
+            return baseName.ifBlank { "track" }
+        }
 }
 
 /**

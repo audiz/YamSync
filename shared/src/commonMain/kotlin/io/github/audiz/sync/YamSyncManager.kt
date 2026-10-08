@@ -69,14 +69,16 @@ class YamSyncManager(
         val availableFiles = downloadedTracks.map { track ->
             val cleanPath = track.realId?.ifBlank { track.id.removePrefix("local:") } ?: track.id.removePrefix("local:")
             val fileName = cleanPath.substringAfterLast('/').substringAfterLast('\\')
+            val artistName = track.artists.firstOrNull()?.name?.trim()?.ifBlank { "Unknown Artist" } ?: "Unknown Artist"
+            val titleName = track.title.trim().ifBlank { fileName.substringBeforeLast('.') }
             YamSyncTrack(
                 fileName = fileName,
-                artist = track.artists.firstOrNull()?.name ?: "Unknown Artist",
-                title = track.title,
+                artist = artistName,
+                title = titleName,
                 album = track.albums.firstOrNull()?.title ?: "",
                 durationMs = track.durationMs,
                 fileSize = getFileSize(cleanPath),
-                checksum = "${track.artists.firstOrNull()?.name?.trim()?.lowercase()}_${track.title.trim().lowercase()}"
+                checksum = "${artistName.lowercase()}_${titleName.lowercase()}"
             )
         }
 
@@ -85,17 +87,27 @@ class YamSyncManager(
                 val fileName = path.substringAfterLast('/').substringAfterLast('\\')
                 availableFiles.firstOrNull { it.fileName.equals(fileName, ignoreCase = true) } ?: run {
                     val rawName = fileName.substringBeforeLast('.')
-                    val parts = rawName.split(" — ", " - ", limit = 2)
+                    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+                    var artist = "Unknown Artist"
+                    var title = rawName
+                    for (delim in delimiters) {
+                        if (rawName.contains(delim)) {
+                            val parts = rawName.split(delim, limit = 2)
+                            artist = parts[0].trim()
+                            title = parts[1].trim()
+                            break
+                        }
+                    }
                     YamSyncTrack(
                         fileName = fileName,
-                        artist = parts.getOrNull(0)?.trim() ?: "Unknown",
-                        title = parts.getOrNull(1)?.trim() ?: rawName,
+                        artist = artist,
+                        title = title,
                         durationMs = 0L,
                         fileSize = 0L,
-                        checksum = ""
+                        checksum = "${artist.lowercase()}_${title.lowercase()}"
                     )
                 }
-            }
+            }.distinctBy { it.matchKey }
 
             YamSyncPlaylist(
                 id = pl.id,
@@ -139,12 +151,44 @@ class YamSyncManager(
             token = token,
             localDevice = localDevice,
             getManifest = { buildLocalManifest() },
-            resolveFilePath = { fileName, _ ->
-                val resolved = resolveLocalPath(fileName)
-                if (localFileExists(resolved)) resolved else {
-                    val fallback = "$basePath/$fileName"
-                    if (localFileExists(fallback)) fallback else null
+            resolveFilePath = { fileName, checksum ->
+                val base = getMusicStoragePath()
+                val downloaded = scanDownloadedTracks(base)
+
+                // 1. Поиск по точному имени файла в просканированных локальных треках
+                val byName = downloaded.firstOrNull {
+                    val p = it.realId ?: it.id.removePrefix("local:")
+                    val fn = p.substringAfterLast('/').substringAfterLast('\\')
+                    fn.equals(fileName, ignoreCase = true)
                 }
+                if (byName != null) {
+                    val p = byName.realId ?: byName.id.removePrefix("local:")
+                    if (localFileExists(p)) return@YamSyncServer p
+                }
+
+                // 2. Поиск по checksum (artist_title) в просканированных треках
+                if (checksum.isNotBlank()) {
+                    val cleanCheck = checksum.trim().lowercase()
+                    val byChecksum = downloaded.firstOrNull {
+                        val artist = it.artists.firstOrNull()?.name?.trim()?.lowercase() ?: ""
+                        val title = it.title.trim().lowercase()
+                        "${artist}_${title}" == cleanCheck
+                    }
+                    if (byChecksum != null) {
+                        val p = byChecksum.realId ?: byChecksum.id.removePrefix("local:")
+                        if (localFileExists(p)) return@YamSyncServer p
+                    }
+                }
+
+                // 3. Fallback через платформенный resolveLocalPath
+                val resolved = resolveLocalPath(fileName)
+                if (localFileExists(resolved)) return@YamSyncServer resolved
+
+                // 4. Fallback в корень директории музыки
+                val fallback = "$base/$fileName"
+                if (localFileExists(fallback)) return@YamSyncServer fallback
+
+                null
             },
             onMergeReceived = { payload ->
                 applyRemoteMergedPlaylists(payload.playlists)
@@ -386,6 +430,24 @@ class YamSyncManager(
                 )
             }
 
+            // Обновляем пути в локальных плейлистах с учетом скачанных файлов
+            withContext(DispatcherIO) {
+                val freshDownloaded = scanDownloadedTracks(basePath)
+                val allLocal = loadLocalPlaylists(basePath)
+                val updatedLocal = allLocal.map { pl ->
+                    val updatedPaths = pl.trackPaths.map { originalPath ->
+                        val fileName = originalPath.substringAfterLast('/').substringAfterLast('\\')
+                        val matched = freshDownloaded.firstOrNull {
+                            val p = it.realId ?: it.id.removePrefix("local:")
+                            p.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
+                        }
+                        matched?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") } ?: originalPath
+                    }.distinct()
+                    pl.copy(trackPaths = updatedPaths)
+                }
+                saveLocalPlaylists(basePath, updatedLocal)
+            }
+
             statusMessage = "✅ Загрузка $totalCount файлов завершена!"
             refreshManifestAndDiff()
             onPlaylistsUpdated()
@@ -406,7 +468,7 @@ class YamSyncManager(
                 }
                 found?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
                     ?: "$basePath/${syncTrack.artist}/${syncTrack.fileName}"
-            }
+            }.distinct()
 
             LocalPlaylist(
                 id = syncPl.id,
@@ -418,6 +480,11 @@ class YamSyncManager(
             )
         }
 
-        saveLocalPlaylists(basePath, updatedList)
+        // Сохраняем локальные плейлисты, которых не было в remotePlaylists
+        val updatedIds = updatedList.map { it.id }.toSet()
+        val untouchedLocal = currentLocal.filter { it.id !in updatedIds }
+        val combinedPlaylists = updatedList + untouchedLocal
+
+        saveLocalPlaylists(basePath, combinedPlaylists)
     }
 }

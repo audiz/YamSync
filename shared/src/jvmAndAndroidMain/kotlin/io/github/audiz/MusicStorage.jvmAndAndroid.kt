@@ -166,7 +166,17 @@ actual fun resolveLocalPath(path: String): String {
     }
 
     val found = candidates.firstOrNull { it.exists() && it.isFile }
-    return found?.absolutePath ?: file.absolutePath
+    if (found != null) return found.absolutePath
+
+    // Если всё ещё не найден, ищем файл в подпапках артистов внутри baseDir
+    if (baseDir.exists() && baseDir.isDirectory) {
+        val recursiveMatch = baseDir.walkTopDown().maxDepth(3).firstOrNull {
+            it.isFile && (it.name.equals(fileName, ignoreCase = true) || it.nameWithoutExtension.equals(baseName, ignoreCase = true))
+        }
+        if (recursiveMatch != null) return recursiveMatch.absolutePath
+    }
+
+    return file.absolutePath
 }
 
 /** Проверить, существует ли трек на диске */
@@ -464,16 +474,24 @@ actual fun loadLocalPlaylists(basePath: String): List<LocalPlaylist> {
                     originalPath
                 }
             }
+            val distinctTracks = updatedTracks.distinctBy { path ->
+                val resolved = resolveLocalPath(path)
+                val f = File(resolved)
+                if (f.exists() && f.isFile) f.name.lowercase() else path.substringAfterLast('/').substringAfterLast('\\').lowercase()
+            }
+            if (distinctTracks.size != playlist.trackPaths.size) {
+                changed = true
+            }
             if (changed) {
                 anyMigrated = true
-                playlist.copy(trackPaths = updatedTracks)
+                playlist.copy(trackPaths = distinctTracks)
             } else {
                 playlist
             }
         }
         if (anyMigrated) {
             saveLocalPlaylists(basePath, migratedList)
-            println("MusicStorage: Локальные плейлисты успешно обновлены с новыми путями")
+            println("MusicStorage: Локальные плейлисты успешно обновлены с новыми путями и дедупликацией")
         }
         println("MusicStorage: Загружено ${migratedList.size} локальных плейлистов")
         return migratedList

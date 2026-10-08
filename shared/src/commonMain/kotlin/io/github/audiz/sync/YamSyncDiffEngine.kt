@@ -124,13 +124,24 @@ object YamSyncDiffEngine {
 
                     when {
                         local != null && remote != null -> {
-                            // Сохраняем исходный порядок локальных треков
-                            val combinedTracks = local.tracks.toMutableList()
-                            val existingKeys = local.tracks.map { it.matchKey }.toMutableSet()
+                            val combinedTracks = mutableListOf<YamSyncTrack>()
+                            val seenKeys = mutableSetOf<String>()
+                            val seenFileNames = mutableSetOf<String>()
 
-                            // Добавляем уникальные треки с удаленного устройства
+                            // Сначала добавляем локальные треки с очисткой дубликатов
+                            for (track in local.tracks) {
+                                val key = track.matchKey
+                                val fn = track.fileName.trim().lowercase()
+                                if (seenKeys.add(key) && seenFileNames.add(fn)) {
+                                    combinedTracks.add(track)
+                                }
+                            }
+
+                            // Затем добавляем уникальные треки с удаленного устройства
                             for (remoteTrack in remote.tracks) {
-                                if (existingKeys.add(remoteTrack.matchKey)) {
+                                val key = remoteTrack.matchKey
+                                val fn = remoteTrack.fileName.trim().lowercase()
+                                if (seenKeys.add(key) && seenFileNames.add(fn)) {
                                     combinedTracks.add(remoteTrack)
                                 }
                             }
@@ -142,8 +153,14 @@ object YamSyncDiffEngine {
                                 )
                             )
                         }
-                        local != null -> mergedList.add(local)
-                        remote != null -> mergedList.add(remote)
+                        local != null -> {
+                            val distinctTracks = local.tracks.distinctBy { it.matchKey }
+                            mergedList.add(local.copy(tracks = distinctTracks))
+                        }
+                        remote != null -> {
+                            val distinctTracks = remote.tracks.distinctBy { it.matchKey }
+                            mergedList.add(remote.copy(tracks = distinctTracks))
+                        }
                     }
                 }
             }

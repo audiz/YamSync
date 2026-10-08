@@ -158,4 +158,34 @@ class YamSyncTest {
         val resRemote = YamSyncDiffEngine.mergePlaylists(listOf(diff.copy(resolution = YamSyncResolution.TAKE_REMOTE)))
         assertEquals(listOf(track2), resRemote[0].tracks)
     }
+
+    @Test
+    fun testDeduplicationWithVaryingDurationAndDuplicateEntries() {
+        // Track on device A with 0 duration (from playlist before download)
+        val trackA0 = YamSyncTrack("Song.mp3", "Artist", "Song", durationMs = 0L)
+        // Track on device B with full duration (from file tags)
+        val trackAFull = YamSyncTrack("Song.mp3", "Artist", "Song", durationMs = 180000L)
+
+        // They must have identical matchKey!
+        assertEquals(trackA0.matchKey, trackAFull.matchKey)
+
+        // Local playlist had duplicate entries of the same song (e.g. repeated merge attempts)
+        val plWithDuplicates = YamSyncPlaylist("pl_1", "Hits", tracks = listOf(trackA0, trackA0, trackA0))
+        val plRemote = YamSyncPlaylist("pl_1_remote", "Hits", tracks = listOf(trackAFull))
+
+        val diff = YamSyncPlaylistDiff(
+            playlistId = "pl_1",
+            title = "Hits",
+            state = YamSyncDiffState.MODIFIED,
+            localPlaylist = plWithDuplicates,
+            remotePlaylist = plRemote,
+            resolution = YamSyncResolution.MERGE_ALL
+        )
+
+        val merged = YamSyncDiffEngine.mergePlaylists(listOf(diff))
+        assertEquals(1, merged.size)
+        // Must be deduplicated to exactly 1 track!
+        assertEquals(1, merged[0].tracks.size)
+        assertEquals("Song.mp3", merged[0].tracks[0].fileName)
+    }
 }

@@ -134,6 +134,20 @@ fun resolveIosLocalPath(path: String): String {
             val candidateAlt = "$root/$altFileName"
             if (fileManager.fileExistsAtPath(candidateAlt)) return candidateAlt
         }
+
+        // Поиск по подпапкам (папкам артистов)
+        val subdirs = fileManager.contentsOfDirectoryAtPath(root, null) as? List<*>
+        if (subdirs != null) {
+            for (subObj in subdirs) {
+                val sub = subObj as? String ?: continue
+                val candidateSub = "$root/$sub/$fileName"
+                if (fileManager.fileExistsAtPath(candidateSub)) return candidateSub
+                for (ext in extensions) {
+                    val candidateSubAlt = "$root/$sub/$baseNameWithoutExt$ext"
+                    if (fileManager.fileExistsAtPath(candidateSubAlt)) return candidateSubAlt
+                }
+            }
+        }
     }
 
     return clean
@@ -544,9 +558,17 @@ actual fun loadLocalPlaylists(basePath: String): List<LocalPlaylist> {
                     originalPath
                 }
             }
+            val distinctPaths = updatedPaths.distinctBy { path ->
+                val resolved = resolveIosLocalPath(path)
+                val fileName = resolved.substringAfterLast('/')
+                fileName.lowercase()
+            }
+            if (distinctPaths.size != playlist.trackPaths.size) {
+                plChanged = true
+            }
             if (plChanged) {
                 anyMigrated = true
-                playlist.copy(trackPaths = updatedPaths)
+                playlist.copy(trackPaths = distinctPaths)
             } else {
                 playlist
             }
