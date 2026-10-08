@@ -37,6 +37,9 @@ class LocalTrackResolver(
                 return candidate
             }
         }
+        if (localFileExists(trackId)) {
+            return trackId
+        }
 
         val musicStoragePath = getMusicStoragePath().trim()
         if (musicStoragePath.isBlank()) return null
@@ -54,11 +57,16 @@ class LocalTrackResolver(
 
         for (folder in candidateFolders) {
             for (ext in knownExtensions) {
-                val candidateName = sanitizeKeepSpaces(
-                    if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle.$ext" else "$cleanTitle.$ext"
-                )
-                if (trackFileExists(folder, cleanArtist, candidateName)) {
-                    return "$folder/$sanitizedArtist/$candidateName"
+                val candidateNames = listOfNotNull(
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext") else null,
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext") else null,
+                    sanitizeKeepSpaces("$cleanTitle.$ext")
+                ).distinct()
+
+                for (candidateName in candidateNames) {
+                    if (trackFileExists(folder, cleanArtist, candidateName)) {
+                        return "$folder/$sanitizedArtist/$candidateName"
+                    }
                 }
             }
         }
@@ -78,11 +86,16 @@ class LocalTrackResolver(
 
         for (basePath in qualityFolders) {
             for (ext in KNOWN_HQ_EXTENSIONS) {
-                val candidateName = sanitizeKeepSpaces(
-                    if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle.$ext" else "$cleanTitle.$ext"
-                )
-                if (trackFileExists(basePath, cleanArtist, candidateName)) {
-                    return true
+                val candidateNames = listOfNotNull(
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext") else null,
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext") else null,
+                    sanitizeKeepSpaces("$cleanTitle.$ext")
+                ).distinct()
+
+                for (candidateName in candidateNames) {
+                    if (trackFileExists(basePath, cleanArtist, candidateName)) {
+                        return true
+                    }
                 }
             }
         }
@@ -102,13 +115,18 @@ class LocalTrackResolver(
 
         for (basePath in qualityFolders) {
             for (ext in KNOWN_HQ_EXTENSIONS) {
-                val candidateName = sanitizeKeepSpaces(
-                    if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle.$ext" else "$cleanTitle.$ext"
-                )
-                if (trackFileExists(basePath, cleanArtist, candidateName)) {
-                    val fullPath = "$basePath/$sanitizedArtist/$candidateName"
-                    if (localFileExists(fullPath)) {
-                        return fullPath
+                val candidateNames = listOfNotNull(
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext") else null,
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext") else null,
+                    sanitizeKeepSpaces("$cleanTitle.$ext")
+                ).distinct()
+
+                for (candidateName in candidateNames) {
+                    if (trackFileExists(basePath, cleanArtist, candidateName)) {
+                        val fullPath = "$basePath/$sanitizedArtist/$candidateName"
+                        if (localFileExists(fullPath)) {
+                            return fullPath
+                        }
                     }
                 }
             }

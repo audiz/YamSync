@@ -87,7 +87,7 @@ actual class AudioPlayer actual constructor() {
         @Volatile var fadeDurationNano: Long = 0L,
         @Volatile var nearEndTriggered: Boolean = false
     ) {
-        val pcmQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(24)
+        val pcmQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(96)
 
         fun close() {
             if (isClosed) return
@@ -220,6 +220,8 @@ actual class AudioPlayer actual constructor() {
             jlayerPauseOffsetMs = 0L
             jlayerStartTimeNano = 0L
             cachedWavFile = null
+            nearEndThresholdMs = 0L
+            nearEndExpectedDurationMs = 0L
         }
     }
 
@@ -381,7 +383,7 @@ actual class AudioPlayer actual constructor() {
         currentFile = file
         currentStreamUrl = null
         currentPositionMs = 0L
-        durationMs = 0L
+        durationMs = io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
         jlayerPauseOffsetMs = 0L
         jlayerStartTimeNano = System.nanoTime()
         onPlaybackStartedListener?.invoke()
@@ -562,13 +564,7 @@ actual class AudioPlayer actual constructor() {
 
         if (hasFfmpeg()) {
             if (durationMs <= 0L) {
-                if (isFlacFile(file)) {
-                    durationMs = getExactFlacDurationMs(file).takeIf { it > 0 } ?: estimateFlacDurationMs(file)
-                } else if (file.name.endsWith(".m4a", ignoreCase = true) || file.name.endsWith(".aac", ignoreCase = true) || isMp4Container(file)) {
-                    durationMs = getExactM4aDurationMs(file).takeIf { it > 0 } ?: estimateM4aDurationMs(file)
-                } else if (isMp3File(file)) {
-                    durationMs = estimateMp3DurationMs(file)
-                }
+                durationMs = io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
             }
             println("AudioPlayer Fallback: Воспроизведение через ffmpeg: ${file.name} (crossfade=${crossfadeMs}ms)")
             playStreamWithFfmpeg(file.absolutePath, sessionId, seekPosMs, crossfadeMs = crossfadeMs)
@@ -576,6 +572,9 @@ actual class AudioPlayer actual constructor() {
         }
 
         if (isMp3File(file)) {
+            if (durationMs <= 0L) {
+                durationMs = io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
+            }
             println("AudioPlayer Fallback: Воспроизведение MP3 через JLayer: ${file.name}")
             playMp3WithJLayer(file, sessionId, seekPosMs)
             return
@@ -583,13 +582,7 @@ actual class AudioPlayer actual constructor() {
 
         // Try extracting accurate duration using container headers
         if (durationMs <= 0L) {
-            if (isFlacFile(file)) {
-                durationMs = getExactFlacDurationMs(file).takeIf { it > 0 } ?: estimateFlacDurationMs(file)
-            } else if (file.name.endsWith(".m4a", ignoreCase = true) || file.name.endsWith(".aac", ignoreCase = true) || isMp4Container(file)) {
-                durationMs = getExactM4aDurationMs(file).takeIf { it > 0 } ?: estimateM4aDurationMs(file)
-            } else if (isMp3File(file)) {
-                durationMs = estimateMp3DurationMs(file)
-            }
+            durationMs = io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
         }
 
         // For FLAC, M4A, AAC or other formats: decode to WAV with ffmpeg if available
@@ -637,13 +630,7 @@ actual class AudioPlayer actual constructor() {
         val systemPlayer = findSystemPlayer()
         if (systemPlayer != null) {
             if (durationMs == 0L) {
-                if (file.name.endsWith(".m4a", ignoreCase = true) || file.name.endsWith(".aac", ignoreCase = true)) {
-                    durationMs = getExactM4aDurationMs(file).takeIf { it > 0 } ?: estimateM4aDurationMs(file)
-                } else if (isFlacFile(file)) {
-                    durationMs = estimateFlacDurationMs(file)
-                } else if (isMp3File(file)) {
-                    durationMs = estimateMp3DurationMs(file)
-                }
+                durationMs = io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
             }
             println("AudioPlayer Fallback: Воспроизведение через $systemPlayer: ${file.name}")
             playWithSystemProcess(systemPlayer, file, sessionId, seekPosMs)
@@ -658,7 +645,9 @@ actual class AudioPlayer actual constructor() {
 
     private fun playMp3WithJLayer(file: File, sessionId: Long, seekPosMs: Long = 0L) {
         val bytes = file.readBytes()
-        durationMs = estimateMp3DurationMs(file)
+        if (durationMs <= 0L) {
+            durationMs = io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
+        }
         jlayerThread = Thread {
             if (sessionId != currentSessionId) return@Thread
             try {
@@ -959,7 +948,7 @@ actual class AudioPlayer actual constructor() {
             if (sessionId != currentSessionId || session.isClosed) return@Thread
             var proc: Process? = null
             try {
-                val args = mutableListOf(ffmpeg, "-v", "error", "-nostdin")
+                val args = mutableListOf(ffmpeg, "-v", "error", "-nostdin", "-vn", "-sn")
                 if (seekPosMs > 0L) {
                     args.addAll(listOf("-ss", String.format(java.util.Locale.US, "%.3f", seekPosMs / 1000.0)))
                 }
@@ -978,11 +967,27 @@ actual class AudioPlayer actual constructor() {
 
                 val inStream = proc.inputStream
                 val buffer = ByteArray(4096)
+                var offset = 0
                 while (!Thread.currentThread().isInterrupted && !session.isClosed && (session == activeSession || session == fadingSession)) {
-                    val bytesRead = inStream.read(buffer, 0, buffer.size)
-                    if (bytesRead == -1) break
-                    if (bytesRead > 0) {
-                        val chunk = if (bytesRead == buffer.size) buffer.clone() else buffer.copyOf(bytesRead)
+                    val bytesRead = inStream.read(buffer, offset, buffer.size - offset)
+                    if (bytesRead == -1) {
+                        if (offset > 0) {
+                            val alignedLen = offset - (offset % 4)
+                            if (alignedLen > 0) {
+                                val chunk = buffer.copyOf(alignedLen)
+                                while (!session.isClosed && !Thread.currentThread().isInterrupted) {
+                                    if (session.pcmQueue.offer(chunk, 100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                        break
+                    }
+                    offset += bytesRead
+                    if (offset == buffer.size) {
+                        val chunk = buffer.clone()
+                        offset = 0
                         while (!session.isClosed && !Thread.currentThread().isInterrupted) {
                             if (session.pcmQueue.offer(chunk, 100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                                 break
@@ -1087,6 +1092,26 @@ actual class AudioPlayer actual constructor() {
                 continue
             }
 
+            // 1. Предбуферизация: если новая активная сессия только запускается (меньше 6 чанков ~140мс),
+            // а уходящая сессия еще играет, продолжаем бесшовно играть уходящую сессию,
+            // чтобы избежать щелчков и опустошения очереди активной сессии
+            if (active != null && fading != null && !fading.isClosed &&
+                active.lineStartMicrosecondPosition == 0L && active.pcmQueue.size < 6 && !active.isEofReached) {
+                val fadingChunk = fading.pcmQueue.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS)
+                if (fadingChunk != null) {
+                    if (io.github.audiz.dsp.EqualizerEngine.isEnabled) {
+                        io.github.audiz.dsp.EqualizerEngine.processPcm(fadingChunk, fadingChunk.size)
+                    }
+                    io.github.audiz.dsp.AudioVisualizer.processPcmChunk(fadingChunk, fadingChunk.size)
+                    applyPcmGain(fadingChunk, fadingChunk.size, currentVolume)
+                    line.write(fadingChunk, 0, fadingChunk.size)
+                } else if (fading.isEofReached && fading.pcmQueue.isEmpty()) {
+                    fading.close()
+                    fadingSession = null
+                }
+                continue
+            }
+
             val activeChunk = active?.pcmQueue?.poll()
 
             if (active != null && activeChunk != null) {
@@ -1105,26 +1130,37 @@ actual class AudioPlayer actual constructor() {
                 }
 
                 // Сведение с уходящей сессией (радио-кроссфейд)
-                val fadingChunk = fading?.pcmQueue?.poll()
-                if (fading != null && fadingChunk != null) {
-                    val startNano = active.fadeStartTimeNano
-                    val durNano = active.fadeDurationNano
-                    val elapsedNano = System.nanoTime() - startNano
+                val startNano = active.fadeStartTimeNano
+                val durNano = active.fadeDurationNano
+                val elapsedNano = if (startNano > 0L) System.nanoTime() - startNano else 0L
 
-                    if (durNano > 0L && elapsedNano < durNano) {
-                        val p = (elapsedNano.toDouble() / durNano.toDouble()).coerceIn(0.0, 1.0)
-                        val gainActive = kotlin.math.sin(p * (kotlin.math.PI / 2)).toFloat().coerceIn(0f, 1f)
-                        val gainFading = kotlin.math.cos(p * (kotlin.math.PI / 2)).toFloat().coerceIn(0f, 1f)
+                if (durNano > 0L && elapsedNano < durNano) {
+                    val p = (elapsedNano.toDouble() / durNano.toDouble()).coerceIn(0.0, 1.0)
+                    val gainActive = kotlin.math.sin(p * (kotlin.math.PI / 2)).toFloat().coerceIn(0f, 1f)
+                    val gainFading = kotlin.math.cos(p * (kotlin.math.PI / 2)).toFloat().coerceIn(0f, 1f)
+
+                    val fadingChunk = if (fading != null && !fading.isClosed) {
+                        fading.pcmQueue.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    } else null
+
+                    if (fadingChunk != null) {
                         io.github.audiz.dsp.PcmGainProcessor.mixPcm(
                             activeChunk, activeChunk.size,
                             fadingChunk, fadingChunk.size,
                             gainActive, gainFading
                         )
                     } else {
+                        // Если уходящий чанк временно задерживается или кончился, плавно масштабируем активный чанк,
+                        // не допуская внезапного всплеска громкости до 100%!
+                        io.github.audiz.dsp.PcmGainProcessor.applyGainDirect(activeChunk, activeChunk.size, gainActive)
+                    }
+
+                    if (fading != null && fading.isEofReached && fading.pcmQueue.isEmpty()) {
                         fading.close()
                         fadingSession = null
                     }
-                } else if (fading != null && fading.isEofReached && fading.pcmQueue.isEmpty()) {
+                } else if (fading != null) {
+                    // Время кроссфейда истекло
                     fading.close()
                     fadingSession = null
                 }
@@ -1172,10 +1208,19 @@ actual class AudioPlayer actual constructor() {
                         onCompletionListener?.invoke()
                     } catch (_: Exception) {}
                 }
-            } else if (fading != null) {
+            } else if (fading != null && !fading.isClosed) {
                 // Новая сессия еще готовится: продолжаем бесшовно играть уходящую сессию
                 val fadingChunk = fading.pcmQueue.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS)
                 if (fadingChunk != null) {
+                    if (fading.fadeDurationNano > 0L) {
+                        val elapsedNano = System.nanoTime() - fading.fadeStartTimeNano
+                        val durNano = fading.fadeDurationNano
+                        if (durNano > 0L && elapsedNano < durNano) {
+                            val p = (elapsedNano.toDouble() / durNano.toDouble()).coerceIn(0.0, 1.0)
+                            val gainFading = kotlin.math.cos(p * (kotlin.math.PI / 2)).toFloat().coerceIn(0f, 1f)
+                            io.github.audiz.dsp.PcmGainProcessor.applyGainDirect(fadingChunk, fadingChunk.size, gainFading)
+                        }
+                    }
                     if (io.github.audiz.dsp.EqualizerEngine.isEnabled) {
                         io.github.audiz.dsp.EqualizerEngine.processPcm(fadingChunk, fadingChunk.size)
                     }
@@ -1459,7 +1504,7 @@ actual class AudioPlayer actual constructor() {
     private fun isMp4Container(file: File): Boolean = io.github.audiz.util.AudioHeaderParser.isMp4Container(file)
     private fun isMp3File(file: File): Boolean = io.github.audiz.util.AudioHeaderParser.isMp3File(file)
     private fun isFlacFile(file: File): Boolean = io.github.audiz.util.AudioHeaderParser.isFlacFile(file)
-    private fun estimateMp3DurationMs(file: File): Long = io.github.audiz.util.AudioHeaderParser.estimateMp3DurationMs(file)
+    private fun estimateMp3DurationMs(file: File): Long = io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
     private fun getExactFlacDurationMs(file: File): Long = io.github.audiz.util.AudioHeaderParser.getExactFlacDurationMs(file)
     private fun estimateFlacDurationMs(file: File): Long = io.github.audiz.util.AudioHeaderParser.estimateFlacDurationMs(file)
     private fun getExactM4aDurationMs(file: File): Long = io.github.audiz.util.AudioHeaderParser.getExactM4aDurationMs(file)

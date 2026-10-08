@@ -178,9 +178,17 @@ private fun ResultCard(
         val fullTrack = track.toFullTrackInfo()
         val artistsString = fullTrack.artists.joinToString { it.name }
         val isCurrentTrackDownloading = isTrackDownloading && downloadingTrackId == fullTrack.id
-        val isCurrentTrackActive = fullTrack.id == playingTrackId && (isPlaying || isPaused)
+        val isCurrentTrackActive = (
+            fullTrack.id == playingTrackId ||
+            fullTrack.realId == playingTrackId ||
+            (playingTrackId != null && fullTrack.id.removePrefix("local:") == playingTrackId.removePrefix("local:")) ||
+            (playingTrackId != null && fullTrack.realId?.removePrefix("local:") == playingTrackId.removePrefix("local:"))
+        ) && (isPlaying || isPaused)
         val isCurrentTrackPlaying = isCurrentTrackActive && isPlaying && !isPaused
-        val isDownloaded = fullTrack.id.startsWith("local:") || isTrackDownloaded(artistsString, fullTrack.title)
+        val rId = fullTrack.realId
+        val isDownloaded = fullTrack.id.startsWith("local:") ||
+            (rId != null && (rId.startsWith("local:") || rId.startsWith("/") || (rId.length > 2 && rId[1] == ':'))) ||
+            isTrackDownloaded(artistsString, fullTrack.title)
 
         TrackItemCard(
             track = fullTrack,
@@ -198,7 +206,7 @@ private fun ResultCard(
                 onSeek = onSeek,
                 onDownload = { onDownloadTrack(track.id, track.title, artistsString) },
                 onDelete = if (onDeleteTrack != null) {
-                    { onDeleteTrack(track.id, track.title, artistsString) }
+                    { onDeleteTrack(fullTrack.realId ?: track.id, track.title, artistsString) }
                 } else null,
                 onAddToPlaylist = if (onAddToPlaylist != null) {
                     { onAddToPlaylist(fullTrack) }

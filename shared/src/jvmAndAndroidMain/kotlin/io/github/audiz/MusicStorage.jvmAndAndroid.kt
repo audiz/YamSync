@@ -1,5 +1,7 @@
 package io.github.audiz
 
+import io.github.audiz.models.FolderItem
+import io.github.audiz.models.FolderListing
 import io.github.audiz.models.FullAlbumInfo
 import io.github.audiz.models.FullArtistInfo
 import io.github.audiz.models.FullTrackInfo
@@ -66,16 +68,139 @@ actual fun saveTrackFile(basePath: String, artist: String, fileName: String, byt
     println("MusicStorage: Сохранён файл: ${outputFile.absolutePath}")
 }
 
+/** Сохранить файл напрямую в указанную папку: {targetDir}/{fileName} */
+actual fun saveTrackToFolder(targetDir: String, fileName: String, bytes: ByteArray): String? {
+    return try {
+        val dir = File(targetDir)
+        if (!dir.exists()) dir.mkdirs()
+        val destFile = File(dir, sanitizeKeepSpaces(fileName))
+        destFile.writeBytes(bytes)
+        println("MusicStorage: Файл сохранён напрямую в папку: ${destFile.absolutePath}")
+        destFile.absolutePath
+    } catch (e: Exception) {
+        println("MusicStorage: ❌ Ошибка сохранения в папку: ${e.message}")
+        null
+    }
+}
+
+/** Скопировать существующий файл в указанную папку: {targetDir}/{destFileName} */
+actual fun copyFileToFolder(sourceFilePath: String, targetDir: String, destFileName: String?): String? {
+    return try {
+        val src = File(sourceFilePath)
+        if (!src.exists()) return null
+        val dir = File(targetDir)
+        if (!dir.exists()) dir.mkdirs()
+        val finalName = sanitizeKeepSpaces(destFileName ?: src.name)
+        val destFile = File(dir, finalName)
+        src.copyTo(destFile, overwrite = true)
+        println("MusicStorage: Файл скопирован в папку: ${destFile.absolutePath}")
+        destFile.absolutePath
+    } catch (e: Exception) {
+        println("MusicStorage: ❌ Ошибка копирования в папку: ${e.message}")
+        null
+    }
+}
+
+/** Сохранить файл по прямому целевому пути: {destFilePath} */
+actual fun saveFileToDirectPath(destFilePath: String, bytes: ByteArray): String? {
+    return try {
+        val destFile = File(destFilePath)
+        destFile.parentFile?.mkdirs()
+        destFile.writeBytes(bytes)
+        println("MusicStorage: Файл сохранён по пути: ${destFile.absolutePath}")
+        destFile.absolutePath
+    } catch (e: Exception) {
+        println("MusicStorage: ❌ Ошибка сохранения по прямому пути: ${e.message}")
+        null
+    }
+}
+
+/** Скопировать существующий файл по прямому целевому пути: {destFilePath} */
+actual fun copyFileToDirectPath(sourceFilePath: String, destFilePath: String): String? {
+    return try {
+        val src = File(sourceFilePath)
+        if (!src.exists()) return null
+        val destFile = File(destFilePath)
+        destFile.parentFile?.mkdirs()
+        src.copyTo(destFile, overwrite = true)
+        println("MusicStorage: Файл скопирован по прямому пути: ${destFile.absolutePath}")
+        destFile.absolutePath
+    } catch (e: Exception) {
+        println("MusicStorage: ❌ Ошибка копирования по прямому пути: ${e.message}")
+        null
+    }
+}
+
+/** Разрешить локальный путь к файлу с fallback поиском в папке музыки и её поддиректориях */
+actual fun resolveLocalPath(path: String): String {
+    val clean = path.trim().removePrefix("local:").removePrefix("file://")
+    val file = File(clean)
+    if (file.exists() && file.isFile) return file.absolutePath
+
+    val fileName = file.name
+    val parentName = file.parentFile?.name
+    val baseMusic = loadMusicStoragePath() ?: getDefaultMusicDir()
+    val baseDir = File(baseMusic)
+
+    val candidates = mutableListOf<File>()
+    candidates.add(File(baseDir, fileName))
+    candidates.add(File(baseDir, "HQ/$fileName"))
+    candidates.add(File(baseDir, "LQ/$fileName"))
+    if (!parentName.isNullOrBlank() && parentName != "HQ" && parentName != "LQ") {
+        candidates.add(File(baseDir, "$parentName/$fileName"))
+        candidates.add(File(baseDir, "HQ/$parentName/$fileName"))
+        candidates.add(File(baseDir, "LQ/$parentName/$fileName"))
+    }
+
+    val baseName = file.nameWithoutExtension
+    val extList = listOf(".m4a", ".mp3", ".flac", ".aac", ".opus", ".wav", ".ogg")
+    for (ext in extList) {
+        candidates.add(File(baseDir, "$baseName$ext"))
+        candidates.add(File(baseDir, "HQ/$baseName$ext"))
+        candidates.add(File(baseDir, "LQ/$baseName$ext"))
+        if (!parentName.isNullOrBlank() && parentName != "HQ" && parentName != "LQ") {
+            candidates.add(File(baseDir, "$parentName/$baseName$ext"))
+            candidates.add(File(baseDir, "HQ/$parentName/$baseName$ext"))
+            candidates.add(File(baseDir, "LQ/$parentName/$baseName$ext"))
+        }
+    }
+
+    val found = candidates.firstOrNull { it.exists() && it.isFile }
+    return found?.absolutePath ?: file.absolutePath
+}
+
 /** Проверить, существует ли трек на диске */
 actual fun trackFileExists(basePath: String, artist: String, fileName: String): Boolean {
     val cleanArtist = sanitizeDirName(artist.ifBlank { "Unknown Artist" })
     val file = File(File(basePath, cleanArtist), fileName)
-    return file.exists()
+    if (file.exists()) return true
+    return File(resolveLocalPath(file.absolutePath)).exists()
 }
 
 /** Проверить существование файла по прямому пути */
 actual fun localFileExists(filePath: String): Boolean {
-    return File(filePath).exists()
+    val file = File(filePath)
+    if (file.exists()) return true
+    return File(resolveLocalPath(filePath)).exists()
+}
+
+/** Проверить, является ли путь существующей директорией */
+actual fun isDirectory(path: String): Boolean {
+    if (path.isBlank()) return false
+    val f = File(path)
+    return f.exists() && f.isDirectory
+}
+
+/** Прочитать содержимое текстового файла (например, плейлиста M3U) */
+actual fun readTextFile(path: String): String? {
+    if (path.isBlank()) return null
+    return try {
+        val f = File(path)
+        if (f.exists() && f.isFile) f.readText() else null
+    } catch (e: Exception) {
+        println("MusicStorage: Ошибка чтения файла $path: ${e.message}")
+        null
+    }
 }
 
 /**
@@ -99,16 +224,19 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
             .toList()
 
         for (file in audioFiles) {
+            val meta = io.github.audiz.util.AudioHeaderParser.extractAudioMetadata(file)
             val rawName = file.nameWithoutExtension
-            var artist = ""
-            var title = rawName
+            var artist = meta.artist?.takeIf { it.isNotBlank() } ?: ""
+            var title = meta.title?.takeIf { it.isNotBlank() } ?: rawName
 
-            for (delim in delimiters) {
-                if (rawName.contains(delim)) {
-                    val parts = rawName.split(delim, limit = 2)
-                    artist = parts[0].trim()
-                    title = parts[1].trim()
-                    break
+            if (artist.isBlank() || title == rawName) {
+                for (delim in delimiters) {
+                    if (rawName.contains(delim)) {
+                        val parts = rawName.split(delim, limit = 2)
+                        if (artist.isBlank()) artist = parts[0].trim()
+                        if (title == rawName) title = parts[1].trim()
+                        break
+                    }
                 }
             }
 
@@ -141,7 +269,8 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
                     available = true,
                     durationMs = durationMs,
                     artists = listOf(FullArtistInfo(id = 0L, name = artist)),
-                    albums = listOf(FullAlbumInfo(id = 0L, title = albumQuality))
+                    albums = listOf(FullAlbumInfo(id = 0L, title = albumQuality)),
+                    coverUri = "local:${file.absolutePath}"
                 )
             )
         }
@@ -179,105 +308,7 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
  * Быстрое автономное извлечение длительности трека без тяжёлых библиотек и без интернета
  */
 private fun extractAudioDuration(file: File): Long {
-    // 1. Проверяем MP4/M4A контейнер (основной контейнер Яндекса для m4a, aac и flac)
-    val mp4Dur = extractM4aDuration(file)
-    if (mp4Dur > 0L) return mp4Dur
-
-    // 2. Если не MP4 контейнер, пробуем парсер нативного FLAC
-    val flacDur = extractFlacDuration(file)
-    if (flacDur > 0L) return flacDur
-
-    return 0L
-}
-
-/**
- * Парсер MP4/M4A атомов для получения точной длительности из заголовка mvhd
- */
-private fun extractM4aDuration(file: File): Long {
-    try {
-        RandomAccessFile(file, "r").use { raf ->
-            val fileLen = raf.length()
-            while (raf.filePointer + 8 <= fileLen) {
-                val size = raf.readInt().toLong() and 0xFFFFFFFFL
-                val typeBytes = ByteArray(4)
-                raf.readFully(typeBytes)
-                val type = String(typeBytes, Charsets.US_ASCII)
-
-                if (type == "moov") {
-                    val moovEnd = raf.filePointer - 8 + size
-                    while (raf.filePointer + 8 <= moovEnd && raf.filePointer + 8 <= fileLen) {
-                        val subSize = raf.readInt().toLong() and 0xFFFFFFFFL
-                        val subTypeBytes = ByteArray(4)
-                        raf.readFully(subTypeBytes)
-                        val subType = String(subTypeBytes, Charsets.US_ASCII)
-
-                        if (subType == "mvhd") {
-                            val version = raf.readByte().toInt()
-                            raf.skipBytes(3) // flags
-                            return if (version == 0) {
-                                raf.skipBytes(8) // creation + modification time
-                                val timescale = raf.readInt().toLong() and 0xFFFFFFFFL
-                                val duration = raf.readInt().toLong() and 0xFFFFFFFFL
-                                if (timescale > 0) (duration * 1000L) / timescale else 0L
-                            } else {
-                                raf.skipBytes(16) // 64-bit creation + modification time
-                                val timescale = raf.readInt().toLong() and 0xFFFFFFFFL
-                                val duration = raf.readLong()
-                                if (timescale > 0) (duration * 1000L) / timescale else 0L
-                            }
-                        }
-                        if (subSize <= 8) break
-                        raf.seek(raf.filePointer - 8 + subSize)
-                    }
-                    break
-                }
-                if (size <= 8) break
-                raf.seek(raf.filePointer - 8 + size)
-            }
-        }
-    } catch (_: Exception) {
-        // Игнорируем ошибки парсинга, плеер определит длительность при запуске
-    }
-    return 0L
-}
-
-/**
- * Парсер заголовка FLAC STREAMINFO для получения точной длительности
- */
-private fun extractFlacDuration(file: File): Long {
-    try {
-        RandomAccessFile(file, "r").use { raf ->
-            val magic = ByteArray(4)
-            raf.readFully(magic)
-            if (String(magic, Charsets.US_ASCII) != "fLaC") return 0L
-
-            val blockHeader = raf.readInt()
-            val blockType = (blockHeader ushr 24) and 0x7F
-            val blockLength = blockHeader and 0x00FFFFFF
-
-            if (blockType == 0 && blockLength >= 34) {
-                raf.skipBytes(10) // min/max block size (4) + min/max frame size (6)
-                val b0 = raf.read().toLong() and 0xFF
-                val b1 = raf.read().toLong() and 0xFF
-                val b2 = raf.read().toLong() and 0xFF
-                val b3 = raf.read().toLong() and 0xFF
-                val b4 = raf.read().toLong() and 0xFF
-                val b5 = raf.read().toLong() and 0xFF
-                val b6 = raf.read().toLong() and 0xFF
-                val b7 = raf.read().toLong() and 0xFF
-
-                val sampleRate = (b0 shl 12) or (b1 shl 4) or (b2 ushr 4)
-                val totalSamples = ((b3 and 0x0FL) shl 32) or (b4 shl 24) or (b5 shl 16) or (b6 shl 8) or b7
-
-                if (sampleRate > 0) {
-                    return (totalSamples * 1000L) / sampleRate
-                }
-            }
-        }
-    } catch (_: Exception) {
-        // Игнорируем ошибки парсинга
-    }
-    return 0L
+    return io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
 }
 
 /** Сохранить список треков плейлиста в локальный кеш на диске: {basePath}/playlists_cache/{playlistTitle}.json */
@@ -421,8 +452,31 @@ actual fun loadLocalPlaylists(basePath: String): List<LocalPlaylist> {
             ListSerializer(LocalPlaylist.serializer()),
             jsonStr
         )
-        println("MusicStorage: Загружено ${list.size} локальных плейлистов")
-        return list
+        var anyMigrated = false
+        val migratedList = list.map { playlist ->
+            var changed = false
+            val updatedTracks = playlist.trackPaths.map { originalPath ->
+                val resolved = resolveLocalPath(originalPath)
+                if (resolved != originalPath && File(resolved).exists()) {
+                    changed = true
+                    resolved
+                } else {
+                    originalPath
+                }
+            }
+            if (changed) {
+                anyMigrated = true
+                playlist.copy(trackPaths = updatedTracks)
+            } else {
+                playlist
+            }
+        }
+        if (anyMigrated) {
+            saveLocalPlaylists(basePath, migratedList)
+            println("MusicStorage: Локальные плейлисты успешно обновлены с новыми путями")
+        }
+        println("MusicStorage: Загружено ${migratedList.size} локальных плейлистов")
+        return migratedList
     } catch (e: Exception) {
         println("MusicStorage: Ошибка чтения локальных плейлистов: ${e.message}")
         return emptyList()
@@ -461,23 +515,27 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
     val results = mutableListOf<FullTrackInfo>()
     val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
     for (p in paths) {
-        val file = File(p)
+        val resolved = resolveLocalPath(p)
+        val file = File(resolved)
         if (!file.exists() || !file.isFile) continue
+        val meta = io.github.audiz.util.AudioHeaderParser.extractAudioMetadata(file)
         val rawName = file.nameWithoutExtension
-        var artist = "Unknown Artist"
-        var title = rawName
-        for (delim in delimiters) {
-            if (rawName.contains(delim)) {
-                val parts = rawName.split(delim, limit = 2)
-                artist = parts[0].trim()
-                title = parts[1].trim()
-                break
+        var artist = meta.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
+        var title = meta.title?.takeIf { it.isNotBlank() } ?: rawName
+        if (meta.title.isNullOrBlank() || meta.artist.isNullOrBlank()) {
+            for (delim in delimiters) {
+                if (rawName.contains(delim)) {
+                    val parts = rawName.split(delim, limit = 2)
+                    if (meta.artist.isNullOrBlank()) artist = parts[0].trim()
+                    if (meta.title.isNullOrBlank()) title = parts[1].trim()
+                    break
+                }
             }
         }
-        val durationMs = extractAudioDuration(file)
+        val durationMs = if (meta.durationMs > 0L) meta.durationMs else extractAudioDuration(file)
         val normalizedPath = file.absolutePath.replace('\\', '/')
         val isHQ = normalizedPath.contains("/HQ/", ignoreCase = true) || normalizedPath.endsWith("/HQ", ignoreCase = true)
-        val albumQuality = if (isHQ) "Локальный (HQ)" else "Локальный"
+        val albumQuality = if (isHQ) "Локальный (HQ)" else meta.album?.takeIf { it.isNotBlank() } ?: "Локальный"
         results.add(
             FullTrackInfo(
                 id = "local:${file.absolutePath}",
@@ -486,7 +544,8 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
                 available = true,
                 durationMs = durationMs,
                 artists = listOf(FullArtistInfo(id = 0L, name = artist)),
-                albums = listOf(FullAlbumInfo(id = 0L, title = albumQuality, year = null))
+                albums = listOf(FullAlbumInfo(id = 0L, title = albumQuality, year = null)),
+                coverUri = "local:${file.absolutePath}"
             )
         )
     }
@@ -496,21 +555,61 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
 
 /** Удалить аудиофайл трека с диска (и пустую папку артиста, если файлов больше нет) */
 actual fun deleteTrackFile(basePath: String, artist: String, trackTitle: String, localFilePath: String?): Boolean {
-    if (basePath.isBlank()) return false
     try {
         // 1. Если передан прямой локальный путь
-        if (!localFilePath.isNullOrBlank()) {
-            val file = File(localFilePath)
+        val rawLocal = localFilePath?.trim()
+            ?.removePrefix("local:")
+            ?.removePrefix("file://")
+            ?.removePrefix("file:")
+            ?.removeSurrounding("\"")
+            ?.removeSurrounding("'")
+
+        val cleanLocal = if (rawLocal != null && rawLocal.startsWith("~/")) {
+            System.getProperty("user.home") + rawLocal.substring(1)
+        } else if (rawLocal == "~") {
+            System.getProperty("user.home")
+        } else {
+            rawLocal
+        }
+
+        if (!cleanLocal.isNullOrBlank()) {
+            val resolved = resolveLocalPath(cleanLocal)
+            val file = File(resolved)
             if (file.exists() && file.isFile) {
                 val parent = file.parentFile
-                val deleted = file.delete()
+                val deleted = try {
+                    java.nio.file.Files.deleteIfExists(file.toPath())
+                } catch (e: Exception) {
+                    file.delete()
+                }
                 if (deleted) {
                     println("MusicStorage: Удален локальный файл: ${file.absolutePath}")
-                    cleanUpEmptyDir(parent, basePath)
+                    if (basePath.isNotBlank()) {
+                        cleanUpEmptyDir(parent, basePath)
+                    }
                     return true
                 }
             }
+
+            if (basePath.isNotBlank()) {
+                val relFile = File(basePath, cleanLocal)
+                if (relFile.exists() && relFile.isFile) {
+                    val parent = relFile.parentFile
+                    val deleted = try {
+                        java.nio.file.Files.deleteIfExists(relFile.toPath())
+                    } catch (e: Exception) {
+                        relFile.delete()
+                    }
+                    if (deleted) {
+                        println("MusicStorage: Удален относительный файл: ${relFile.absolutePath}")
+                        cleanUpEmptyDir(parent, basePath)
+                        return true
+                    }
+                }
+            }
         }
+
+        if (basePath.isBlank()) return false
 
         val cleanArtist = artist.trim()
         val cleanTitle = trackTitle.trim()
@@ -521,28 +620,102 @@ actual fun deleteTrackFile(basePath: String, artist: String, trackTitle: String,
         var wasDeleted = false
         for (folder in candidateFolders) {
             if (!folder.exists()) continue
-            val artistDir = File(folder, sanitizedArtist)
+            val artistDirs = listOfNotNull(
+                File(folder, sanitizedArtist),
+                if (cleanArtist.isNotBlank()) File(folder, sanitizeKeepSpaces(cleanArtist)) else null,
+                if (cleanArtist.isNotBlank()) File(folder, cleanArtist) else null
+            ).distinct()
+
+            for (artistDir in artistDirs) {
+                if (artistDir.exists() && artistDir.isDirectory) {
+                    for (ext in knownExtensions) {
+                        val candidateNames = mutableListOf<String>()
+                        if (cleanArtist.isNotEmpty()) {
+                            candidateNames.add(sanitizeDirName("$cleanArtist — $cleanTitle.$ext"))
+                            candidateNames.add(sanitizeDirName("$cleanArtist - $cleanTitle.$ext"))
+                            candidateNames.add(sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext"))
+                            candidateNames.add(sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext"))
+                            candidateNames.add("$cleanArtist — $cleanTitle.$ext")
+                            candidateNames.add("$cleanArtist - $cleanTitle.$ext")
+                        }
+                        candidateNames.add(sanitizeDirName("$cleanTitle.$ext"))
+                        candidateNames.add(sanitizeKeepSpaces("$cleanTitle.$ext"))
+                        candidateNames.add("$cleanTitle.$ext")
+
+                        for (name in candidateNames.distinct()) {
+                            val fInArtist = File(artistDir, name)
+                            if (fInArtist.exists() && fInArtist.isFile) {
+                                val deleted = try {
+                                    java.nio.file.Files.deleteIfExists(fInArtist.toPath())
+                                } catch (e: Exception) {
+                                    fInArtist.delete()
+                                }
+                                if (deleted) {
+                                    println("MusicStorage: Удален файл: ${fInArtist.absolutePath}")
+                                    wasDeleted = true
+                                    cleanUpEmptyDir(artistDir, basePath)
+                                }
+                            }
+                        }
+                    }
+
+                    // Дополнительный поиск в папке артиста по частичному имени, если точное совпадение не сработало
+                    if (!wasDeleted && cleanTitle.isNotBlank()) {
+                        val files = artistDir.listFiles()
+                        if (files != null) {
+                            for (f in files) {
+                                if (!f.isFile) continue
+                                val ext = f.extension.lowercase()
+                                if (ext !in knownExtensions) continue
+                                val nameWithoutExt = f.nameWithoutExtension
+                                val matches = nameWithoutExt.equals(cleanTitle, ignoreCase = true) ||
+                                    (cleanArtist.isNotBlank() && (
+                                        nameWithoutExt.equals("$cleanArtist — $cleanTitle", ignoreCase = true) ||
+                                        nameWithoutExt.equals("$cleanArtist - $cleanTitle", ignoreCase = true)
+                                    ))
+                                if (matches) {
+                                    val deleted = try {
+                                        java.nio.file.Files.deleteIfExists(f.toPath())
+                                    } catch (e: Exception) {
+                                        f.delete()
+                                    }
+                                    if (deleted) {
+                                        println("MusicStorage: Удален файл по сопоставлению: ${f.absolutePath}")
+                                        wasDeleted = true
+                                        cleanUpEmptyDir(artistDir, basePath)
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Проверяем также файлы напрямую в папке quality/base
             for (ext in knownExtensions) {
                 val candidateNames = mutableListOf<String>()
                 if (cleanArtist.isNotEmpty()) {
                     candidateNames.add(sanitizeDirName("$cleanArtist — $cleanTitle.$ext"))
+                    candidateNames.add(sanitizeDirName("$cleanArtist - $cleanTitle.$ext"))
+                    candidateNames.add(sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext"))
+                    candidateNames.add(sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext"))
+                    candidateNames.add("$cleanArtist — $cleanTitle.$ext")
+                    candidateNames.add("$cleanArtist - $cleanTitle.$ext")
                 }
                 candidateNames.add(sanitizeDirName("$cleanTitle.$ext"))
+                candidateNames.add(sanitizeKeepSpaces("$cleanTitle.$ext"))
+                candidateNames.add("$cleanTitle.$ext")
 
-                for (name in candidateNames) {
-                    // Проверяем внутри папки артиста
-                    val fInArtist = File(artistDir, name)
-                    if (fInArtist.exists() && fInArtist.isFile) {
-                        if (fInArtist.delete()) {
-                            println("MusicStorage: Удален файл: ${fInArtist.absolutePath}")
-                            wasDeleted = true
-                            cleanUpEmptyDir(artistDir, basePath)
-                        }
-                    }
-                    // Проверяем напрямую в папке (HQ/LQ/base)
+                for (name in candidateNames.distinct()) {
                     val fDirect = File(folder, name)
                     if (fDirect.exists() && fDirect.isFile) {
-                        if (fDirect.delete()) {
+                        val deleted = try {
+                            java.nio.file.Files.deleteIfExists(fDirect.toPath())
+                        } catch (e: Exception) {
+                            fDirect.delete()
+                        }
+                        if (deleted) {
                             println("MusicStorage: Удален файл: ${fDirect.absolutePath}")
                             wasDeleted = true
                         }
@@ -623,3 +796,119 @@ actual fun appendLogToFile(line: String) {
         file.appendText("$line\n")
     } catch (_: Throwable) {}
 }
+
+/** Получить листинг содержимого директории (подпапки и аудиофайлы) для встроенного проводника */
+actual fun listFolderContents(folderPath: String, rootPath: String?): FolderListing {
+    val dir = File(folderPath)
+    if (!dir.exists() || !dir.isDirectory) {
+        return FolderListing(folderPath, null, rootPath, emptyList(), emptyList())
+    }
+
+    val supportedExtensions = setOf("mp3", "flac", "m4a", "aac", "opus", "wav", "ogg")
+    val subfolders = mutableListOf<FolderItem>()
+    val audioFilePaths = mutableListOf<String>()
+
+    val files = dir.listFiles() ?: emptyArray()
+    for (f in files) {
+        if (f.name.startsWith(".")) continue
+        if (f.isDirectory) {
+            val audioCount = try {
+                f.walkTopDown().maxDepth(10).count { it.isFile && it.extension.lowercase() in supportedExtensions }
+            } catch (_: Exception) { 0 }
+
+            subfolders.add(
+                FolderItem(
+                    name = f.name,
+                    path = f.absolutePath,
+                    isDirectory = true,
+                    trackCount = audioCount
+                )
+            )
+        } else if (f.isFile && f.extension.lowercase() in supportedExtensions) {
+            audioFilePaths.add(f.absolutePath)
+        }
+    }
+
+    subfolders.sortBy { it.name.lowercase() }
+    val tracks = getTracksFromLocalPaths(audioFilePaths).sortedBy { it.title.lowercase() }
+
+    val parent = if (rootPath != null && dir.absolutePath.equals(rootPath, ignoreCase = true)) {
+        null
+    } else {
+        dir.parentFile?.absolutePath
+    }
+
+    return FolderListing(
+        currentPath = dir.absolutePath,
+        parentPath = parent,
+        rootPath = rootPath ?: dir.absolutePath,
+        subfolders = subfolders,
+        tracks = tracks
+    )
+}
+
+/**
+ * Загрузить байты обложки локального аудиофайла (встроенный тег APIC/PICTURE/covr или файл обложки в папке)
+ */
+actual fun loadLocalCoverBytes(pathOrUri: String): ByteArray? {
+    val cleanPath = pathOrUri
+        .removePrefix("local:")
+        .removePrefix("file://")
+        .removePrefix("file:")
+    val file = File(cleanPath)
+    if (!file.exists()) return null
+
+    val ext = file.extension.lowercase()
+    val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif")
+    if (ext in imageExtensions) {
+        return try {
+            file.readBytes()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    return io.github.audiz.util.AudioHeaderParser.extractCoverArtBytes(file)
+}
+
+/**
+ * Получить локальный URL/URI к обложке трека (для MPRIS/системных уведомлений)
+ */
+actual fun getLocalCoverArtUrl(pathOrUri: String): String? {
+    val cleanPath = pathOrUri
+        .removePrefix("local:")
+        .removePrefix("file://")
+        .removePrefix("file:")
+    val file = File(cleanPath)
+    if (!file.exists()) return null
+
+    val ext = file.extension.lowercase()
+    val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif")
+    if (ext in imageExtensions) {
+        return "file://${file.absolutePath}"
+    }
+
+    // 1. Проверяем наличие файла обложки в папке альбома
+    val folderCover = io.github.audiz.util.AudioHeaderParser.findFolderCoverFile(file)
+    if (folderCover != null && folderCover.exists() && folderCover.length() > 0L) {
+        return "file://${folderCover.absolutePath}"
+    }
+
+    // 2. Если в папке файла нет, извлекаем встроенную обложку и кэшируем на диск
+    val bytes = io.github.audiz.util.AudioHeaderParser.extractCoverArtBytes(file) ?: return null
+    return try {
+        val baseDir = getDefaultMusicDir().ifBlank { System.getProperty("java.io.tmpdir") ?: "." }
+        val cacheDir = File(baseDir, ".covers_cache")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+        val hash = (file.absolutePath + file.length() + file.lastModified()).hashCode().toUInt().toString(16)
+        val cachedFile = File(cacheDir, "cover_$hash.jpg")
+        if (!cachedFile.exists() || cachedFile.length() == 0L) {
+            cachedFile.writeBytes(bytes)
+        }
+        "file://${cachedFile.absolutePath}"
+    } catch (_: Exception) {
+        null
+    }
+}
+
+

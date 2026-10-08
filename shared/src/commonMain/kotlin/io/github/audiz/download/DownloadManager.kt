@@ -38,7 +38,7 @@ class DownloadManager(
     private val getPlayingFilePath: () -> String?,
     private val onUpdatePlayingFilePath: (String) -> Unit = {},
     private val onStopPlayback: () -> Unit = {},
-    private val onTrackDeleted: ((trackId: String) -> Unit)? = null,
+    private val onTrackDeleted: ((trackId: String, wasPlaying: Boolean) -> Unit)? = null,
     private val onAllTracksCleared: (() -> Unit)? = null,
     private val onError: (String) -> Unit = {},
     private val onStatusMessage: (String) -> Unit = {}
@@ -57,7 +57,7 @@ class DownloadManager(
         getPlayingFilePath: () -> String?,
         onUpdatePlayingFilePath: (String) -> Unit = {},
         onStopPlayback: () -> Unit = {},
-        onTrackDeleted: ((trackId: String) -> Unit)? = null,
+        onTrackDeleted: ((trackId: String, wasPlaying: Boolean) -> Unit)? = null,
         onAllTracksCleared: (() -> Unit)? = null,
         onError: (String) -> Unit = {},
         onStatusMessage: (String) -> Unit = {}
@@ -212,13 +212,45 @@ class DownloadManager(
                 val cleanArtist = artistName.trim()
                 val cleanTitle = trackTitle.trim()
 
-                // 1. Если трек сейчас играет, останавливаем воспроизведение
-                if (getPlayingTrackId() == trackId) {
-                    onStopPlayback()
+                // 1. Локальный путь, если trackId указывает на файл или начинается с "local:"
+                val resolvedPath = when {
+                    trackId.startsWith("local:") -> trackId.removePrefix("local:")
+                    trackId.startsWith("/") || trackId.startsWith("~") || (trackId.length > 2 && trackId[1] == ':') -> trackId
+                    localFileExists(trackId) -> trackId
+                    else -> {
+                        localTrackResolver.findLocalTrackFile(
+                            trackId = trackId,
+                            artist = cleanArtist,
+                            title = cleanTitle,
+                            selectedQuality = getSelectedQuality()
+                        ) ?: localTrackResolver.getDownloadedTrackPath(cleanArtist, cleanTitle)
+                    }
                 }
 
-                // 2. Локальный путь, если trackId начинается с "local:"
-                val localPath = if (trackId.startsWith("local:")) trackId.removePrefix("local:") else null
+                val playingFilePath = getPlayingFilePath()?.removePrefix("local:")
+                val localPath = resolvedPath ?: if (
+                    (getPlayingTrackId() == trackId || getPlayingTrackId()?.removePrefix("local:") == trackId.removePrefix("local:")) &&
+                    playingFilePath != null && localFileExists(playingFilePath)
+                ) {
+                    playingFilePath
+                } else null
+
+                // 2. Проверяем, играет ли этот трек сейчас (с нормализацией префикса local: и проверкой localPath / playingFilePath)
+                val playingId = getPlayingTrackId()
+                val isPlayingCurrent = (playingId != null && (
+                    playingId == trackId ||
+                    playingId.removePrefix("local:") == trackId.removePrefix("local:") ||
+                    (localPath != null && (playingId == localPath || playingId.removePrefix("local:") == localPath))
+                )) || (playingFilePath != null && (
+                    playingFilePath == trackId ||
+                    playingFilePath == trackId.removePrefix("local:") ||
+                    (localPath != null && playingFilePath == localPath)
+                ))
+
+                // Если трек сейчас играет, останавливаем его воспроизведение перед удалением файла с диска
+                if (isPlayingCurrent) {
+                    onStopPlayback()
+                }
                 val storagePath = getMusicStoragePath()
 
                 // 3. Вызываем удаление файла на диске
@@ -233,7 +265,7 @@ class DownloadManager(
 
                 if (success) {
                     downloadVersion++
-                    onTrackDeleted?.invoke(trackId)
+                    onTrackDeleted?.invoke(trackId, isPlayingCurrent)
                     onError("🗑️ Трек удален с диска: $cleanTitle")
                 } else {
                     onError("Не удалось найти или удалить файл на диске: $cleanTitle")

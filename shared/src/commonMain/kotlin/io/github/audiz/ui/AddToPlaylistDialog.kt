@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.audiz.SearchViewModel
+import io.github.audiz.isPlatformPickerSupported
+import io.github.audiz.pickSaveFile
+import io.github.audiz.sanitizeKeepSpaces
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.PlaylistInfo
 
@@ -38,6 +42,7 @@ import io.github.audiz.models.PlaylistInfo
  * 📂 Диалог добавления трека в персональный плейлист:
  * - 💾 Локальные (Оффлайн) — добавление на диск (с автоскачиванием)
  * - ☁️ Яндекс Музыка — добавление в облачный плейлист аккаунта
+ * - 📁 Сохранить как... — сохранение файла в любую папку через системное окно
  */
 @Composable
 fun AddToPlaylistDialog(
@@ -46,13 +51,28 @@ fun AddToPlaylistDialog(
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("💾 Локальные", "☁️ Яндекс")
+    val tabs = remember {
+        if (isPlatformPickerSupported) {
+            listOf("💾 Локальные", "☁️ Яндекс", "📁 Сохранить как...")
+        } else {
+            listOf("💾 Локальные", "☁️ Яндекс")
+        }
+    }
 
     var isCreatingLocal by remember { mutableStateOf(false) }
     var newLocalTitle by remember { mutableStateOf("") }
 
     var isCreatingYandex by remember { mutableStateOf(false) }
     var newYandexTitle by remember { mutableStateOf("") }
+
+    var isSavingToFile by remember { mutableStateOf(false) }
+    val defaultFileName = remember(track) {
+        val cleanArtist = track.artists.joinToString(", ") { it.name }.trim()
+        val cleanTitle = track.title.trim()
+        val raw = if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle" else cleanTitle
+        val clean = sanitizeKeepSpaces(raw)
+        if (clean.endsWith(".mp3", ignoreCase = true)) clean else "$clean.mp3"
+    }
 
     var isActionInProgress by remember { mutableStateOf(false) }
     val yandexPlaylistsWithTrack = remember { mutableStateMapOf<Long, Boolean>() }
@@ -148,16 +168,54 @@ fun AddToPlaylistDialog(
                 if (selectedTab == 0) {
                     // ==================== 💾 ВКЛАДКА: ЛОКАЛЬНЫЕ ПЛЕЙЛИСТЫ ====================
                     if (!isCreatingLocal) {
-                        OutlinedButton(
-                            onClick = { isCreatingLocal = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .pointerHoverIcon(PointerIcon.Hand),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Создать новый плейлист", maxLines = 1)
+                        if (isPlatformPickerSupported) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { isCreatingLocal = true },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .pointerHoverIcon(PointerIcon.Hand),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Новый плейлист", maxLines = 1)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        val savePath = pickSaveFile(defaultFileName)
+                                        if (!savePath.isNullOrBlank()) {
+                                            viewModel.saveTrackToFilePath(track, savePath) {
+                                                onDismiss()
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .pointerHoverIcon(PointerIcon.Hand),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Сохранить как...", maxLines = 1)
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { isCreatingLocal = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerHoverIcon(PointerIcon.Hand),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Создать новый плейлист", maxLines = 1)
+                            }
                         }
                     } else {
                         Row(
@@ -328,7 +386,7 @@ fun AddToPlaylistDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
                 }
-                } else {
+                } else if (selectedTab == 1) {
                     // ==================== ☁️ ВКЛАДКА: ЯНДЕКС МУЗЫКА ====================
                     if (!isCreatingYandex) {
                         OutlinedButton(
@@ -577,6 +635,106 @@ fun AddToPlaylistDialog(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                         )
+                    }
+                } else if (selectedTab == 2) {
+                    // ==================== 📁 ВКЛАДКА: СОХРАНИТЬ КАК (СИСТЕМНЫЙ ДИАЛОГ) ====================
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.FolderOpen,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Системное окно сохранения файла",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Откроется окно проводника. Вы сможете выбрать любую папку и при необходимости изменить имя файла прямо в нём.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = "Имя файла по умолчанию:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = defaultFileName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                val savePath = pickSaveFile(defaultFileName)
+                                if (!savePath.isNullOrBlank()) {
+                                    isSavingToFile = true
+                                    viewModel.saveTrackToFilePath(track, savePath) {
+                                        isSavingToFile = false
+                                        onDismiss()
+                                    }
+                                }
+                            },
+                            enabled = !isSavingToFile,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .pointerHoverIcon(PointerIcon.Hand),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (isSavingToFile) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Сохранение...")
+                            } else {
+                                Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Выбрать папку и сохранить", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             }

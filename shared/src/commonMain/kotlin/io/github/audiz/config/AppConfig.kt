@@ -7,6 +7,7 @@ package io.github.audiz
 object AppConfigKeys {
     const val DOWNLOAD_QUALITY = "download_quality"
     const val APP_THEME = "app_theme"
+    const val ACCENT_COLOR = "accent_color"
     const val UI_MODE = "ui_mode"
     const val RECORD_TO_DISK = "record_to_disk"
     const val MUSIC_STORAGE_PATH = "music_storage_path"
@@ -19,6 +20,8 @@ object AppConfigKeys {
     const val EQ_PRESET = "eq_preset"
     const val SESSION_COOKIE = "session_cookie"
     const val RECENT_THEMATIC_WAVES = "recent_thematic_waves"
+    const val CUSTOM_LOCAL_SOURCES = "custom_local_sources"
+    const val LAST_PLAYBACK_SESSION = "last_playback_session"
 
     fun eqBand(index: Int): String = "eq_band_$index"
 }

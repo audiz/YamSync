@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.*
@@ -46,6 +47,7 @@ fun ArtistTracksList(
     canLoadMore: Boolean,
     onLoadMore: () -> Unit,
     onBackClick: () -> Unit,
+    onHomeClick: (() -> Unit)? = null,
     isTrackDownloading: Boolean,
     downloadingTrackId: String?,
     onDownloadTrack: (trackId: String, trackTitle: String, artistName: String) -> Unit,
@@ -77,6 +79,16 @@ fun ArtistTracksList(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (onHomeClick != null) {
+                TopBarIconButton(
+                    icon = Icons.Filled.Home,
+                    contentDescription = "Главная страница",
+                    outlined = true,
+                    onClick = onHomeClick
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.clickable(
@@ -87,7 +99,7 @@ fun ArtistTracksList(
             ) {
                 TopBarIconButton(
                     icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад к поиску",
+                    contentDescription = "Назад",
                     outlined = true,
                     onClick = onBackClick
                 )
@@ -147,9 +159,17 @@ fun ArtistTracksList(
                 items(tracks, key = { it.id }) { track ->
                     val artistsString = track.artists.joinToString { it.name }
                     val isCurrentTrackDownloading = isTrackDownloading && downloadingTrackId == track.id
-                    val isCurrentTrackActive = track.id == playingTrackId && (isPlaying || isPaused)
+                    val isCurrentTrackActive = (
+                        track.id == playingTrackId ||
+                        track.realId == playingTrackId ||
+                        (playingTrackId != null && track.id.removePrefix("local:") == playingTrackId.removePrefix("local:")) ||
+                        (playingTrackId != null && track.realId?.removePrefix("local:") == playingTrackId.removePrefix("local:"))
+                    ) && (isPlaying || isPaused)
                     val isCurrentTrackPlaying = isCurrentTrackActive && isPlaying && !isPaused
-                    val isDownloaded = track.id.startsWith("local:") || isTrackDownloaded(artistsString, track.title)
+                    val rId = track.realId
+                    val isDownloaded = track.id.startsWith("local:") ||
+                        (rId != null && (rId.startsWith("local:") || rId.startsWith("/") || (rId.length > 2 && rId[1] == ':'))) ||
+                        isTrackDownloaded(artistsString, track.title)
 
                     TrackItemCard(
                         track = track,
@@ -167,7 +187,7 @@ fun ArtistTracksList(
                             onSeek = onSeek,
                             onDownload = { onDownloadTrack(track.id, track.title, artistsString) },
                             onDelete = if (onDeleteTrack != null) {
-                                { onDeleteTrack(track.id, track.title, artistsString) }
+                                { onDeleteTrack(track.realId ?: track.id, track.title, artistsString) }
                             } else null,
                             onAddToPlaylist = if (onAddToPlaylist != null) {
                                 { onAddToPlaylist(track) }

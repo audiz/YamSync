@@ -51,6 +51,10 @@ class SettingsManager(
     var appTheme by mutableStateOf(loadAppConfig(AppConfigKeys.APP_THEME) ?: "Dark")
         private set
 
+    // 🎨 Акцентный цвет интерфейса
+    var accentColor by mutableStateOf(loadAppConfig(AppConfigKeys.ACCENT_COLOR) ?: "purple")
+        private set
+
     // 📱 Режим интерфейса (auto, mobile, desktop)
     var uiMode by mutableStateOf(loadAppConfig(AppConfigKeys.UI_MODE) ?: "auto")
         private set
@@ -89,6 +93,11 @@ class SettingsManager(
     fun saveTheme(theme: String) {
         appTheme = theme
         saveAppConfig(AppConfigKeys.APP_THEME, theme)
+    }
+
+    fun saveAccentColor(color: String) {
+        accentColor = color
+        saveAppConfig(AppConfigKeys.ACCENT_COLOR, color)
     }
 
     fun saveUiMode(mode: String) {

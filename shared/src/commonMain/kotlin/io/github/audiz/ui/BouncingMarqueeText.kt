@@ -47,7 +47,8 @@ fun BouncingMarqueeText(
     color: Color = Color.Unspecified,
     pauseStartMs: Long = 1500L,
     pauseEndMs: Long = 1500L,
-    msPerChar: Long = 650L // Увеличено на 10% относительно 720L (~650 мс на символ)
+    msPerChar: Long = 650L, // Увеличено на 10% относительно 720L (~650 мс на символ)
+    enableCopy: Boolean = true
 ) {
     var contentWidthPx by remember(text) { mutableStateOf(0) }
     var containerWidthPx by remember { mutableStateOf(0) }
@@ -92,8 +93,8 @@ fun BouncingMarqueeText(
         }
     }
 
-    Box(
-        modifier = modifier
+    val boxModifier = if (enableCopy) {
+        modifier
             .clipToBounds()
             .onSizeChanged { containerWidthPx = it.width }
             .combinedClickable(
@@ -109,8 +110,16 @@ fun BouncingMarqueeText(
                     clipboardManager.setText(AnnotatedString(text))
                 }
             )
+    } else {
+        modifier
+            .clipToBounds()
+            .onSizeChanged { containerWidthPx = it.width }
+    }
+
+    Box(
+        modifier = boxModifier
     ) {
-        if (isSelected) {
+        if (enableCopy && isSelected) {
             SelectionContainer {
                 Text(
                     text = text,

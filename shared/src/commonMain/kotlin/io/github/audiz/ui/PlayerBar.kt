@@ -1,11 +1,13 @@
 package io.github.audiz.ui
 
 import io.github.audiz.getPlatform
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,6 +50,8 @@ data class PlayerBarState(
     val waveTitle: String? = null,
     val coverUri: String? = null,
     val isMobile: Boolean = false,
+    val isQueueOpen: Boolean = false,
+    val isDownloadedOrLocal: Boolean = false,
 )
 
 /**
@@ -67,6 +72,7 @@ data class PlayerBarActions(
     val onToggleFavorite: (() -> Unit)? = null,
     val onToggleDislike: (() -> Unit)? = null,
     val onOpenEqualizer: (() -> Unit)? = null,
+    val onOpenQueue: (() -> Unit)? = null,
     val onExpandMobilePlayer: (() -> Unit)? = null,
     val onResetWave: (() -> Unit)? = null,
 )
@@ -110,6 +116,7 @@ fun DesktopPlayerBar(
     var isDragging by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableStateOf(0f) }
     val displayPosition = if (isDragging && state.durationMs > 0) (dragProgress * state.durationMs).toLong() else state.currentPositionMs
+    val coverBitmap = rememberCoverBitmap(state.coverUri, 120)
 
     ElevatedCard(
         modifier = modifier.fillMaxWidth(),
@@ -127,6 +134,21 @@ fun DesktopPlayerBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (coverBitmap != null) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Image(
+                            bitmap = coverBitmap,
+                            contentDescription = "Обложка трека",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
                 if (state.isPaused) {
                     Icon(
                         imageVector = Icons.Filled.Pause,
@@ -180,6 +202,22 @@ fun DesktopPlayerBar(
                                 imageVector = Icons.Default.Tune,
                                 contentDescription = "Эквалайзер и срезы частот",
                                 tint = if (state.isEqualizerActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    if (actions.onOpenQueue != null) {
+                        IconButton(
+                            onClick = { actions.onOpenQueue.invoke() },
+                            modifier = Modifier
+                                .size(24.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = "Очередь воспроизведения",
+                                tint = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -272,6 +310,7 @@ fun DesktopPlayerBar(
                     ) {
                         DislikeButton(
                             isDisliked = state.isDisliked,
+                            isDownloadedOrLocal = state.isDownloadedOrLocal,
                             size = standardButtonSize,
                             onClick = { actions.onToggleDislike?.invoke() }
                         )

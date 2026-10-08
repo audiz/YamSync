@@ -386,8 +386,18 @@ actual class AudioPlayer actual constructor() {
             requestAudioFocus()
             registerNoisyReceiver()
 
+            val cleanPath = filePath.trim().removePrefix("local:").removePrefix("file://")
+            val resolvedPath = resolveLocalPath(cleanPath)
+            val file = File(resolvedPath)
+
             val newPlayer = MediaPlayer().apply {
-                setDataSource(filePath)
+                if (file.exists()) {
+                    java.io.FileInputStream(file).use { fis ->
+                        setDataSource(fis.fd, 0L, file.length())
+                    }
+                } else {
+                    setDataSource(resolvedPath)
+                }
                 try {
                     setWakeMode(AppContextHolder.appContext, PowerManager.PARTIAL_WAKE_LOCK)
                 } catch (e: Exception) {
@@ -420,7 +430,13 @@ actual class AudioPlayer actual constructor() {
             println("AudioPlayer Android: Ошибка воспроизведения файла: ${e.message}")
             e.printStackTrace()
             if (sessionId == currentSessionId) {
-                onErrorListener?.invoke("Ошибка воспроизведения файла: ${e.message}")
+                val msg = e.message ?: ""
+                val errorMsg = if (msg.contains("EACCES") || msg.contains("Permission denied", ignoreCase = true)) {
+                    "Ошибка доступа к файлу: нет разрешения на чтение хранилища. Предоставьте доступ в настройках устройства."
+                } else {
+                    "Ошибка воспроизведения файла: ${e.message}"
+                }
+                onErrorListener?.invoke(errorMsg)
             }
         }
     }

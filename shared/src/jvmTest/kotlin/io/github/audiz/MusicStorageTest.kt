@@ -327,5 +327,109 @@ class MusicStorageTest {
         assertEquals("d8619525-d9e4-4aea-aebe-669579b9972d", playlistInfo.playlistUuid)
         assertEquals("avatars.yandex.net/get-music-content/5878680/38032d94.a.5287888-4/%%", playlistInfo.coverUri)
     }
+
+    @Test
+    fun testLocalCoverExtractionAndUrls() {
+        val tempDir = java.nio.file.Files.createTempDirectory("cover_test").toFile()
+        try {
+            // 1. Тест обложки в папке (folder.jpg fallback)
+            val audioFile = File(tempDir, "Artist - Song.mp3")
+            audioFile.writeBytes(byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x44.toByte()))
+            val coverFile = File(tempDir, "cover.jpg")
+            val fakeJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x00, 0x10)
+            coverFile.writeBytes(fakeJpeg)
+
+            val loadedBytes = loadLocalCoverBytes(audioFile.absolutePath)
+            assertTrue(loadedBytes != null, "Cover bytes should be found via folder fallback")
+            assertEquals(fakeJpeg.size, loadedBytes.size)
+
+            val coverUrl = getLocalCoverArtUrl(audioFile.absolutePath)
+            assertTrue(coverUrl != null && coverUrl.startsWith("file://"), "Cover URL should be file://")
+            assertTrue(coverUrl.contains("cover.jpg"))
+
+            // 2. Тест CoverImageLoader.formatCoverUrl для локального файла
+            val formatted = io.github.audiz.ui.CoverImageLoader.formatCoverUrl("local:${audioFile.absolutePath}")
+            assertTrue(formatted != null && formatted.startsWith("file://"), "Formatted URL should not have https:// for local files")
+
+            // 3. Тест MP3 с встроенным ID3v2 APIC
+            val apicTag = java.io.ByteArrayOutputStream()
+            apicTag.write(byteArrayOf('I'.code.toByte(), 'D'.code.toByte(), '3'.code.toByte(), 3, 0, 0))
+            val apicPayload = java.io.ByteArrayOutputStream()
+            apicPayload.write(0) // encoding ISO-8859-1
+            apicPayload.write("image/jpeg\u0000".toByteArray())
+            apicPayload.write(3) // picture type: front cover
+            apicPayload.write("Cover\u0000".toByteArray())
+            apicPayload.write(fakeJpeg)
+            val payloadBytes = apicPayload.toByteArray()
+            val frameSize = payloadBytes.size
+
+            val tagPayload = java.io.ByteArrayOutputStream()
+            tagPayload.write("APIC".toByteArray())
+            tagPayload.write(byteArrayOf(
+                ((frameSize ushr 24) and 0xFF).toByte(),
+                ((frameSize ushr 16) and 0xFF).toByte(),
+                ((frameSize ushr 8) and 0xFF).toByte(),
+                (frameSize and 0xFF).toByte()
+            ))
+            tagPayload.write(byteArrayOf(0, 0))
+            tagPayload.write(payloadBytes)
+            val tagBytes = tagPayload.toByteArray()
+
+            val s0 = (tagBytes.size shr 21) and 0x7F
+            val s1 = (tagBytes.size shr 14) and 0x7F
+            val s2 = (tagBytes.size shr 7) and 0x7F
+            val s3 = tagBytes.size and 0x7F
+            apicTag.write(byteArrayOf(s0.toByte(), s1.toByte(), s2.toByte(), s3.toByte()))
+            apicTag.write(tagBytes)
+
+            val mp3WithCover = File(tempDir, "Embedded.mp3")
+            mp3WithCover.writeBytes(apicTag.toByteArray() + byteArrayOf(0xFF.toByte(), 0xFB.toByte()))
+
+            val extractedEmbedded = io.github.audiz.util.AudioHeaderParser.extractCoverArtBytes(mp3WithCover)
+            assertTrue(extractedEmbedded != null, "Embedded cover should be extracted from ID3v2 APIC")
+            assertEquals(fakeJpeg.size, extractedEmbedded.size)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testDeleteTrackFileVariants() {
+        val tempDir = java.nio.file.Files.createTempDirectory("delete_test").toFile()
+        try {
+            val artistDir = File(tempDir, "Artist Name")
+            artistDir.mkdirs()
+
+            // 1. Delete with local: prefix
+            val file1 = File(artistDir, "Artist Name — Song One.mp3")
+            file1.writeBytes("dummy".toByteArray())
+            assertTrue(file1.exists())
+            val del1 = deleteTrackFile(tempDir.absolutePath, "Artist Name", "Song One", "local:${file1.absolutePath}")
+            assertTrue(del1, "Should delete with local: prefix")
+            assertTrue(!file1.exists(), "File1 should be deleted")
+
+            // 2. Delete with hyphen in filename and null localFilePath (fallback search)
+            artistDir.mkdirs()
+            val file2 = File(artistDir, "Artist Name - Song Two.mp3")
+            file2.writeBytes("dummy".toByteArray())
+            assertTrue(file2.exists())
+            val del2 = deleteTrackFile(tempDir.absolutePath, "Artist Name", "Song Two", null)
+            assertTrue(del2, "Should delete hyphen file via search")
+            assertTrue(!file2.exists(), "File2 should be deleted")
+
+            // 3. Delete in HQ folder without explicit localFilePath
+            val hqDir = File(tempDir, "HQ/Artist Name")
+            hqDir.mkdirs()
+            val file3 = File(hqDir, "Artist Name — Song Three.flac")
+            file3.writeBytes("dummy".toByteArray())
+            assertTrue(file3.exists())
+            val del3 = deleteTrackFile(tempDir.absolutePath, "Artist Name", "Song Three", null)
+            assertTrue(del3, "Should delete HQ track via search")
+            assertTrue(!file3.exists(), "File3 should be deleted")
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 }
+
 

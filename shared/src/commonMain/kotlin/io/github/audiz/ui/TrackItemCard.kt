@@ -199,16 +199,7 @@ fun TrackItemCard(
                             size = 36.dp,
                             onClick = actions.onDownload
                         )
-                        if (actions.onRemoveFromPlaylist != null) {
-                            OutlineIconButton(
-                                icon = Icons.Filled.DeleteOutline,
-                                contentDescription = "Убрать из плейлиста",
-                                size = 36.dp,
-                                borderColor = MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
-                                contentColor = MaterialTheme.colorScheme.error,
-                                onClick = actions.onRemoveFromPlaylist
-                            )
-                        } else if (state.isDownloaded && actions.onDelete != null) {
+                        if (state.isDownloaded && actions.onDelete != null) {
                             OutlineIconButton(
                                 icon = Icons.Filled.DeleteOutline,
                                 contentDescription = "Удалить с диска",
@@ -216,6 +207,15 @@ fun TrackItemCard(
                                 borderColor = MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
                                 contentColor = MaterialTheme.colorScheme.error,
                                 onClick = actions.onDelete
+                            )
+                        } else if (actions.onRemoveFromPlaylist != null) {
+                            OutlineIconButton(
+                                icon = Icons.Filled.DeleteOutline,
+                                contentDescription = "Убрать из плейлиста",
+                                size = 36.dp,
+                                borderColor = MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
+                                contentColor = MaterialTheme.colorScheme.error,
+                                onClick = actions.onRemoveFromPlaylist
                             )
                         }
                     }

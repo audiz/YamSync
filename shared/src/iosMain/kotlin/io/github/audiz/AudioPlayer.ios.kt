@@ -381,7 +381,8 @@ actual class AudioPlayer actual constructor() {
         try {
             val session = AVAudioSession.sharedInstance()
             session.setActive(true, error = null)
-            val url = NSURL.fileURLWithPath(filePath)
+            val resolvedPath = resolveIosLocalPath(filePath)
+            val url = NSURL.fileURLWithPath(resolvedPath)
             val playerItem = AVPlayerItem(uRL = url)
             attachItemObserver(playerItem)
             IosAudioTapRegistry.attacher?.attachTap(playerItem)

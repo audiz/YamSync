@@ -233,7 +233,8 @@ fun MobileMiniPlayerBar(
                         BouncingMarqueeText(
                             text = fullTitle,
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            enableCopy = false
                         )
                         val isThematicWave = state.isWave && !state.waveTitle.isNullOrBlank() && !state.waveTitle.equals("Моя Волна", ignoreCase = true)
                         if (state.isWave) {
@@ -808,9 +809,26 @@ fun MobileFullPlayerSheet(
                     // Дизлайк на мобильных устройствах (44 dp)
                     DislikeButton(
                         isDisliked = state.isDisliked,
+                        isDownloadedOrLocal = state.isDownloadedOrLocal,
                         size = 44.dp,
                         onClick = { actions.onToggleDislike?.invoke() }
                     )
+                    if (actions.onOpenQueue != null) {
+                        IconButton(
+                            onClick = {
+                                actions.onOpenQueue.invoke()
+                                onDismiss()
+                            },
+                            modifier = Modifier.size(44.dp).pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = "Очередь воспроизведения",
+                                tint = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -838,9 +856,26 @@ fun MobileFullPlayerSheet(
                     if (isDesktop) {
                         DislikeButton(
                             isDisliked = state.isDisliked,
+                            isDownloadedOrLocal = state.isDownloadedOrLocal,
                             size = 36.dp,
                             onClick = { actions.onToggleDislike?.invoke() }
                         )
+                        if (actions.onOpenQueue != null) {
+                            IconButton(
+                                onClick = {
+                                    actions.onOpenQueue.invoke()
+                                    onDismiss()
+                                },
+                                modifier = Modifier.size(36.dp).pointerHoverIcon(PointerIcon.Hand)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                    contentDescription = "Очередь воспроизведения",
+                                    tint = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                     }
                 }
 

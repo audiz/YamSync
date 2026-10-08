@@ -367,6 +367,31 @@ class PlaylistManager(
     }
 
     /**
+     * 🗑️ Удалить трек из всех локальных плейлистов при его физическом удалении с диска
+     */
+    fun removeTrackFileFromAllPlaylists(trackPathOrId: String) {
+        val clean = trackPathOrId.removePrefix("local:")
+        var anyModified = false
+        for (i in localPlaylists.indices) {
+            val pl = localPlaylists[i]
+            val filtered = pl.trackPaths.filterNot {
+                it == clean || it == trackPathOrId || it.removePrefix("local:") == clean
+            }
+            if (filtered.size != pl.trackPaths.size) {
+                localPlaylists[i] = pl.copy(trackPaths = filtered, updatedAt = currentTimeMillis())
+                anyModified = true
+            }
+        }
+        if (anyModified) {
+            val storagePath = getMusicStoragePath()
+            scope.launch(DispatcherIO) {
+                saveLocalPlaylists(storagePath, localPlaylists.toList())
+            }
+        }
+    }
+
+
+    /**
      * ☁️ Создать новый плейлист в аккаунте Яндекс Музыки
      */
     fun createYandexPlaylist(title: String, onComplete: ((PlaylistInfo?) -> Unit)? = null) {

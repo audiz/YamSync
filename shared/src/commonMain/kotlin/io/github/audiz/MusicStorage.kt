@@ -11,6 +11,18 @@ expect fun getDefaultMusicDir(): String
 /** Сохранить трек в структурированную папку */
 expect fun saveTrackFile(basePath: String, artist: String, fileName: String, bytes: ByteArray)
 
+/** Сохранить файл напрямую в указанную папку: {targetDir}/{fileName} */
+expect fun saveTrackToFolder(targetDir: String, fileName: String, bytes: ByteArray): String?
+
+/** Скопировать существующий файл в указанную папку: {targetDir}/{destFileName} */
+expect fun copyFileToFolder(sourceFilePath: String, targetDir: String, destFileName: String? = null): String?
+
+/** Сохранить файл по прямому целевому пути: {destFilePath} */
+expect fun saveFileToDirectPath(destFilePath: String, bytes: ByteArray): String?
+
+/** Скопировать существующий файл по прямому целевому пути: {destFilePath} */
+expect fun copyFileToDirectPath(sourceFilePath: String, destFilePath: String): String?
+
 /** Проверить, существует ли трек на диске */
 expect fun trackFileExists(basePath: String, artist: String, fileName: String): Boolean
 
@@ -20,6 +32,15 @@ expect fun loadMusicStoragePath(): String?
 
 /** Проверить существование файла по прямому пути */
 expect fun localFileExists(filePath: String): Boolean
+
+/** Разрешить локальный путь к файлу с fallback поиском / сопоставлением путей */
+expect fun resolveLocalPath(path: String): String
+
+/** Проверить, является ли путь существующей директорией */
+expect fun isDirectory(path: String): Boolean
+
+/** Прочитать содержимое текстового файла (например, плейлиста M3U) */
+expect fun readTextFile(path: String): String?
 
 /** Сканировать локальные аудиофайлы и сформировать список треков без сетевых запросов */
 expect fun scanDownloadedTracks(basePath: String): List<io.github.audiz.models.FullTrackInfo>
@@ -75,3 +96,11 @@ fun sanitizeKeepSpaces(input: String): String {
     return input.replace(illegalChars, "_")
 }
 
+/** Получить листинг содержимого директории (подпапки и аудиофайлы) для встроенного проводника */
+expect fun listFolderContents(folderPath: String, rootPath: String? = null): io.github.audiz.models.FolderListing
+
+/** Загрузить байты обложки локального аудиофайла (встроенный тег APIC/PICTURE/covr или файл обложки в папке) */
+expect fun loadLocalCoverBytes(pathOrUri: String): ByteArray?
+
+/** Получить локальный URL/URI к обложке трека (для MPRIS/системных уведомлений) */
+expect fun getLocalCoverArtUrl(pathOrUri: String): String?

@@ -55,6 +55,35 @@ actual val DispatcherIO: kotlinx.coroutines.CoroutineDispatcher = kotlinx.corout
 
 actual inline fun <R> synchronized(lock: Any, block: () -> R): R = kotlin.synchronized(lock, block)
 
+actual fun getLocalIpAddress(): String {
+    try {
+        val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return "127.0.0.1"
+        while (interfaces.hasMoreElements()) {
+            val iface = interfaces.nextElement()
+            if (iface.isLoopback || !iface.isUp) continue
+            val addresses = iface.inetAddresses
+            while (addresses.hasMoreElements()) {
+                val addr = addresses.nextElement()
+                if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
+                    val host = addr.hostAddress ?: ""
+                    if (host.isNotBlank()) return host
+                }
+            }
+        }
+    } catch (_: Exception) {}
+    return "127.0.0.1"
+}
+
+actual fun getDeviceName(): String {
+    val model = android.os.Build.MODEL
+    val manufacturer = android.os.Build.MANUFACTURER
+    return if (model.startsWith(manufacturer, ignoreCase = true)) model else "$manufacturer $model"
+}
+
+actual fun generateRandomSessionToken(): String =
+    java.util.UUID.randomUUID().toString().replace("-", "").take(10).lowercase()
+
+
 
 
 // 2. 🔥 ИСПРАВЛЕНО: Убрали параметр fileType, теперь функция строго соответствует expect из commonMain!

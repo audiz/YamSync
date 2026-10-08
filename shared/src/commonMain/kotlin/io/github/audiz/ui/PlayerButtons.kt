@@ -306,12 +306,13 @@ fun FavoriteButton(
 fun DislikeButton(
     isDisliked: Boolean,
     modifier: Modifier = Modifier,
+    isDownloadedOrLocal: Boolean = false,
     size: Dp = 28.dp,
     onClick: () -> Unit
 ) {
     var showConfirmDialog by remember { mutableStateOf(false) }
 
-    val tint = if (isDisliked) {
+    val tint = if (isDisliked || isDownloadedOrLocal) {
         MaterialTheme.colorScheme.error
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -325,19 +326,31 @@ fun DislikeButton(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = { showConfirmDialog = true }
+                onClick = {
+                    if (isDownloadedOrLocal) {
+                        onClick()
+                    } else {
+                        showConfirmDialog = true
+                    }
+                }
             ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = if (isDisliked) "Не нравится" else "Дизлайк",
+            contentDescription = if (isDownloadedOrLocal) {
+                "Удалить файл с диска"
+            } else if (isDisliked) {
+                "Не нравится"
+            } else {
+                "Дизлайк"
+            },
             tint = tint,
             modifier = Modifier.size(size * 0.85f)
         )
     }
 
-    if (showConfirmDialog) {
+    if (!isDownloadedOrLocal && showConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showConfirmDialog = false },
             title = {

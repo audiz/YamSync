@@ -53,6 +53,7 @@ class PlaybackManager(
     private val getSelectedQuality: () -> String,
     private val isRecordToDisk: () -> Boolean,
     private val onTrackSavedToDisk: (() -> Unit)? = null,
+    private val onTrackStarted: ((trackId: String, title: String, artist: String, coverUri: String?, isWave: Boolean) -> Unit)? = null,
     private val onError: (String) -> Unit = {}
 ) {
     /**
@@ -401,12 +402,34 @@ class PlaybackManager(
         }
     }
 
+    /**
+     * 🎵 Установить начальный трек (для восстановления сессии при рестарте).
+     * Выставляет метаданные трека в плеере в состоянии готовности к запуску.
+     */
+    fun setInitialTrack(track: FullTrackInfo) {
+        trackId = track.id
+        trackTitle = track.title
+        artistName = track.artists.joinToString { it.name }.ifBlank { "Unknown Artist" }
+        albumId = track.albums.firstOrNull()?.id
+        durationMs = track.durationMs
+        positionMs = 0L
+        coverUri = track.coverUri
+        isPlaying = false
+        isPaused = false
+    }
+
     fun sanitizeKeepSpaces(input: String): String = LocalTrackResolver.sanitizeKeepSpaces(input)
 
     fun findTrackInfo(targetTrackId: String): FullTrackInfo? {
-        return queueSource.getLoadedTracks().firstOrNull { it.id == targetTrackId }
-            ?: waveBridge?.waveTracks?.firstOrNull { it.id == targetTrackId }
-            ?: queueSource.getSearchTracks().firstOrNull { it.id == targetTrackId }
+        val cleanTarget = targetTrackId.removePrefix("local:")
+        fun matches(it: FullTrackInfo): Boolean {
+            return it.id == targetTrackId || it.realId == targetTrackId ||
+                   it.id.removePrefix("local:") == cleanTarget ||
+                   it.realId?.removePrefix("local:") == cleanTarget
+        }
+        return queueSource.getLoadedTracks().firstOrNull(::matches)
+            ?: waveBridge?.waveTracks?.firstOrNull(::matches)
+            ?: queueSource.getSearchTracks().firstOrNull(::matches)
     }
 
     /**
@@ -516,13 +539,26 @@ class PlaybackManager(
                         ((currentPlayingSizeBytes!! * 8) / durationMs).toInt().takeIf { it > 0 }
                     } else null
                     val defaultBitrate = if (isCurrentTrackHQ) 320 else 192
-                    bitrate = calculatedBitrate ?: defaultBitrate
                     audioPlayer.playFromFile(existingFilePath, effectiveCrossfade)
+                    if (durationMs <= 0L) {
+                        val playerDur = audioPlayer.getDurationMs()
+                        if (playerDur > 0L) {
+                            durationMs = playerDur
+                        } else {
+                            try {
+                                val localInfo = io.github.audiz.getTracksFromLocalPaths(listOf(existingFilePath)).firstOrNull()
+                                if (localInfo != null && localInfo.durationMs > 0L) {
+                                    durationMs = localInfo.durationMs
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
                     isPlaying = true
                     isPaused = false
                     releasePlaybackWakeLock()
                     systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, coverUri)
                     systemMediaControls.updatePlaybackState(true, false, 0L)
+                    onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, coverUri, isWave)
                     preloadedAudio = null
                     startProgressPolling()
                     queueManager.plannedNextTrack = calculateNextTrackCandidate()
@@ -631,6 +667,7 @@ class PlaybackManager(
                 releasePlaybackWakeLock()
                 systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, coverUri)
                 systemMediaControls.updatePlaybackState(true, false, 0L)
+                onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, coverUri, isWave)
                 startProgressPolling()
                 queueManager.plannedNextTrack = calculateNextTrackCandidate()
                 schedulePreload()
@@ -882,7 +919,15 @@ class PlaybackManager(
                     val crossfadeMs = crossfadeSeconds * 1000L
                     val maxAllowedCrossfade = (totalDur * 0.35f).toLong()
                     val effectiveCrossfadeMs = if (crossfadeMs > 0L) minOf(crossfadeMs, maxAllowedCrossfade) else 0L
-                    val leadHeadroomMs = if (crossfadeMs > 0L) 6500L else 800L
+                    val isNextLocal = preloadedAudio?.filePath != null ||
+                            queueManager.plannedNextTrack?.id?.startsWith("local:") == true ||
+                            (currentPlayingFilePath != null && queueManager.plannedNextTrack?.let {
+                                localTrackResolver.findLocalTrackFile(it.id, it.artists.firstOrNull()?.name ?: "", it.title, getSelectedQuality())
+                            } != null)
+
+                    val leadHeadroomMs = if (crossfadeMs > 0L) {
+                        if (isNextLocal) 500L else 6500L
+                    } else 800L
                     val triggerThresholdMs = if (crossfadeMs > 0L) {
                         (effectiveCrossfadeMs + leadHeadroomMs).coerceAtMost(maxAllowedCrossfade + leadHeadroomMs).coerceAtMost((totalDur * 0.45f).toLong())
                     } else {
@@ -1149,7 +1194,7 @@ class PlaybackManager(
                     return
                 }
             } else {
-                val currentIndex = if (activeId != null) loadedTracks.indexOfFirst { it.id == activeId } else -1
+                val currentIndex = if (activeId != null) loadedTracks.indexOfFirst { PlaybackQueueManager.isSameTrack(it, activeId) } else -1
                 if (currentIndex != -1 && currentIndex < loadedTracks.size - 1) {
                     val nextTrack = loadedTracks[currentIndex + 1]
                     playTrack(

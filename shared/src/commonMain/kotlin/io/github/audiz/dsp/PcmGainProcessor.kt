@@ -12,6 +12,13 @@ object PcmGainProcessor {
 
     fun applyGain(buffer: ByteArray, bytesRead: Int, volume: Float) {
         val gain = volumeToGain(volume)
+        applyGainDirect(buffer, bytesRead, gain)
+    }
+
+    /**
+     * Прямое масштабирование 16-bit PCM сэмплов линейным коэффициентом (0.0..1.0) без преобразования громкости.
+     */
+    fun applyGainDirect(buffer: ByteArray, bytesRead: Int, gain: Float) {
         if (gain >= 0.999f) return
         if (gain <= 0.0001f) {
             buffer.fill(0, 0, bytesRead)

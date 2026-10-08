@@ -21,6 +21,13 @@ import io.github.audiz.player.PlayerUiState
 import io.github.audiz.playlist.PlaylistManager
 import io.github.audiz.settings.SettingsManager
 import io.github.audiz.wave.WaveManager
+import io.github.audiz.local.LocalMediaManager
+import io.github.audiz.models.CustomMediaSource
+import io.github.audiz.models.FolderListing
+import io.github.audiz.models.LocalSourceType
+import io.github.audiz.models.LastPlaybackSession
+import io.github.audiz.models.LastPlaybackType
+import io.github.audiz.player.PlaybackSessionManager
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +41,12 @@ enum class TrackPlaySource {
     PLAY,
     NEXT,
     PREV
+}
+
+enum class TracksListOrigin {
+    HOME,
+    FOLDER_BROWSER,
+    MOBILE_PLAYER
 }
 
 class SearchViewModel(private val repository: MusicRepository = MusicRepository()) : ViewModel() {
@@ -66,9 +79,27 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     var loadedTracks = mutableStateListOf<FullTrackInfo>()
         private set
 
-    // 📁 Флаг экрана плейлиста загруженной музыки
+    // 📁 Флаг экрана плейлиста загруженной музыки (локальные файлы на диске)
     var isDownloadedTracksScreen by mutableStateOf(false)
-        private set
+
+    // 📋 Флаг видимости экрана списка треков / активной очереди (Экран Б)
+    var isTracksListVisible by mutableStateOf(false)
+
+    // 📁 Контекст текущего открытого проводника по локальным папкам (для возврата в ту же папку)
+    var activeBrowsedFolderSource by mutableStateOf<CustomMediaSource?>(null)
+    var activeBrowsedFolderPath by mutableStateOf<String?>(null)
+    var tracksListOrigin by mutableStateOf(TracksListOrigin.HOME)
+
+    fun resetBrowsedFolder() {
+        activeBrowsedFolderSource = null
+        activeBrowsedFolderPath = null
+        tracksListOrigin = TracksListOrigin.HOME
+    }
+
+    // 🎵 Источник текущей активной очереди треков
+    var activeQueueSource by mutableStateOf<CustomMediaSource?>(null)
+    var activeQueueFolderPath by mutableStateOf<String?>(null)
+    var activeQueueFolderName by mutableStateOf<String?>(null)
 
     // 🎵 Персональные плейлисты (Плейлист дня, Премьера, Дежавю и т.д.)
     val personalPlaylists: androidx.compose.runtime.snapshots.SnapshotStateList<io.github.audiz.models.PersonalPlaylistItemData>
@@ -96,7 +127,6 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         get() = playlistManager.userPlaylistsTrackIds
 
     var currentScreenTitle by mutableStateOf("Загружено треков")
-        private set
 
     // 🔀 Режим перемешивания (Shuffle) — делегируется в PlaybackManager
     val isShuffleEnabled: Boolean
@@ -171,12 +201,20 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     val appTheme: String
         get() = settingsManager.appTheme
 
+    // 🎨 Акцентный цвет интерфейса
+    val accentColor: String
+        get() = settingsManager.accentColor
+
     fun saveQuality(quality: String) {
         settingsManager.saveQuality(quality)
     }
 
     fun saveTheme(theme: String) {
         settingsManager.saveTheme(theme)
+    }
+
+    fun saveAccentColor(color: String) {
+        settingsManager.saveAccentColor(color)
     }
 
     // 📱 Режим интерфейса (Auto, Mobile, Desktop)
@@ -200,8 +238,21 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /** Проверяет, идет ли скачивание текущего трека в библиотеку прямо сейчас */
     val isCurrentTrackSavingToDisk: Boolean get() = downloadManager.isCurrentTrackSavingToDisk
 
+    /** Проверяет, является ли текущий воспроизводимый трек локальным файлом или источником */
+    val isCurrentTrackLocal: Boolean
+        get() {
+            val id = playerTrackId
+            return id?.startsWith("local:") == true ||
+                   id?.startsWith("/") == true ||
+                   (id != null && id.length > 2 && id[1] == ':') ||
+                   currentPlayingFilePath != null
+        }
+
     /** Скачать текущий трек на диск или удалить его из библиотеки, если уже скачан */
-    fun toggleCurrentTrackSaveOrDelete() = downloadManager.toggleCurrentTrackSaveOrDelete()
+    fun toggleCurrentTrackSaveOrDelete() {
+        if (isCurrentTrackLocal) return
+        downloadManager.toggleCurrentTrackSaveOrDelete()
+    }
 
     // 📤 Поделиться треком:
     var isSharingTrack by mutableStateOf(false)
@@ -273,6 +324,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     /** Переключить лайк для текущего воспроизводимого трека */
     fun toggleLikeCurrentTrack() {
+        if (isCurrentTrackLocal) return
         val trackId = playerTrackId ?: currentWaveTrack?.id ?: return
         val albumId = playerAlbumId ?: currentWaveTrack?.albums?.firstOrNull()?.id
         playlistManager.toggleLike(trackId, albumId)
@@ -280,6 +332,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     /** Переключить дизлайк для текущего воспроизводимого трека */
     fun toggleDislikeCurrentTrack() {
+        if (isCurrentTrackLocal) return
         val trackId = playerTrackId ?: currentWaveTrack?.id ?: return
         val albumId = playerAlbumId ?: currentWaveTrack?.albums?.firstOrNull()?.id
         playlistManager.toggleDislike(trackId, albumId) {
@@ -317,6 +370,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         onError = { errorMessage = it }
     )
 
+    // 📂 МЕНЕДЖЕР ПОЛЬЗОВАТЕЛЬСКИХ МЕДИА (Папки, файлы, M3U):
+    val localMediaManager = LocalMediaManager()
+
+    val customMediaSources: androidx.compose.runtime.snapshots.SnapshotStateList<CustomMediaSource>
+        get() = localMediaManager.customSources
+
+    val localMediaStatusMessage: String?
+        get() = localMediaManager.statusMessage
+
     // 🔍 Резолвер локальных файлов:
     val localTrackResolver = LocalTrackResolver { settingsManager.musicStoragePath }
 
@@ -331,22 +393,59 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         getPlayingArtistName = { playerArtistName },
         getPlayingFilePath = { currentPlayingFilePath },
         onUpdatePlayingFilePath = { playbackManager.updateCurrentPlayingFilePath(it) },
-        onStopPlayback = { stopPlayback() },
-        onTrackDeleted = { trackId ->
-            if (isDownloadedTracksScreen) {
-                loadedTracks.removeAll { it.id == trackId }
-                allTrackIds = allTrackIds.filter { it != trackId }
+        onStopPlayback = { playbackManager.stopPlayback() },
+        onTrackDeleted = { trackId, wasPlaying ->
+            val cleanId = trackId.removePrefix("local:")
+            val removedIndex = loadedTracks.indexOfFirst {
+                it.id == trackId || it.realId == trackId ||
+                it.id.removePrefix("local:") == cleanId ||
+                it.realId?.removePrefix("local:") == cleanId
+            }
+
+            // Безусловно удаляем трек из текущего списка loadedTracks и allTrackIds
+            loadedTracks.removeAll {
+                it.id == trackId || it.realId == trackId ||
+                it.id.removePrefix("local:") == cleanId ||
+                it.realId?.removePrefix("local:") == cleanId
+            }
+            allTrackIds = allTrackIds.filter {
+                it != trackId && it.removePrefix("local:") != cleanId
+            }
+
+            // Очищаем трек из локальных плейлистов
+            playlistManager.removeTrackFileFromAllPlaylists(cleanId)
+
+            // Если удаленный трек играл прямо сейчас и в списке еще остались треки —
+            // плавно переключаемся на следующий трек в очереди
+            if (wasPlaying) {
+                if (loadedTracks.isNotEmpty()) {
+                    val nextIndex = if (removedIndex != -1) removedIndex.coerceIn(0, loadedTracks.size - 1) else 0
+                    val nextTrack = loadedTracks[nextIndex]
+                    playTrack(
+                        trackId = nextTrack.id,
+                        trackTitle = nextTrack.title,
+                        artistName = nextTrack.artists.joinToString { it.name },
+                        albumId = nextTrack.albums.firstOrNull()?.id,
+                        isManualSelection = false
+                    )
+                } else if (isWaveMode) {
+                    playNextTrack()
+                } else {
+                    stopPlayback()
+                }
             }
         },
         onAllTracksCleared = {
-            if (isDownloadedTracksScreen) {
-                loadedTracks.clear()
-                allTrackIds = emptyList()
-            }
+            loadedTracks.clear()
+            allTrackIds = emptyList()
+            stopPlayback()
         },
         onError = { errorMessage = it },
         onStatusMessage = { storageStatusMessage = it }
     )
+
+    // 💾 МЕНЕДЖЕР СЕССИИ ВОСПРОИЗВЕДЕНИЯ (Восстановление плейлиста или Волны при рестарте)
+    val playbackSessionManager = PlaybackSessionManager()
 
     // 🎵 АУДИОПЛЕЕР (Делегирован в PlaybackManager):
     val playbackManager: PlaybackManager = PlaybackManager(
@@ -372,6 +471,17 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         getSelectedQuality = { settingsManager.selectedQuality },
         isRecordToDisk = { downloadManager.isRecordToDiskActive },
         onTrackSavedToDisk = { downloadManager.incrementDownloadVersion() },
+        onTrackStarted = { trackId, title, artist, cover, isWave ->
+            if (isWave) {
+                playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
+            }
+            playbackSessionManager.updateLastTrack(
+                trackId = trackId,
+                trackTitle = title,
+                artistName = artist,
+                coverUri = cover
+            )
+        },
         onError = { errorMessage = it }
     )
 
@@ -384,6 +494,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         downloadManager = downloadManager,
         onStatusMessage = { storageStatusMessage = it },
         onError = { errorMessage = it }
+    )
+
+    // ⚡ МЕНЕДЖЕР P2P СИНХРОНИЗАЦИИ YAMSYNC:
+    val yamSyncManager: io.github.audiz.sync.YamSyncManager = io.github.audiz.sync.YamSyncManager(
+        scope = viewModelScope,
+        getMusicStoragePath = { settingsManager.musicStoragePath },
+        onPlaylistsUpdated = { playlistManager.loadLocalPlaylistsFromDisk() }
     )
 
     val audioPlayer: AudioPlayer get() = playbackManager.audioPlayer
@@ -488,10 +605,137 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             syncLikedTrackIds()
             loadPersonalPlaylists()
             loadUserPlaylists()
-            loadInitialWave(autoPlay = false)
         } else {
             loadPersonalPlaylists()
             loadUserPlaylists()
+        }
+        restoreLastPlaybackSession()
+    }
+
+    /**
+     * 🔄 Восстановить последнюю сессию воспроизведения (плейлист или Мою волну)
+     */
+    private fun restoreLastPlaybackSession() {
+        val session = playbackSessionManager.loadSession()
+        if (session == null || session.type == LastPlaybackType.WAVE) {
+            isTracksListVisible = false
+            if (currentAccessToken.isNotBlank()) {
+                if (session?.waveSeeds?.isNotEmpty() == true) {
+                    startThematicWave(session.waveTitle, session.waveSeeds, autoPlay = false)
+                } else {
+                    loadInitialWave(autoPlay = false)
+                }
+            }
+            return
+        }
+
+        restorePlaylistSession(session)
+    }
+
+    fun resumeLastSession(session: LastPlaybackSession) {
+        restorePlaylistSession(session)
+    }
+
+    private fun restorePlaylistSession(session: LastPlaybackSession) {
+        when (session.type) {
+            LastPlaybackType.DOWNLOADED -> {
+                loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+            }
+            LastPlaybackType.LOCAL_PLAYLIST -> {
+                launchSafe {
+                    if (localPlaylists.isEmpty()) {
+                        val list = withContext(DispatcherIO) {
+                            loadLocalPlaylists(musicStoragePath)
+                        }
+                        if (list.isNotEmpty()) {
+                            localPlaylists.clear()
+                            localPlaylists.addAll(list)
+                        }
+                    }
+                    val playlist = localPlaylists.firstOrNull { it.id == session.id || it.title == session.title }
+                    if (playlist != null) {
+                        openLocalPlaylist(playlist, restoreTrackId = session.lastTrackId)
+                    } else {
+                        loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+                    }
+                }
+            }
+            LastPlaybackType.CUSTOM_SOURCE -> {
+                val path = session.path
+                val source = customMediaSources.firstOrNull { it.id == session.sourceId || it.path == path }
+                if (source != null) {
+                    openCustomSource(source, restoreTrackId = session.lastTrackId)
+                } else if (!path.isNullOrBlank()) {
+                    openFolderPlaylist(
+                        folderPath = path,
+                        folderName = session.title ?: "Папка",
+                        restoreTrackId = session.lastTrackId
+                    )
+                } else {
+                    loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+                }
+            }
+            LastPlaybackType.CUSTOM_FOLDER -> {
+                val folderPath = session.path
+                if (!folderPath.isNullOrBlank()) {
+                    val src = customMediaSources.firstOrNull { it.id == session.sourceId }
+                    openFolderPlaylist(
+                        folderPath = folderPath,
+                        folderName = session.title ?: folderPath.substringAfterLast('/').ifBlank { "Папка" },
+                        source = src,
+                        restoreTrackId = session.lastTrackId,
+                        isRecursive = session.isRecursive
+                    )
+                } else {
+                    loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+                }
+            }
+            LastPlaybackType.YANDEX_USER_PLAYLIST -> {
+                val uid = session.uid
+                val kind = session.kind
+                val uuid = session.uuid
+                if (uid != null && kind != null) {
+                    loadPlaylistTracks(
+                        uid = uid,
+                        kind = kind,
+                        playlistTitle = session.title,
+                        restoreTrackId = session.lastTrackId
+                    )
+                } else if (!uuid.isNullOrBlank()) {
+                    loadPlaylistByUuid(uuid, session.title, restoreTrackId = session.lastTrackId)
+                } else {
+                    loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+                }
+            }
+            LastPlaybackType.YANDEX_UUID -> {
+                val uuid = session.uuid
+                if (!uuid.isNullOrBlank()) {
+                    loadPlaylistByUuid(uuid, session.title, restoreTrackId = session.lastTrackId)
+                } else {
+                    loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+                }
+            }
+            LastPlaybackType.YANDEX_LIKES -> {
+                loadLikesPlaylist(restoreTrackId = session.lastTrackId)
+            }
+            LastPlaybackType.YANDEX_HISTORY -> {
+                loadHistory(restoreTrackId = session.lastTrackId)
+            }
+            LastPlaybackType.ARTIST -> {
+                val artistId = session.artistId
+                if (!artistId.isNullOrBlank()) {
+                    loadArtistTracks(
+                        artistId = artistId,
+                        artistName = session.artistName,
+                        restoreTrackId = session.lastTrackId
+                    )
+                } else {
+                    loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+                }
+            }
+            LastPlaybackType.WAVE -> {
+                // Обработано выше
+            }
         }
     }
 
@@ -504,14 +748,17 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     fun playWaveTrack(index: Int = waveCurrentIndex, source: TrackPlaySource = TrackPlaySource.PLAY) {
+        playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
         waveManager.playWaveTrack(index, source)
     }
 
     fun playPrevWaveTrack() {
+        playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
         waveManager.playPrevWaveTrack()
     }
 
     fun playNextWaveTrack() {
+        playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
         waveManager.playNextWaveTrack()
     }
 
@@ -523,8 +770,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         waveManager.skipWaveTrack()
     }
 
-    fun startThematicWave(title: String?, seeds: List<String>) {
-        waveManager.startThematicWave(title, seeds)
+    fun startThematicWave(title: String?, seeds: List<String>, autoPlay: Boolean = true) {
+        playbackSessionManager.recordWave(title, seeds)
+        waveManager.startThematicWave(title, seeds, autoPlay = autoPlay)
     }
 
     fun refreshDefaultThematicWaves() {
@@ -532,6 +780,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     fun resetToDefaultWave() {
+        playbackSessionManager.recordWave(null, emptyList())
         waveManager.resetToDefaultWave()
     }
 
@@ -596,11 +845,25 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /**
      * 📁 Загрузка плейлиста сохранённой на диске музыки (БЕЗ запросов в интернет)
      */
-    fun loadDownloadedTracksPlaylist() {
+    fun loadDownloadedTracksPlaylist(restoreTrackId: String? = null) {
         if (isLoading) return
         currentScreenTitle = "Загруженная музыка"
         isDownloadedTracksScreen = true
+        isTracksListVisible = true
+        tracksListOrigin = TracksListOrigin.HOME
         currentOpenUserPlaylist = null
+        activeBrowsedFolderSource = null
+        activeBrowsedFolderPath = null
+        activeQueueSource = null
+        activeQueueFolderPath = null
+        activeQueueFolderName = "Загруженная музыка"
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.DOWNLOADED,
+                title = "Загруженная музыка",
+                lastTrackId = restoreTrackId
+            )
+        )
         launchSafe {
             isLoading = true
             errorMessage = null
@@ -614,6 +877,12 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     allTrackIds = tracks.map { it.id }
                     canLoadMore = false
                     println("SearchViewModel: Загружено с диска ${tracks.size} треков без сетевых запросов")
+                    if (restoreTrackId != null) {
+                        val target = tracks.firstOrNull { it.id == restoreTrackId } ?: tracks.firstOrNull()
+                        if (target != null) {
+                            playbackManager.setInitialTrack(target)
+                        }
+                    }
                 } else {
                     errorMessage = "На диске не найдено аудиофайлов в папке:\n$musicStoragePath"
                 }
@@ -626,18 +895,37 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         }
     }
 
-    fun loadArtistTracks(artistId: String, artistName: String? = null) {
+    fun loadArtistTracks(artistId: String, artistName: String? = null, restoreTrackId: String? = null) {
         val title = if (!artistName.isNullOrBlank()) "Треки: $artistName" else "Треки исполнителя"
-        startPagination(title = title) { repository.getTrackIds(artistId).result }
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.ARTIST,
+                artistId = artistId,
+                artistName = artistName,
+                title = title,
+                lastTrackId = restoreTrackId
+            )
+        )
+        startPagination(title = title, restoreTrackId = restoreTrackId) { repository.getTrackIds(artistId).result }
     }
 
     /**
      * 🎵 Загрузка треков плейлиста из поиска или каталога
      */
-    fun loadPlaylist(playlist: PlaylistInfo) {
+    fun loadPlaylist(playlist: PlaylistInfo, restoreTrackId: String? = null) {
         val title = playlist.title.ifBlank { "Плейлист" }
         val isUserPlaylist = userPlaylists.any { it.kind == playlist.kind }
-        startPagination(title = title, userPlaylist = if (isUserPlaylist) playlist else null) {
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.YANDEX_USER_PLAYLIST,
+                uid = playlist.uid,
+                kind = playlist.kind,
+                title = title,
+                uuid = playlist.playlistUuid,
+                lastTrackId = restoreTrackId
+            )
+        )
+        startPagination(title = title, userPlaylist = if (isUserPlaylist) playlist else null, restoreTrackId = restoreTrackId) {
             val uuid = playlist.playlistUuid
             if (!uuid.isNullOrBlank()) {
                 try {
@@ -651,16 +939,34 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         }
     }
 
-    fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null) {
+    fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null, restoreTrackId: String? = null) {
         val title = if (!playlistTitle.isNullOrBlank()) playlistTitle else "Треки плейлиста"
-        startPagination(title = title) { repository.getPlaylistTrackIds(uid, kind) }
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.YANDEX_USER_PLAYLIST,
+                uid = uid,
+                kind = kind,
+                title = title,
+                lastTrackId = restoreTrackId
+            )
+        )
+        startPagination(title = title, restoreTrackId = restoreTrackId) { repository.getPlaylistTrackIds(uid, kind) }
     }
 
     /**
      * 🔥 Загрузка плейлиста по UUID (для персональных плейлистов)
      */
-    fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null) {
-        startPagination(title = playlistTitle ?: "Плейлист") {
+    fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null, restoreTrackId: String? = null) {
+        val title = playlistTitle ?: "Плейлист"
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.YANDEX_UUID,
+                uuid = uuid,
+                title = title,
+                lastTrackId = restoreTrackId
+            )
+        )
+        startPagination(title = title, restoreTrackId = restoreTrackId) {
             repository.getPlaylistTrackIdsByUuid(uuid)
         }
     }
@@ -668,8 +974,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /**
      * 🔥 Загрузка плейлиста "Мне нравится" (двухэтапный запрос)
      */
-    fun loadLikesPlaylist() {
-        startPagination(title = "Мне нравится") {
+    fun loadLikesPlaylist(restoreTrackId: String? = null) {
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.YANDEX_LIKES,
+                title = "Мне нравится",
+                lastTrackId = restoreTrackId
+            )
+        )
+        startPagination(title = "Мне нравится", restoreTrackId = restoreTrackId) {
             val uuid = repository.getLikesPlaylistUuid()
             val ids = repository.getPlaylistTrackIdsByUuid(uuid)
             likedTrackIds.addAll(ids)
@@ -680,8 +993,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /**
      * 🔥 Загрузка истории прослушивания
      */
-    fun loadHistory() {
-        startPagination(title = "История прослушиваний") {
+    fun loadHistory(restoreTrackId: String? = null) {
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.YANDEX_HISTORY,
+                title = "История прослушиваний",
+                lastTrackId = restoreTrackId
+            )
+        )
+        startPagination(title = "История прослушиваний", restoreTrackId = restoreTrackId) {
             repository.getHistoryTrackIds()
         }
     }
@@ -849,11 +1169,26 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /**
      * 📂 Открыть локальный плейлист для воспроизведения
      */
-    fun openLocalPlaylist(playlist: LocalPlaylist) {
+    fun openLocalPlaylist(playlist: LocalPlaylist, restoreTrackId: String? = null) {
         if (isLoading) return
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.LOCAL_PLAYLIST,
+                id = playlist.id,
+                title = playlist.title,
+                lastTrackId = restoreTrackId
+            )
+        )
         currentScreenTitle = playlist.title
         isDownloadedTracksScreen = true
+        isTracksListVisible = true
+        tracksListOrigin = TracksListOrigin.HOME
         currentOpenUserPlaylist = null
+        activeBrowsedFolderSource = null
+        activeBrowsedFolderPath = null
+        activeQueueSource = null
+        activeQueueFolderPath = null
+        activeQueueFolderName = playlist.title
         launchSafe {
             isLoading = true
             errorMessage = null
@@ -863,12 +1198,28 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     getTracksFromLocalPaths(playlist.trackPaths)
                 }
                 if (tracks.isNotEmpty()) {
+                    loadedTracks.clear()
                     loadedTracks.addAll(tracks)
                     allTrackIds = tracks.map { it.id }
                     canLoadMore = false
                     println("SearchViewModel: Открыт локальный плейлист '${playlist.title}' (${tracks.size} треков)")
+                    if (tracks.size < playlist.trackPaths.size) {
+                        println("SearchViewModel: Найдено ${tracks.size} из ${playlist.trackPaths.size} треков плейлиста '${playlist.title}'")
+                    }
+                    if (restoreTrackId != null) {
+                        val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
+                        if (target != null) {
+                            playbackManager.setInitialTrack(target)
+                        }
+                    }
                 } else {
-                    errorMessage = "В плейлисте '${playlist.title}' нет файлов или они были удалены с диска."
+                    loadedTracks.clear()
+                    allTrackIds = emptyList()
+                    if (playlist.trackPaths.isEmpty()) {
+                        errorMessage = "Плейлист '${playlist.title}' пуст."
+                    } else {
+                        errorMessage = "В плейлисте '${playlist.title}' ${playlist.trackPaths.size} трек(ов), но аудиофайлы не найдены на устройстве. Возможно, они были перемещены или удалены."
+                    }
                 }
             } catch (e: Exception) {
                 errorMessage = "Ошибка чтения плейлиста: ${e.message}"
@@ -892,6 +1243,301 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         return playlistManager.exportLocalPlaylist(playlistId)
     }
 
+    /**
+     * ➕ Добавить пользовательский источник (директорию, отдельный файл или M3U)
+     */
+    fun addCustomSource(path: String, customName: String? = null): CustomMediaSource? {
+        return localMediaManager.addSource(path, customName)
+    }
+
+    /**
+     * 🗑️ Удалить пользовательский источник из сохраненных
+     */
+    fun removeCustomSource(id: String) {
+        localMediaManager.removeSource(id)
+    }
+
+    /**
+     * 📂 Открыть пользовательский источник (папку, отдельный аудиофайл или M3U-плейлист)
+     */
+    fun openCustomSource(source: CustomMediaSource, restoreTrackId: String? = null) {
+        if (isLoading) return
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.CUSTOM_SOURCE,
+                sourceId = source.id,
+                path = source.path,
+                title = source.name,
+                lastTrackId = restoreTrackId
+            )
+        )
+        currentScreenTitle = source.name
+        isDownloadedTracksScreen = true
+        isTracksListVisible = true
+        tracksListOrigin = TracksListOrigin.HOME
+        currentOpenUserPlaylist = null
+        val isDir = source.type == LocalSourceType.FOLDER
+        activeBrowsedFolderSource = null
+        activeBrowsedFolderPath = null
+        activeQueueSource = if (isDir) source else null
+        activeQueueFolderPath = if (isDir) source.path else null
+        activeQueueFolderName = source.name
+        launchSafe {
+            isLoading = true
+            errorMessage = null
+            resetPagination()
+            try {
+                val tracks = withContext(DispatcherIO) {
+                    localMediaManager.getTracksForSource(source)
+                }
+                if (tracks.isNotEmpty()) {
+                    loadedTracks.clear()
+                    loadedTracks.addAll(tracks)
+                    allTrackIds = tracks.map { it.id }
+                    canLoadMore = false
+                    println("SearchViewModel: Открыт пользовательский источник '${source.name}' (${tracks.size} треков)")
+                    if (restoreTrackId != null) {
+                        val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
+                        if (target != null) {
+                            playbackManager.setInitialTrack(target)
+                        }
+                    }
+                } else {
+                    errorMessage = "В источнике '${source.name}' нет доступных аудиофайлов."
+                }
+            } catch (e: Exception) {
+                errorMessage = "Ошибка чтения источника: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    /**
+     * 🔍 Получить листинг содержимого директории для проводника
+     */
+    fun browseFolder(folderPath: String, rootPath: String? = null): FolderListing {
+        return localMediaManager.browseFolder(folderPath, rootPath)
+    }
+
+    /**
+     * 📁 Воспроизвести выбранную папку или подпапку (рекурсивно или только файлы текущей папки)
+     */
+    fun playFolder(
+        folderPath: String,
+        folderName: String,
+        source: CustomMediaSource? = null,
+        isRecursive: Boolean = true
+    ) {
+        if (isLoading) return
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.CUSTOM_FOLDER,
+                sourceId = source?.id,
+                path = folderPath,
+                title = folderName,
+                isRecursive = isRecursive
+            )
+        )
+        activeBrowsedFolderSource = source
+        activeBrowsedFolderPath = folderPath
+        tracksListOrigin = if (source != null) TracksListOrigin.FOLDER_BROWSER else TracksListOrigin.HOME
+        activeQueueSource = source
+        activeQueueFolderPath = folderPath
+        activeQueueFolderName = folderName
+        currentScreenTitle = folderName
+        isDownloadedTracksScreen = true
+        isTracksListVisible = true
+        currentOpenUserPlaylist = null
+        launchSafe {
+            isLoading = true
+            errorMessage = null
+            resetPagination()
+            try {
+                val tracks = withContext(DispatcherIO) {
+                    if (isRecursive) {
+                        scanDownloadedTracks(folderPath)
+                    } else {
+                        localMediaManager.browseFolder(folderPath).tracks
+                    }
+                }
+                if (tracks.isNotEmpty()) {
+                    loadedTracks.clear()
+                    loadedTracks.addAll(tracks)
+                    allTrackIds = tracks.map { it.id }
+                    canLoadMore = false
+                    println("SearchViewModel: Запущена папка '$folderName' (рекурсивно: $isRecursive, ${tracks.size} треков)")
+                    val first = tracks.first()
+                    playTrack(
+                        trackId = first.id,
+                        trackTitle = first.title,
+                        artistName = first.artists.firstOrNull()?.name ?: "Unknown Artist",
+                        albumId = first.albums.firstOrNull()?.id
+                    )
+                } else {
+                    errorMessage = "В папке '$folderName' нет аудиофайлов."
+                }
+            } catch (e: Exception) {
+                errorMessage = "Ошибка чтения папки: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    /**
+     * 📁 Открыть плейлист папки без автоматического начала воспроизведения (для восстановления сессии)
+     */
+    fun openFolderPlaylist(
+        folderPath: String,
+        folderName: String,
+        source: CustomMediaSource? = null,
+        restoreTrackId: String? = null,
+        isRecursive: Boolean = true
+    ) {
+        if (isLoading) return
+        playbackSessionManager.recordSession(
+            LastPlaybackSession(
+                type = LastPlaybackType.CUSTOM_FOLDER,
+                sourceId = source?.id,
+                path = folderPath,
+                title = folderName,
+                isRecursive = isRecursive,
+                lastTrackId = restoreTrackId
+            )
+        )
+        activeBrowsedFolderSource = source
+        activeBrowsedFolderPath = folderPath
+        tracksListOrigin = if (source != null) TracksListOrigin.FOLDER_BROWSER else TracksListOrigin.HOME
+        activeQueueSource = source
+        activeQueueFolderPath = folderPath
+        activeQueueFolderName = folderName
+        currentScreenTitle = folderName
+        isDownloadedTracksScreen = true
+        isTracksListVisible = true
+        currentOpenUserPlaylist = null
+        launchSafe {
+            isLoading = true
+            errorMessage = null
+            resetPagination()
+            try {
+                val tracks = withContext(DispatcherIO) {
+                    if (isRecursive) {
+                        scanDownloadedTracks(folderPath)
+                    } else {
+                        localMediaManager.browseFolder(folderPath).tracks
+                    }
+                }
+                if (tracks.isNotEmpty()) {
+                    loadedTracks.clear()
+                    loadedTracks.addAll(tracks)
+                    allTrackIds = tracks.map { it.id }
+                    canLoadMore = false
+                    println("SearchViewModel: Восстановлена папка '$folderName' (рекурсивно: $isRecursive, ${tracks.size} треков)")
+                    if (restoreTrackId != null) {
+                        val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
+                        if (target != null) {
+                            playbackManager.setInitialTrack(target)
+                        }
+                    }
+                } else {
+                    errorMessage = "В папке '$folderName' нет аудиофайлов."
+                }
+            } catch (e: Exception) {
+                errorMessage = "Ошибка чтения папки: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    /**
+     * 🎵 Воспроизвести отдельный локальный трек и сформировать очередь из треков папки
+     */
+    fun playSingleLocalTrack(
+        track: FullTrackInfo,
+        folderTracks: List<FullTrackInfo> = listOf(track),
+        folderName: String? = null,
+        folderPath: String? = null,
+        source: CustomMediaSource? = null
+    ) {
+        val title = folderName?.takeIf { it.isNotBlank() } ?: track.title
+        if (!folderPath.isNullOrBlank()) {
+            playbackSessionManager.recordSession(
+                LastPlaybackSession(
+                    type = LastPlaybackType.CUSTOM_FOLDER,
+                    sourceId = source?.id,
+                    path = folderPath,
+                    title = title,
+                    isRecursive = false,
+                    lastTrackId = track.id,
+                    lastTrackTitle = track.title,
+                    lastArtistName = track.artists.firstOrNull()?.name,
+                    lastCoverUri = track.coverUri
+                )
+            )
+        } else if (source != null) {
+            playbackSessionManager.recordSession(
+                LastPlaybackSession(
+                    type = LastPlaybackType.CUSTOM_SOURCE,
+                    sourceId = source.id,
+                    path = source.path,
+                    title = source.name,
+                    isRecursive = false,
+                    lastTrackId = track.id,
+                    lastTrackTitle = track.title,
+                    lastArtistName = track.artists.firstOrNull()?.name,
+                    lastCoverUri = track.coverUri
+                )
+            )
+        }
+        currentScreenTitle = title
+        activeBrowsedFolderSource = source
+        activeBrowsedFolderPath = folderPath
+        tracksListOrigin = if (source != null) TracksListOrigin.FOLDER_BROWSER else TracksListOrigin.HOME
+        activeQueueSource = source
+        activeQueueFolderPath = folderPath
+        activeQueueFolderName = title
+        isDownloadedTracksScreen = true
+        isTracksListVisible = true
+        currentOpenUserPlaylist = null
+        resetPagination()
+        val queue = if (folderTracks.contains(track)) folderTracks else (listOf(track) + folderTracks)
+        loadedTracks.clear()
+        loadedTracks.addAll(queue)
+        allTrackIds = queue.map { it.id }
+        canLoadMore = false
+        playTrack(
+            trackId = track.id,
+            trackTitle = track.title,
+            artistName = track.artists.firstOrNull()?.name ?: "Unknown Artist",
+            albumId = track.albums.firstOrNull()?.id
+        )
+    }
+
+    /**
+     * Загружает один чанк треков (для пагинации)
+     */
+    private suspend fun loadNextPageChunk(): Boolean {
+        val nextChunk = allTrackIds.drop(currentOffset).take(pageSize)
+        if (nextChunk.isNotEmpty()) {
+            val details = repository.getTracksDetails(nextChunk)
+            loadedTracks.addAll(details.result) // Дописываем новые треки в конец списка
+            currentOffset += nextChunk.size
+
+            // 🔥 Сохраняем обновленный список в локальный кеш плейлиста
+            val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
+            if (!isDownloadedTracksScreen && cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
+                withContext(DispatcherIO) {
+                    savePlaylistTracksCache(musicStoragePath, cleanTitle, loadedTracks.toList())
+                }
+            }
+            canLoadMore = currentOffset < allTrackIds.size
+            return true
+        }
+        canLoadMore = false
+        return false
+    }
 
     /**
      * Инициализирует пагинацию для нового списка ID
@@ -899,12 +1545,20 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     private fun startPagination(
         title: String = "Загружено треков",
         userPlaylist: PlaylistInfo? = null,
+        restoreTrackId: String? = null,
         fetchIdsBlock: suspend () -> List<String>
     ) {
         if (isLoading) return
         isDownloadedTracksScreen = false
+        isTracksListVisible = true
+        tracksListOrigin = TracksListOrigin.HOME
         currentOpenUserPlaylist = userPlaylist
         currentScreenTitle = title
+        activeBrowsedFolderSource = null
+        activeBrowsedFolderPath = null
+        activeQueueSource = null
+        activeQueueFolderPath = null
+        activeQueueFolderName = title
         launchSafe {
             isLoading = true
             errorMessage = null
@@ -914,7 +1568,20 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 allTrackIds = fetchIdsBlock()
                 if (allTrackIds.isNotEmpty()) {
                     canLoadMore = true
-                    loadNextPage() // Загружаем первую порцию
+                    loadNextPageChunk()
+                    if (restoreTrackId != null && loadedTracks.isNotEmpty()) {
+                        val target = loadedTracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId }
+                        if (target != null) {
+                            playbackManager.setInitialTrack(target)
+                        } else {
+                            try {
+                                val detail = repository.getTracksDetails(listOf(restoreTrackId)).result.firstOrNull()
+                                if (detail != null) {
+                                    playbackManager.setInitialTrack(detail)
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
                 } else {
                     errorMessage = "Треков не найдено."
                 }
@@ -933,6 +1600,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     currentScreenTitle = "$cleanTitle [Офлайн-кеш]"
                     errorMessage = null
                     println("SearchViewModel: Загружено из кеша для '$cleanTitle' (${cached.size} треков)")
+                    if (restoreTrackId != null) {
+                        val target = cached.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId }
+                            ?: cached.firstOrNull()
+                        if (target != null) {
+                            playbackManager.setInitialTrack(target)
+                        }
+                    }
                 } else {
                     errorMessage = "Не удалось подключиться к интернету и нет сохранённого кеша для '$cleanTitle'"
                 }
@@ -951,21 +1625,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         launchSafe {
             isLoading = true
             try {
-                val nextChunk = allTrackIds.drop(currentOffset).take(pageSize)
-                if (nextChunk.isNotEmpty()) {
-                    val details = repository.getTracksDetails(nextChunk)
-                    loadedTracks.addAll(details.result) // Дописываем новые треки в конец списка
-                    currentOffset += nextChunk.size
-
-                    // 🔥 Сохраняем обновленный список в локальный кеш плейлиста
-                    val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
-                    if (!isDownloadedTracksScreen && cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
-                        withContext(DispatcherIO) {
-                            savePlaylistTracksCache(musicStoragePath, cleanTitle, loadedTracks.toList())
-                        }
-                    }
-                }
-                canLoadMore = currentOffset < allTrackIds.size
+                loadNextPageChunk()
             } catch (e: Exception) {
                 val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
                 if (loadedTracks.isEmpty()) {
@@ -1022,10 +1682,207 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         downloadManager.downloadTrack(trackId, trackTitle, artistName)
 
     /**
+     * 📁 Экспортировать / сохранить трек в произвольную директорию на устройстве
+     */
+    fun saveTrackToCustomFolder(
+        track: FullTrackInfo,
+        targetDirectory: String,
+        customFileName: String? = null,
+        onComplete: ((String?) -> Unit)? = null
+    ) {
+        launchSafe {
+            try {
+                val cleanArtist = track.artists.joinToString(", ") { it.name }.trim()
+                val cleanTitle = track.title.trim()
+                val defaultBaseTitle = if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle" else cleanTitle
+                val chosenBaseTitle = customFileName?.trim()?.ifBlank { null } ?: defaultBaseTitle
+
+                storageStatusMessage = "⏳ Сохранение '$chosenBaseTitle' в папку..."
+
+                // 1. Проверяем, есть ли трек уже локально на диске
+                var localSrcPath: String? = null
+                if (track.id.startsWith("local:")) {
+                    val p = track.id.removePrefix("local:")
+                    if (localFileExists(p)) localSrcPath = p
+                }
+                if (localSrcPath == null) {
+                    val downloaded = downloadManager.getDownloadedTrackPath(cleanArtist, cleanTitle)
+                    if (downloaded != null && localFileExists(downloaded)) {
+                        localSrcPath = downloaded
+                    }
+                }
+                if (localSrcPath == null) {
+                    val currentPlayPath = currentPlayingFilePath?.removePrefix("local:")
+                    if (currentPlayPath != null && (playerTrackId == track.id || playerTrackId == track.realId) && localFileExists(currentPlayPath)) {
+                        localSrcPath = currentPlayPath
+                    }
+                }
+
+                if (localSrcPath != null) {
+                    val ext = localSrcPath.substringAfterLast('.', "mp3")
+                    val rawName = if (chosenBaseTitle.endsWith(".$ext", ignoreCase = true)) {
+                        chosenBaseTitle
+                    } else {
+                        "$chosenBaseTitle.$ext"
+                    }
+                    val fileName = sanitizeKeepSpaces(rawName)
+                    val saved = withContext(DispatcherIO) {
+                        copyFileToFolder(localSrcPath, targetDirectory, fileName)
+                    }
+                    if (saved != null) {
+                        storageStatusMessage = "✅ Файл сохранён: $fileName"
+                        onComplete?.invoke(saved)
+                    } else {
+                        storageStatusMessage = "❌ Ошибка копирования файла"
+                        onComplete?.invoke(null)
+                    }
+                    return@launchSafe
+                }
+
+                // 2. Если трека нет на диске — скачиваем аудиопоток из Яндекс Музыки
+                val quality = selectedQuality
+                val audioData = repository.downloadTrackAudio(track.id, quality = quality)
+                val rawExtension = audioData.type.substringBefore("-")
+                val extension = if (rawExtension.equals("aac", ignoreCase = true)) "m4a" else rawExtension
+                val rawName = if (chosenBaseTitle.endsWith(".$extension", ignoreCase = true)) {
+                    chosenBaseTitle
+                } else {
+                    "$chosenBaseTitle.$extension"
+                }
+                val fileName = sanitizeKeepSpaces(rawName)
+
+                val saved = withContext(DispatcherIO) {
+                    saveTrackToFolder(targetDirectory, fileName, audioData.result)
+                }
+
+                if (saved != null) {
+                    storageStatusMessage = "✅ Трек скачан и сохранён: $fileName"
+                    onComplete?.invoke(saved)
+                } else {
+                    storageStatusMessage = "❌ Ошибка сохранения трека на диск"
+                    onComplete?.invoke(null)
+                }
+            } catch (e: Exception) {
+                storageStatusMessage = "❌ Ошибка: ${e.message ?: e.toString()}"
+                onComplete?.invoke(null)
+            }
+        }
+    }
+
+    /**
+     * 💾 Сохранить трек по конкретному выбранному пути файла (из системного Save As диалога)
+     */
+    fun saveTrackToFilePath(
+        track: FullTrackInfo,
+        targetFilePath: String,
+        onComplete: ((String?) -> Unit)? = null
+    ) {
+        launchSafe {
+            try {
+                val cleanArtist = track.artists.joinToString(", ") { it.name }.trim()
+                val cleanTitle = track.title.trim()
+                val baseTitle = if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle" else cleanTitle
+
+                storageStatusMessage = "⏳ Сохранение '$baseTitle'..."
+
+                // 1. Проверяем, есть ли трек уже локально на диске
+                var localSrcPath: String? = null
+                if (track.id.startsWith("local:")) {
+                    val p = track.id.removePrefix("local:")
+                    if (localFileExists(p)) localSrcPath = p
+                }
+                if (localSrcPath == null) {
+                    val downloaded = downloadManager.getDownloadedTrackPath(cleanArtist, cleanTitle)
+                    if (downloaded != null && localFileExists(downloaded)) {
+                        localSrcPath = downloaded
+                    }
+                }
+                if (localSrcPath == null) {
+                    val currentPlayPath = currentPlayingFilePath?.removePrefix("local:")
+                    if (currentPlayPath != null && (playerTrackId == track.id || playerTrackId == track.realId) && localFileExists(currentPlayPath)) {
+                        localSrcPath = currentPlayPath
+                    }
+                }
+
+                if (localSrcPath != null) {
+                    val ext = localSrcPath.substringAfterLast('.', "mp3")
+                    val normalizedPath = if (targetFilePath.substringAfterLast('/', "").contains('.')) {
+                        targetFilePath
+                    } else {
+                        "$targetFilePath.$ext"
+                    }
+                    val saved = withContext(DispatcherIO) {
+                        copyFileToDirectPath(localSrcPath, normalizedPath)
+                    }
+                    if (saved != null) {
+                        val fileName = saved.substringAfterLast('/', saved.substringAfterLast('\\', saved))
+                        storageStatusMessage = "✅ Файл сохранён: $fileName"
+                        onComplete?.invoke(saved)
+                    } else {
+                        storageStatusMessage = "❌ Ошибка копирования файла"
+                        onComplete?.invoke(null)
+                    }
+                    return@launchSafe
+                }
+
+                // 2. Если трека нет на диске — скачиваем аудиопоток из Яндекс Музыки
+                val quality = selectedQuality
+                val audioData = repository.downloadTrackAudio(track.id, quality = quality)
+                val rawExtension = audioData.type.substringBefore("-")
+                val extension = if (rawExtension.equals("aac", ignoreCase = true)) "m4a" else rawExtension
+
+                val normalizedPath = if (targetFilePath.substringAfterLast('/', "").contains('.')) {
+                    targetFilePath
+                } else {
+                    "$targetFilePath.$extension"
+                }
+
+                val saved = withContext(DispatcherIO) {
+                    saveFileToDirectPath(normalizedPath, audioData.result)
+                }
+
+                if (saved != null) {
+                    val fileName = saved.substringAfterLast('/', saved.substringAfterLast('\\', saved))
+                    storageStatusMessage = "✅ Трек скачан и сохранён: $fileName"
+                    onComplete?.invoke(saved)
+                } else {
+                    storageStatusMessage = "❌ Ошибка сохранения трека на диск"
+                    onComplete?.invoke(null)
+                }
+            } catch (e: Exception) {
+                storageStatusMessage = "❌ Ошибка: ${e.message ?: e.toString()}"
+                onComplete?.invoke(null)
+            }
+        }
+    }
+
+    /**
      * 🗑️ Удалить трек с диска
      */
-    fun deleteTrack(trackId: String, trackTitle: String, artistName: String) =
-        downloadManager.deleteTrack(trackId, trackTitle, artistName)
+    fun deleteTrack(trackId: String, trackTitle: String, artistName: String) {
+        val cleanId = trackId.removePrefix("local:")
+        val foundTrack = loadedTracks.firstOrNull {
+            it.id == trackId || it.realId == trackId ||
+            it.id.removePrefix("local:") == cleanId ||
+            it.realId?.removePrefix("local:") == cleanId
+        }
+        val effectiveTrackId = when {
+            trackId.startsWith("local:") || trackId.startsWith("/") || trackId.startsWith("~") || (trackId.length > 2 && trackId[1] == ':') -> trackId
+            foundTrack?.realId != null -> foundTrack.realId!!
+            foundTrack?.id?.startsWith("local:") == true -> foundTrack.id
+            else -> trackId
+        }
+        val playingPath = currentPlayingFilePath?.removePrefix("local:")
+        val isCurrentlyPlayingThis = (playerTrackId == trackId || playerTrackId?.removePrefix("local:") == cleanId || playingPath == cleanId)
+        val finalTrackId = if (isCurrentlyPlayingThis && playingPath != null && !effectiveTrackId.startsWith("/") && !effectiveTrackId.startsWith("local:") && !effectiveTrackId.startsWith("~") && !(effectiveTrackId.length > 2 && effectiveTrackId[1] == ':')) {
+            playingPath
+        } else {
+            effectiveTrackId
+        }
+        val effectiveTitle = trackTitle.ifBlank { foundTrack?.title ?: "" }
+        val effectiveArtist = artistName.ifBlank { foundTrack?.artists?.joinToString { it.name } ?: "" }
+        downloadManager.deleteTrack(finalTrackId, effectiveTitle, effectiveArtist)
+    }
 
     /**
      * 🧹 Очистить кеш плейлистов
@@ -1056,7 +1913,41 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     fun closeArtistTracks() {
         isDownloadedTracksScreen = false
-        resetPagination()
+        isTracksListVisible = false
+        tracksListOrigin = TracksListOrigin.HOME
+        resetBrowsedFolder()
+        if (searchResult != null) {
+            clearSearch()
+        }
+    }
+
+    /**
+     * 🎶 Переключить отображение экрана очереди воспроизведения
+     */
+    fun toggleQueueView() {
+        if (isTracksListVisible) {
+            isTracksListVisible = false
+            tracksListOrigin = TracksListOrigin.HOME
+        } else if (loadedTracks.isNotEmpty()) {
+            if (activeQueueFolderName != null && (currentScreenTitle.isBlank() || currentScreenTitle == "Загружено треков")) {
+                currentScreenTitle = activeQueueFolderName ?: "Очередь воспроизведения"
+            }
+            tracksListOrigin = TracksListOrigin.HOME
+            isTracksListVisible = true
+        }
+    }
+
+    /**
+     * 🎶 Открыть экран очереди воспроизведения
+     */
+    fun openQueueView(origin: TracksListOrigin = TracksListOrigin.HOME) {
+        if (loadedTracks.isNotEmpty()) {
+            if (activeQueueFolderName != null && (currentScreenTitle.isBlank() || currentScreenTitle == "Загружено треков")) {
+                currentScreenTitle = activeQueueFolderName ?: "Очередь воспроизведения"
+            }
+            tracksListOrigin = origin
+            isTracksListVisible = true
+        }
     }
 
     // ==========================================
@@ -1076,12 +1967,28 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         isWave: Boolean = false,
         source: TrackPlaySource = TrackPlaySource.PLAY
     ) {
+        val cleanId = trackId.removePrefix("local:")
+        val targetCoverUri = loadedTracks.firstOrNull {
+            it.id == trackId || it.realId == trackId ||
+            it.id.removePrefix("local:") == cleanId ||
+            it.realId?.removePrefix("local:") == cleanId
+        }?.coverUri
+            ?: searchResult?.result?.results?.firstOrNull {
+                it.track?.id == trackId || it.track?.id?.removePrefix("local:") == cleanId
+            }?.track?.coverUri
+            ?: waveManager.currentWaveTrack?.takeIf {
+                it.id == trackId || it.id.removePrefix("local:") == cleanId
+            }?.coverUri
+
         if (!isWave) {
             waveManager.resetWaveMode()
+            playbackSessionManager.updateLastTrack(
+                trackId = trackId,
+                trackTitle = trackTitle,
+                artistName = artistName,
+                coverUri = targetCoverUri
+            )
         }
-        val targetCoverUri = loadedTracks.firstOrNull { it.id == trackId }?.coverUri
-            ?: searchResult?.result?.results?.firstOrNull { it.track?.id == trackId }?.track?.coverUri
-            ?: waveManager.currentWaveTrack?.takeIf { it.id == trackId }?.coverUri
 
         playbackManager.playTrack(
             targetTrackId = trackId,

@@ -4,11 +4,13 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -48,6 +50,7 @@ data class SettingsState(
     val isRecordToDiskActive: Boolean = false,
     val selectedQuality: String = "2",
     val appTheme: String = "Dark",
+    val accentColor: String = "purple",
     val musicStoragePath: String = "",
     val currentAccessToken: String = "",
     val authStatusMessage: String? = null,
@@ -66,6 +69,7 @@ data class SettingsActions(
     val onToggleRecordToDisk: (Boolean) -> Unit = {},
     val onSaveQuality: (String) -> Unit = {},
     val onSaveTheme: (String) -> Unit = {},
+    val onSaveAccentColor: (String) -> Unit = {},
     val onSaveMusicPath: (String) -> Unit = {},
     val onSaveToken: (token: String, onComplete: (Boolean) -> Unit) -> Unit = { _, _ -> },
     val onClearAuthStatus: () -> Unit = {},
@@ -408,6 +412,80 @@ fun SettingsDialog(
                                         onClick = { actions.onSaveTheme("Dark") }
                                     )
                                     Text("Тёмная", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 🎨 Цветовой акцент (Основной цвет интерфейса)
+                            Text(
+                                text = "Цветовой акцент",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Основной цвет кнопок, слайдеров, индикаторов и активных элементов",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AppAccentColor.entries.forEach { accent ->
+                                    val isSelected = state.accentColor.equals(accent.key, ignoreCase = true)
+                                    Surface(
+                                        onClick = { actions.onSaveAccentColor(accent.key) },
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) {
+                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                        },
+                                        border = if (isSelected) {
+                                            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                                        } else {
+                                            BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                                        },
+                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .background(accent.previewColor, CircleShape)
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = Color.White.copy(alpha = 0.35f),
+                                                        shape = CircleShape
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (isSelected) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(6.dp)
+                                                            .background(
+                                                                if (accent == AppAccentColor.YANDEX || accent == AppAccentColor.SILVER) Color.Black else Color.White,
+                                                                CircleShape
+                                                            )
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = accent.title,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
