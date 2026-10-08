@@ -34,6 +34,8 @@ class YamSyncManager(
 
     var statusMessage by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)
+    var isDownloadingFiles by mutableStateOf(false)
+        private set
 
     val playlistDiffs = mutableStateListOf<YamSyncPlaylistDiff>()
     val missingFiles = mutableStateListOf<YamSyncTrack>()
@@ -169,6 +171,21 @@ class YamSyncManager(
                 if (cachedTrack != null) {
                     val p = resolveLocalPath(cachedTrack.fileName)
                     if (localFileExists(p)) return@YamSyncServer p
+
+                    val cleanArt = sanitizeKeepSpaces(cachedTrack.artist.ifBlank { "Unknown Artist" }).trim()
+                    val cleanFn = sanitizeKeepSpaces(cachedTrack.fileName)
+                    val candidates = listOf(
+                        "$base/$cleanArt/$cleanFn",
+                        "$base/HQ/$cleanArt/$cleanFn",
+                        "$base/LQ/$cleanArt/$cleanFn",
+                        "$base/$cleanFn",
+                        "$base/HQ/$cleanFn",
+                        "$base/LQ/$cleanFn"
+                    )
+                    for (cand in candidates) {
+                        val resolvedCand = resolveLocalPath(cand)
+                        if (localFileExists(resolvedCand)) return@YamSyncServer resolvedCand
+                    }
                 }
 
                 // 3. Fallback через scanDownloadedTracks только если быстрые методы не нашли файл
@@ -370,7 +387,7 @@ class YamSyncManager(
     }
 
     /** Применить слияние плейлистов (Merge Request) */
-    fun applyPlaylistMerge() {
+    fun applyPlaylistMerge(autoDownloadFiles: Boolean = false) {
         if (playlistDiffs.isEmpty()) return
         val pair = activePairInfo
         scope.launch(Dispatchers.Main) {
@@ -390,75 +407,89 @@ class YamSyncManager(
             statusMessage = "✅ Плейлисты успешно объединены!"
             refreshManifestAndDiff()
             onPlaylistsUpdated()
+
+            if (autoDownloadFiles && missingFiles.isNotEmpty()) {
+                downloadSelectedFiles()
+            }
         }
     }
 
     /** Скачать выбранные недостающие аудиофайлы по требованию */
     fun downloadSelectedFiles() {
+        if (isDownloadingFiles) return
         val pair = activePairInfo ?: return
         val toDownload = missingFiles.filter { it.matchKey in selectedFiles }
         if (toDownload.isEmpty()) return
 
+        isDownloadingFiles = true
         scope.launch(Dispatchers.Main) {
-            val totalCount = toDownload.size
-            var currentIdx = 0
-            val basePath = getMusicStoragePath()
+            try {
+                val totalCount = toDownload.size
+                var currentIdx = 0
+                val basePath = getMusicStoragePath()
 
-            for (track in toDownload) {
-                currentIdx++
-                statusMessage = "Загрузка: $currentIdx/$totalCount (${track.title})"
+                for (track in toDownload) {
+                    currentIdx++
+                    statusMessage = "Загрузка: $currentIdx/$totalCount (${track.title})"
 
-                val res = withContext(DispatcherIO) {
-                    client.downloadTrackBytes(pair.ip, pair.port, pair.token, track) { progress ->
-                        fileTransfers[track.matchKey] = progress
+                    val res = withContext(DispatcherIO) {
+                        client.downloadTrackBytes(pair.ip, pair.port, pair.token, track) { progress ->
+                            fileTransfers[track.matchKey] = progress
+                        }
                     }
+
+                    res.fold(
+                        onSuccess = { bytes ->
+                            val cleanArtist = sanitizeKeepSpaces(track.artist.ifBlank { "Unknown Artist" }).trim()
+                            val cleanFileName = sanitizeKeepSpaces(track.fileName)
+                            withContext(DispatcherIO) {
+                                saveTrackFile(basePath, cleanArtist, cleanFileName, bytes)
+                            }
+                            fileTransfers[track.matchKey] = YamSyncTransferProgress(
+                                fileName = track.fileName,
+                                trackTitle = "${track.artist} — ${track.title}",
+                                bytesTransferred = bytes.size.toLong(),
+                                totalBytes = bytes.size.toLong(),
+                                isCompleted = true
+                            )
+                        },
+                        onFailure = { err ->
+                            fileTransfers[track.matchKey] = YamSyncTransferProgress(
+                                fileName = track.fileName,
+                                trackTitle = "${track.artist} — ${track.title}",
+                                error = err.message,
+                                isCompleted = true
+                            )
+                        }
+                    )
                 }
 
-                res.fold(
-                    onSuccess = { bytes ->
-                        withContext(DispatcherIO) {
-                            saveTrackFile(basePath, track.artist, track.fileName, bytes)
-                        }
-                        fileTransfers[track.matchKey] = YamSyncTransferProgress(
-                            fileName = track.fileName,
-                            trackTitle = "${track.artist} — ${track.title}",
-                            bytesTransferred = bytes.size.toLong(),
-                            totalBytes = bytes.size.toLong(),
-                            isCompleted = true
-                        )
-                    },
-                    onFailure = { err ->
-                        fileTransfers[track.matchKey] = YamSyncTransferProgress(
-                            fileName = track.fileName,
-                            trackTitle = "${track.artist} — ${track.title}",
-                            error = err.message,
-                            isCompleted = true
-                        )
+                // Обновляем пути в локальных плейлистах с учетом скачанных файлов
+                withContext(DispatcherIO) {
+                    val freshDownloaded = scanDownloadedTracks(basePath)
+                    val allLocal = loadLocalPlaylists(basePath)
+                    val updatedLocal = allLocal.map { pl ->
+                        val updatedPaths = pl.trackPaths.map { originalPath ->
+                            val fileName = originalPath.substringAfterLast('/').substringAfterLast('\\')
+                            val matched = freshDownloaded.firstOrNull {
+                                val p = it.realId ?: it.id.removePrefix("local:")
+                                p.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
+                            }
+                            matched?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
+                                ?: resolveLocalPath(originalPath).takeIf { localFileExists(it) }
+                                ?: originalPath
+                        }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
+                        pl.copy(trackPaths = updatedPaths)
                     }
-                )
-            }
-
-            // Обновляем пути в локальных плейлистах с учетом скачанных файлов
-            withContext(DispatcherIO) {
-                val freshDownloaded = scanDownloadedTracks(basePath)
-                val allLocal = loadLocalPlaylists(basePath)
-                val updatedLocal = allLocal.map { pl ->
-                    val updatedPaths = pl.trackPaths.map { originalPath ->
-                        val fileName = originalPath.substringAfterLast('/').substringAfterLast('\\')
-                        val matched = freshDownloaded.firstOrNull {
-                            val p = it.realId ?: it.id.removePrefix("local:")
-                            p.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
-                        }
-                        matched?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") } ?: originalPath
-                    }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
-                    pl.copy(trackPaths = updatedPaths)
+                    saveLocalPlaylists(basePath, updatedLocal)
                 }
-                saveLocalPlaylists(basePath, updatedLocal)
-            }
 
-            statusMessage = "✅ Загрузка $totalCount файлов завершена!"
-            refreshManifestAndDiff()
-            onPlaylistsUpdated()
+                statusMessage = "✅ Загрузка $totalCount файлов завершена!"
+                refreshManifestAndDiff()
+                onPlaylistsUpdated()
+            } finally {
+                isDownloadingFiles = false
+            }
         }
     }
 

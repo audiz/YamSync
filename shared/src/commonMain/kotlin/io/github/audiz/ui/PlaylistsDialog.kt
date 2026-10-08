@@ -18,6 +18,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.audiz.SearchViewModel
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import io.github.audiz.DispatcherIO
+import io.github.audiz.localFileExists
+import io.github.audiz.resolveLocalPath
 
 /**
  * 🗂️ Диалог медиатеки: управление персональными локальными плейлистами
@@ -255,6 +258,7 @@ fun PlaylistsDialog(
                                     viewModel.openLocalPlaylist(it, autoPlayFirst = true)
                                     onDismiss()
                                 },
+                                onOpenSync = onOpenSync,
                                 onDismiss = onDismiss
                             )
                             1 -> YandexUserPlaylistsTab(
@@ -597,6 +601,7 @@ private fun LocalPlaylistsTab(
     onCreateClick: () -> Unit,
     onRenameClick: (LocalPlaylist) -> Unit,
     onOpenPlaylist: (LocalPlaylist) -> Unit,
+    onOpenSync: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
@@ -805,6 +810,14 @@ private fun LocalPlaylistsTab(
                                 .fillMaxWidth()
                                 .padding(12.dp)
                         ) {
+                            val availableCount = remember(playlist.trackPaths) {
+                                playlist.trackPaths.count { path ->
+                                    localFileExists(resolveLocalPath(path))
+                                }
+                            }
+                            val isFullyAvailable = availableCount == playlist.trackCount
+                            val isNoneAvailable = availableCount == 0 && playlist.trackCount > 0
+
                             // Верхний ряд: Название + бэдж + кнопка Play
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -828,15 +841,26 @@ private fun LocalPlaylistsTab(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
+
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                        color = when {
+                                            isFullyAvailable -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                            else -> MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                                        }
                                     ) {
                                         Text(
-                                            text = "💾 Оффлайн: ${playlist.trackCount} треков",
+                                            text = when {
+                                                isFullyAvailable -> "💾 Оффлайн: ${playlist.trackCount} треков"
+                                                isNoneAvailable -> "☁️ Файлы не скачаны (${playlist.trackCount})"
+                                                else -> "💾 Оффлайн: $availableCount/${playlist.trackCount}"
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
+                                            color = when {
+                                                isFullyAvailable -> MaterialTheme.colorScheme.primary
+                                                else -> MaterialTheme.colorScheme.error
+                                            },
                                             maxLines = 1,
                                             softWrap = false,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -886,6 +910,32 @@ private fun LocalPlaylistsTab(
                                             style = MaterialTheme.typography.labelSmall,
                                             maxLines = 1
                                         )
+                                    }
+
+                                    if (!isFullyAvailable && onOpenSync != null) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                onDismiss()
+                                                onOpenSync()
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.CloudDownload,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "YamSync",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1
+                                            )
+                                        }
                                     }
 
                                     TextButton(
@@ -964,15 +1014,25 @@ private fun LocalPlaylistsTab(
                                                 .substringAfterLast('/')
                                                 .substringAfterLast('\\')
                                                 .substringBeforeLast('.')
+                                            val isFileAvailable = remember(trackPath) {
+                                                localFileExists(resolveLocalPath(trackPath))
+                                            }
 
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                                color = MaterialTheme.colorScheme.surface.copy(alpha = if (isFileAvailable) 0.6f else 0.35f),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
-                                                        viewModel.openLocalPlaylist(playlist, restoreTrackId = trackPath, autoPlayFirst = true)
-                                                        onDismiss()
+                                                        if (isFileAvailable) {
+                                                            viewModel.openLocalPlaylist(playlist, restoreTrackId = trackPath, autoPlayFirst = true)
+                                                            onDismiss()
+                                                        } else if (onOpenSync != null) {
+                                                            onDismiss()
+                                                            onOpenSync()
+                                                        } else {
+                                                            viewModel.errorMessage = "Файл '$filename' не найден на устройстве. Синхронизируйте его через YamSync."
+                                                        }
                                                     }
                                                     .pointerHoverIcon(PointerIcon.Hand)
                                             ) {
@@ -989,17 +1049,26 @@ private fun LocalPlaylistsTab(
                                                         modifier = Modifier.weight(1f)
                                                     ) {
                                                         Icon(
-                                                            imageVector = Icons.Filled.MusicNote,
+                                                            imageVector = if (isFileAvailable) Icons.Filled.MusicNote else Icons.Filled.CloudOff,
                                                             contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            tint = if (isFileAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                                             modifier = Modifier.size(16.dp)
                                                         )
                                                         Text(
-                                                            text = filename,
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
+                                                             text = filename,
+                                                             style = MaterialTheme.typography.bodySmall,
+                                                             color = if (isFileAvailable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                             maxLines = 1,
+                                                             overflow = TextOverflow.Ellipsis
+                                                         )
+                                                         if (!isFileAvailable) {
+                                                             Text(
+                                                                 text = "(не скачан)",
+                                                                 style = MaterialTheme.typography.labelSmall,
+                                                                 color = MaterialTheme.colorScheme.error,
+                                                                 fontSize = 10.sp
+                                                             )
+                                                         }
                                                     }
 
                                                     IconButton(

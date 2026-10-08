@@ -63,7 +63,7 @@ actual fun saveTrackFile(basePath: String, artist: String, fileName: String, byt
         artistDir.mkdirs()
     }
 
-    val outputFile = File(artistDir, fileName)
+    val outputFile = File(artistDir, sanitizeKeepSpaces(fileName))
     outputFile.writeBytes(bytes)
     println("MusicStorage: Сохранён файл: ${outputFile.absolutePath}")
 }

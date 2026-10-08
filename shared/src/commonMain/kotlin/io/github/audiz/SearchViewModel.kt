@@ -71,7 +71,6 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     var isLoading by mutableStateOf(false)
         private set
     var errorMessage by mutableStateOf<String?>(null)
-        private set
     var searchResult by mutableStateOf<YandexMusicResponse?>(null)
         private set
 
@@ -1232,7 +1231,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     if (playlist.trackPaths.isEmpty()) {
                         errorMessage = "Плейлист '${playlist.title}' пуст."
                     } else {
-                        errorMessage = "В плейлисте '${playlist.title}' ${playlist.trackPaths.size} трек(ов), но аудиофайлы не найдены на устройстве. Возможно, они были перемещены или удалены."
+                        errorMessage = "В плейлисте '${playlist.title}' ${playlist.trackPaths.size} трек(ов), но файлы еще не скачаны на это устройство. Откройте YamSync («Синхронизация») для быстрой загрузки файлов."
                     }
                 }
             } catch (e: Exception) {

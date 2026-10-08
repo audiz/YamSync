@@ -165,7 +165,8 @@ actual fun saveTrackFile(basePath: String, artist: String, fileName: String, byt
         fileManager.createDirectoryAtPath(artistDir, withIntermediateDirectories = true, attributes = null, error = null)
     }
 
-    val filePath = "$artistDir/$fileName"
+    val cleanFileName = sanitizeKeepSpaces(fileName)
+    val filePath = "$artistDir/$cleanFileName"
     bytes.usePinned { pinned ->
         val data = NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
         data.writeToFile(filePath, atomically = true)

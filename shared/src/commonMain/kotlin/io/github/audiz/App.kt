@@ -125,8 +125,10 @@ fun App() {
                 else -> ""
             }
 
-            val isCurrentTrackDownloaded = searchViewModel.isCurrentTrackSavedToDisk ||
-                (displayTitle.isNotBlank() && searchViewModel.isTrackDownloaded(displayArtist, displayTitle))
+            val isCurrentTrackDownloaded = remember(displayArtist, displayTitle, searchViewModel.isCurrentTrackSavedToDisk) {
+                searchViewModel.isCurrentTrackSavedToDisk ||
+                    (displayTitle.isNotBlank() && searchViewModel.isTrackDownloaded(displayArtist, displayTitle))
+            }
             val isCurrentTrackDownloadedOrLocal = searchViewModel.isCurrentTrackLocal || isCurrentTrackDownloaded
 
             val playerBarState = PlayerBarState(
@@ -366,30 +368,67 @@ fun App() {
 
                             // Вывод лога ошибки на экран в случае сбоя сети
                             searchViewModel.errorMessage?.let { error ->
-                                println(error)
                                 val displayText = if (error.startsWith("⚠️")) error else "⚠️ Ошибка: $error"
+                                val isMissingFilesError = error.contains("YamSync", ignoreCase = true) ||
+                                    error.contains("не найдены на устройстве", ignoreCase = true) ||
+                                    error.contains("не скачаны", ignoreCase = true)
                                 Card(
                                     colors = CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
                                     ),
                                     shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { showLogsDialog = true }
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(
-                                            text = displayText,
-                                            color = MaterialTheme.colorScheme.error,
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Text(
+                                                text = displayText,
+                                                color = MaterialTheme.colorScheme.error,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                modifier = Modifier.weight(1f).clickable { showLogsDialog = true }
+                                            )
+                                            IconButton(
+                                                onClick = { searchViewModel.errorMessage = null },
+                                                modifier = Modifier.size(24.dp).padding(start = 4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Close,
+                                                    contentDescription = "Закрыть",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "📋 Нажмите сюда, чтобы посмотреть и скопировать логи",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontSize = 11.sp
-                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "📋 Нажмите на текст, чтобы открыть логи",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.clickable { showLogsDialog = true }
+                                            )
+                                            if (isMissingFilesError) {
+                                                TextButton(
+                                                    onClick = {
+                                                        searchViewModel.errorMessage = null
+                                                        showYamSyncDialog = true
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(28.dp)
+                                                ) {
+                                                    Text("🔄 Открыть YamSync", fontSize = 11.sp)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))

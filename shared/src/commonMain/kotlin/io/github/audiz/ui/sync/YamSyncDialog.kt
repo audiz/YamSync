@@ -111,7 +111,7 @@ fun YamSyncDialog(
                     Box(modifier = Modifier.weight(1f)) {
                         when (selectedTabIndex) {
                             0 -> YamSyncPairingTab(syncManager = syncManager, isCompact = isCompact)
-                            1 -> YamSyncPlaylistsTab(syncManager = syncManager)
+                            1 -> YamSyncPlaylistsTab(syncManager = syncManager, onNavigateToFiles = { selectedTabIndex = 2 })
                             2 -> YamSyncFilesTab(syncManager = syncManager)
                         }
                     }
@@ -457,7 +457,10 @@ private fun YamSyncPairingTab(
  * 🔀 Вкладка 2: Разрешение конфликтов плейлистов (Merge Request)
  */
 @Composable
-private fun YamSyncPlaylistsTab(syncManager: YamSyncManager) {
+private fun YamSyncPlaylistsTab(
+    syncManager: YamSyncManager,
+    onNavigateToFiles: () -> Unit
+) {
     if (!syncManager.isConnected) {
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -513,10 +516,37 @@ private fun YamSyncPlaylistsTab(syncManager: YamSyncManager) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Button(onClick = { syncManager.applyPlaylistMerge() }) {
-                    Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Применить слияние")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (syncManager.missingFiles.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = { syncManager.applyPlaylistMerge(autoDownloadFiles = false) },
+                            enabled = !syncManager.isDownloadingFiles,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Только плейлисты", fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                syncManager.applyPlaylistMerge(autoDownloadFiles = true)
+                                onNavigateToFiles()
+                            },
+                            enabled = !syncManager.isDownloadingFiles,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Применить и скачать (${syncManager.missingFiles.size})", fontSize = 12.sp)
+                        }
+                    } else {
+                        Button(
+                            onClick = { syncManager.applyPlaylistMerge(autoDownloadFiles = false) }
+                        ) {
+                            Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Применить слияние")
+                        }
+                    }
                 }
             }
         }
@@ -824,12 +854,22 @@ private fun YamSyncFilesTab(syncManager: YamSyncManager) {
             Box(modifier = Modifier.padding(12.dp)) {
                 Button(
                     onClick = { syncManager.downloadSelectedFiles() },
-                    enabled = syncManager.selectedFiles.isNotEmpty(),
+                    enabled = syncManager.selectedFiles.isNotEmpty() && !syncManager.isDownloadingFiles,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Скачать выбранные файлы (${syncManager.selectedFiles.size})")
+                    if (syncManager.isDownloadingFiles) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Идёт скачивание...")
+                    } else {
+                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Скачать выбранные файлы (${syncManager.selectedFiles.size})")
+                    }
                 }
             }
         }

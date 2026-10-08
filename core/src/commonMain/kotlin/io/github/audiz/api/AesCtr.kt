@@ -1,6 +1,10 @@
 package io.github.audiz.api
 
-fun decryptAesCtr(ciphertext: ByteArray, key: ByteArray, iv: ByteArray): ByteArray {
+expect fun decryptAesCtr(ciphertext: ByteArray, key: ByteArray, iv: ByteArray): ByteArray
+
+expect fun decryptAesCtrChunk(ciphertext: ByteArray, key: ByteArray, byteOffset: Long): ByteArray
+
+internal fun decryptAesCtrPureKotlin(ciphertext: ByteArray, key: ByteArray, iv: ByteArray): ByteArray {
     val result = ByteArray(ciphertext.size)
     val counter = iv.copyOf()
     val rkeys = aesExpandKey128(key)
@@ -26,7 +30,7 @@ fun decryptAesCtr(ciphertext: ByteArray, key: ByteArray, iv: ByteArray): ByteArr
     return result
 }
 
-fun decryptAesCtrChunk(ciphertext: ByteArray, key: ByteArray, byteOffset: Long): ByteArray {
+internal fun decryptAesCtrChunkPureKotlin(ciphertext: ByteArray, key: ByteArray, byteOffset: Long): ByteArray {
     if (ciphertext.isEmpty()) return ByteArray(0)
     val result = ByteArray(ciphertext.size)
     val rkeys = aesExpandKey128(key)
