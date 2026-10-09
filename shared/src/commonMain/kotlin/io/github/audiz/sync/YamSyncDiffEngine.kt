@@ -24,6 +24,7 @@ object YamSyncDiffEngine {
         val allTitles = (localMap.keys + remoteMap.keys).toList()
 
         val remoteAvailableKeys = remoteManifest.availableFiles.map { it.matchKey }.toSet()
+        val remoteAvailableNames = remoteManifest.availableFiles.map { it.fileName.trim().lowercase() }.toSet()
 
         for (titleKey in allTitles) {
             val localPl = localMap[titleKey]
@@ -47,7 +48,9 @@ object YamSyncDiffEngine {
                 }
                 localPl == null && remotePl != null -> {
                     // Если на удаленном устройстве в плейлисте 0 реальных файлов на диске, не навязываем его
-                    val hasFilesOnRemote = remotePl.tracks.isEmpty() || remotePl.tracks.any { it.matchKey in remoteAvailableKeys }
+                    val hasFilesOnRemote = remotePl.tracks.isEmpty() || remotePl.tracks.any {
+                        it.matchKey in remoteAvailableKeys || it.fileName.trim().lowercase() in remoteAvailableNames
+                    }
                     val defaultResolution = if (hasFilesOnRemote) YamSyncResolution.TAKE_REMOTE else YamSyncResolution.KEEP_LOCAL
                     result.add(
                         YamSyncPlaylistDiff(
@@ -183,16 +186,20 @@ object YamSyncDiffEngine {
         remoteAvailableFiles: List<YamSyncTrack>
     ): List<YamSyncTrack> {
         val localKeys = localAvailableFiles.map { it.matchKey }.toSet()
+        val localFileNames = localAvailableFiles.map { it.fileName.trim().lowercase() }.toSet()
         val remoteMap = remoteAvailableFiles.associateBy { it.matchKey }
+        val remoteByFileName = remoteAvailableFiles.associateBy { it.fileName.trim().lowercase() }
 
         val missingTracks = mutableListOf<YamSyncTrack>()
         val seenMissingKeys = mutableSetOf<String>()
 
         for (pl in mergedPlaylists) {
             for (track in pl.tracks) {
-                if (track.matchKey !in localKeys && seenMissingKeys.add(track.matchKey)) {
+                val isLocal = track.matchKey in localKeys || track.fileName.trim().lowercase() in localFileNames
+                if (!isLocal && seenMissingKeys.add(track.matchKey)) {
                     // Файл отсутствует у нас. Скачать можно только то, что физически есть на удаленном устройстве!
                     val remoteTrack = remoteMap[track.matchKey]
+                        ?: remoteByFileName[track.fileName.trim().lowercase()]
                     if (remoteTrack != null) {
                         missingTracks.add(remoteTrack)
                     }

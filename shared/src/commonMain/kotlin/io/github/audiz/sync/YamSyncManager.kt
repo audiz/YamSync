@@ -251,13 +251,21 @@ class YamSyncManager(
             port = activeServer?.port ?: 43594
         )
 
-        val availableFiles = downloadedTracks.map { track ->
-            val cleanPath = track.realId?.ifBlank { track.id.removePrefix("local:") } ?: track.id.removePrefix("local:")
-            val fileName = cleanPath.substringAfterLast('/').substringAfterLast('\\')
+        val availableFiles = mutableListOf<YamSyncTrack>()
+        val seenAvailablePaths = mutableSetOf<String>()
+        val seenAvailableFileNames = mutableSetOf<String>()
+
+        fun addTrackIfNew(cleanPath: String, track: FullTrackInfo) {
+            val fn = cleanPath.substringAfterLast('/').substringAfterLast('\\')
+            if (fn.isBlank()) return
+            val fnLower = fn.lowercase()
+            val pathLower = cleanPath.lowercase()
+            if (pathLower in seenAvailablePaths || fnLower in seenAvailableFileNames) return
+
             val artistName = track.artists.firstOrNull()?.name?.trim()?.ifBlank { "Unknown Artist" } ?: "Unknown Artist"
-            val titleName = track.title.trim().ifBlank { fileName.substringBeforeLast('.') }
-            YamSyncTrack(
-                fileName = fileName,
+            val titleName = track.title.trim().ifBlank { fn.substringBeforeLast('.') }
+            val syncTrack = YamSyncTrack(
+                fileName = fn,
                 artist = artistName,
                 title = titleName,
                 album = track.albums.firstOrNull()?.title ?: "",
@@ -265,24 +273,112 @@ class YamSyncManager(
                 fileSize = getFileSize(cleanPath),
                 checksum = "${artistName.lowercase()}_${titleName.lowercase()}"
             )
+            availableFiles.add(syncTrack)
+            seenAvailablePaths.add(pathLower)
+            seenAvailableFileNames.add(fnLower)
+        }
+
+        for (track in downloadedTracks) {
+            val cleanPath = track.realId?.ifBlank { track.id.removePrefix("local:") } ?: track.id.removePrefix("local:")
+            addTrackIfNew(cleanPath, track)
+        }
+
+        // Также обязательно добавляем все существующие на диске локальные файлы из плейлистов
+        val allPlaylistPaths = localPls.flatMap { it.trackPaths }.distinct()
+        val playlistTracksInfo = getTracksFromLocalPaths(allPlaylistPaths)
+        for (track in playlistTracksInfo) {
+            val cleanPath = track.realId?.ifBlank { track.id.removePrefix("local:") } ?: track.id.removePrefix("local:")
+            addTrackIfNew(cleanPath, track)
+        }
+
+        // Для путей из плейлистов, которые не вернулись в getTracksFromLocalPaths, но реально есть на диске
+        for (pl in localPls) {
+            for (path in pl.trackPaths) {
+                val clean = path.removePrefix("local:").removePrefix("file://").removePrefix("file:")
+                val fn = clean.substringAfterLast('/').substringAfterLast('\\')
+                if (fn.isBlank() || fn.lowercase() in seenAvailableFileNames) continue
+                val existing = when {
+                    localFileExists(clean) -> clean
+                    localFileExists(path) -> path
+                    else -> resolveLocalPath(clean).takeIf { localFileExists(it) }
+                }
+                if (existing != null) {
+                    val rawName = fn.substringBeforeLast('.')
+                    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+                    var artist = "Unknown Artist"
+                    var title = rawName
+                    for (delim in delimiters) {
+                        if (rawName.contains(delim)) {
+                            val parts = rawName.split(delim, limit = 2)
+                            artist = parts[0].trim()
+                            title = parts[1].trim()
+                            break
+                        }
+                    }
+                    val syncTrack = YamSyncTrack(
+                        fileName = fn,
+                        artist = artist,
+                        title = title,
+                        durationMs = 0L,
+                        fileSize = getFileSize(existing),
+                        checksum = "${artist.lowercase()}_${title.lowercase()}"
+                    )
+                    availableFiles.add(syncTrack)
+                    seenAvailablePaths.add(existing.lowercase())
+                    seenAvailableFileNames.add(fn.lowercase())
+                }
+            }
         }
 
         // Кэшируем прямые пути для быстрого O(1) поиска сервером при отдаче файлов
         localFilePathsByMatchKey.clear()
+        fun registerPath(key: String?, targetPath: String) {
+            if (key.isNullOrBlank()) return
+            localFilePathsByMatchKey[key.trim().lowercase()] = targetPath
+        }
+
         for (track in downloadedTracks) {
             val cleanPath = track.realId?.ifBlank { track.id.removePrefix("local:") } ?: track.id.removePrefix("local:")
             val fn = cleanPath.substringAfterLast('/').substringAfterLast('\\')
-            localFilePathsByMatchKey[fn.lowercase()] = cleanPath
             val artistName = track.artists.firstOrNull()?.name?.trim()?.ifBlank { "Unknown Artist" } ?: "Unknown Artist"
             val titleName = track.title.trim().ifBlank { fn.substringBeforeLast('.') }
             val key = "${artistName.lowercase()}_${titleName.lowercase()}"
-            localFilePathsByMatchKey[key] = cleanPath
+            registerPath(fn, cleanPath)
+            registerPath(sanitizeKeepSpaces(fn), cleanPath)
+            registerPath(key, cleanPath)
         }
+
+        for (track in availableFiles) {
+            val fn = track.fileName
+            val path = seenAvailablePaths.firstOrNull { it.endsWith(fn.lowercase()) && localFileExists(it) }
+            if (path != null) {
+                registerPath(fn, path)
+                registerPath(sanitizeKeepSpaces(fn), path)
+                registerPath(track.checksum, path)
+                registerPath(track.matchKey, path)
+            }
+        }
+
         for (pl in localPls) {
             for (path in pl.trackPaths) {
-                if (localFileExists(path) || localFileExists(resolveLocalPath(path))) {
-                    val fn = path.substringAfterLast('/').substringAfterLast('\\')
-                    localFilePathsByMatchKey[fn.lowercase()] = path
+                val clean = path.removePrefix("local:").removePrefix("file://").removePrefix("file:")
+                val existing = when {
+                    localFileExists(clean) -> clean
+                    localFileExists(path) -> path
+                    else -> resolveLocalPath(clean).takeIf { localFileExists(it) }
+                }
+                if (existing != null) {
+                    val fn = clean.substringAfterLast('/').substringAfterLast('\\')
+                    registerPath(fn, existing)
+                    registerPath(sanitizeKeepSpaces(fn), existing)
+                    val matchedTrack = availableFiles.firstOrNull {
+                        it.fileName.equals(fn, ignoreCase = true) ||
+                        it.fileName.equals(sanitizeKeepSpaces(fn), ignoreCase = true)
+                    }
+                    if (matchedTrack != null) {
+                        registerPath(matchedTrack.checksum, existing)
+                        registerPath(matchedTrack.matchKey, existing)
+                    }
                 }
             }
         }
@@ -290,7 +386,11 @@ class YamSyncManager(
         val syncPlaylists = localPls.map { pl ->
             val plTracks = pl.trackPaths.mapNotNull { path ->
                 val fileName = path.substringAfterLast('/').substringAfterLast('\\')
-                availableFiles.firstOrNull { it.fileName.equals(fileName, ignoreCase = true) } ?: run {
+                val cleanFileName = sanitizeKeepSpaces(fileName)
+                availableFiles.firstOrNull {
+                    it.fileName.equals(fileName, ignoreCase = true) ||
+                    it.fileName.equals(cleanFileName, ignoreCase = true)
+                } ?: run {
                     val rawName = fileName.substringBeforeLast('.')
                     val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
                     var artist = "Unknown Artist"
@@ -404,31 +504,37 @@ class YamSyncManager(
         val cleanFn = sanitizeKeepSpaces(fileName).trim()
         val base = getMusicStoragePath()
 
+        // Helper to test if a candidate path exists on disk and return its resolved path
+        fun verify(candidate: String?): String? {
+            if (candidate.isNullOrBlank()) return null
+            val clean = candidate.trim().removePrefix("local:").removePrefix("file://").removePrefix("file:")
+            val res = resolveLocalPath(clean)
+            if (res.isNotBlank() && localFileExists(res)) return res
+            if (localFileExists(clean)) return clean
+            return null
+        }
+
         // 1. O(1) поиск по сохраненным прямым путям локальной медиатеки
         val direct = localFilePathsByMatchKey[cleanFn.lowercase()]
             ?: localFilePathsByMatchKey[fileName.trim().lowercase()]
             ?: if (checksum.isNotBlank()) localFilePathsByMatchKey[checksum.trim().lowercase()] else null
-        if (direct != null && localFileExists(direct)) {
-            val res = resolveLocalPath(direct)
-            if (localFileExists(res)) return res
-        }
+        verify(direct)?.let { return it }
 
         // 2. Быстрый поиск через платформенный resolveLocalPath
-        val resolved = resolveLocalPath(cleanFn)
-        if (localFileExists(resolved)) return resolved
-
-        val fallback = "$base/$cleanFn"
-        if (localFileExists(fallback)) return fallback
+        verify(cleanFn)?.let { return it }
+        verify(fileName)?.let { return it }
+        verify("$base/$cleanFn")?.let { return it }
+        verify("$base/$fileName")?.let { return it }
 
         // 3. Поиск по уже сформированному кэшу доступных файлов манифеста
         val cachedTrack = localManifestCache?.availableFiles?.firstOrNull {
             it.fileName.equals(fileName, ignoreCase = true) ||
             it.fileName.equals(cleanFn, ignoreCase = true) ||
-            (checksum.isNotBlank() && it.checksum.equals(checksum, ignoreCase = true))
+            (checksum.isNotBlank() && it.checksum.equals(checksum, ignoreCase = true)) ||
+            (checksum.isNotBlank() && it.matchKey.equals(checksum, ignoreCase = true))
         }
         if (cachedTrack != null) {
-            val p = resolveLocalPath(cachedTrack.fileName)
-            if (localFileExists(p)) return p
+            verify(cachedTrack.fileName)?.let { return it }
 
             val cleanArt = sanitizeDirName(cachedTrack.artist.ifBlank { "Unknown Artist" })
             val fn = sanitizeKeepSpaces(cachedTrack.fileName)
@@ -443,8 +549,7 @@ class YamSyncManager(
                 "$base/LQ/$fn"
             )
             for (cand in candidates) {
-                val resolvedCand = resolveLocalPath(cand)
-                if (localFileExists(resolvedCand)) return resolvedCand
+                verify(cand)?.let { return it }
             }
         }
 
@@ -457,7 +562,7 @@ class YamSyncManager(
         }
         if (byName != null) {
             val p = byName.realId ?: byName.id.removePrefix("local:")
-            if (localFileExists(p)) return p
+            verify(p)?.let { return it }
         }
 
         if (checksum.isNotBlank()) {
@@ -469,7 +574,7 @@ class YamSyncManager(
             }
             if (byChecksum != null) {
                 val p = byChecksum.realId ?: byChecksum.id.removePrefix("local:")
-                if (localFileExists(p)) return p
+                verify(p)?.let { return it }
             }
         }
 
@@ -747,7 +852,7 @@ class YamSyncManager(
             applyRemoteMergedPlaylists(merged)
 
             // Если мы клиент — отправляем объединенные плейлисты обратно на хост
-            if (pair != null && activeServer == null) {
+            if (pair != null && !isHostingMode) {
                 withContext(DispatcherIO) {
                     client.sendMerge(pair.ip, pair.port, pair.token, YamSyncMergePayload(merged))
                 }
@@ -756,11 +861,17 @@ class YamSyncManager(
             statusMessage = "✅ Плейлисты успешно объединены!"
             userResolutions.clear()
             userExplicitlyUnselectedFiles.clear()
-            refreshManifestAndDiff()
             onPlaylistsUpdated()
 
-            if (autoDownloadFiles && missingFiles.isNotEmpty()) {
-                downloadSelectedFiles()
+            if (autoDownloadFiles) {
+                if (selectedFiles.isEmpty() && missingFiles.isNotEmpty()) {
+                    selectedFiles.addAll(missingFiles.map { it.matchKey })
+                }
+                if (missingFiles.isNotEmpty()) {
+                    downloadSelectedFiles()
+                }
+            } else {
+                refreshManifestAndDiff()
             }
         }
     }
@@ -782,6 +893,7 @@ class YamSyncManager(
                 var failCount = 0
                 val errorDetails = mutableListOf<String>()
                 val basePath = getMusicStoragePath()
+                val downloadedFilePathsByFileName = mutableMapOf<String, String>()
 
                 for (track in toDownload) {
                     currentIdx++
@@ -799,9 +911,14 @@ class YamSyncManager(
                                 val cleanArtist = sanitizeDirName(track.artist.ifBlank { "Unknown Artist" })
                                 val cleanFileName = sanitizeKeepSpaces(track.fileName)
                                 val syncBasePath = if (basePath.endsWith('/') || basePath.endsWith('\\')) "${basePath}YamSync" else "$basePath/YamSync"
+                                val sep = if (basePath.contains('\\')) "\\" else "/"
+                                val savedFilePath = "${syncBasePath.trimEnd('/', '\\')}$sep$cleanArtist$sep$cleanFileName"
                                 withContext(DispatcherIO) {
                                     saveTrackFile(syncBasePath, cleanArtist, cleanFileName, bytes)
                                 }
+                                downloadedFilePathsByFileName[cleanFileName.lowercase()] = savedFilePath
+                                downloadedFilePathsByFileName[track.fileName.lowercase()] = savedFilePath
+
                                 successCount++
                                 fileTransfers[track.matchKey] = YamSyncTransferProgress(
                                     fileName = track.fileName,
@@ -846,11 +963,17 @@ class YamSyncManager(
                     val updatedLocal = allLocal.map { pl ->
                         val updatedPaths = pl.trackPaths.map { originalPath ->
                             val fileName = originalPath.substringAfterLast('/').substringAfterLast('\\')
+                            val cleanFileName = sanitizeKeepSpaces(fileName)
+                            val directSaved = downloadedFilePathsByFileName[cleanFileName.lowercase()]
+                                ?: downloadedFilePathsByFileName[fileName.lowercase()]
+
                             val matched = freshDownloaded.firstOrNull {
                                 val p = it.realId ?: it.id.removePrefix("local:")
-                                p.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
+                                val fn = p.substringAfterLast('/').substringAfterLast('\\')
+                                fn.equals(fileName, ignoreCase = true) || fn.equals(cleanFileName, ignoreCase = true)
                             }
-                            matched?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
+                            directSaved
+                                ?: matched?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
                                 ?: resolveLocalPath(originalPath).takeIf { localFileExists(it) }
                                 ?: originalPath
                         }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
@@ -884,15 +1007,23 @@ class YamSyncManager(
 
         val updatedList = remotePlaylists.map { syncPl ->
             val trackPaths = syncPl.tracks.mapNotNull { syncTrack ->
-                // Ищем файл на диске
-                val found = downloadedTracks.firstOrNull {
-                    it.title.equals(syncTrack.title, ignoreCase = true) ||
-                    (it.realId ?: "").endsWith(syncTrack.fileName, ignoreCase = true)
-                }
                 val cleanArtist = sanitizeDirName(syncTrack.artist.ifBlank { "Unknown Artist" })
                 val cleanFileName = sanitizeKeepSpaces(syncTrack.fileName)
                 val sep = if (basePath.contains('\\')) "\\" else "/"
                 val fallbackCandidate = "${basePath.trimEnd('/', '\\')}${sep}YamSync$sep$cleanArtist$sep$cleanFileName"
+
+                // 1. Проверяем, существует ли уже файл на диске
+                val existingOnDisk = resolveLocalPath(syncTrack.fileName).takeIf { localFileExists(it) }
+                    ?: resolveLocalPath(fallbackCandidate).takeIf { localFileExists(it) }
+                if (existingOnDisk != null) return@mapNotNull existingOnDisk
+
+                // 2. Ищем среди уже скачанных треков
+                val found = downloadedTracks.firstOrNull {
+                    val fn = (it.realId ?: it.id.removePrefix("local:")).substringAfterLast('/').substringAfterLast('\\')
+                    fn.equals(syncTrack.fileName, ignoreCase = true) ||
+                    fn.equals(cleanFileName, ignoreCase = true) ||
+                    it.title.equals(syncTrack.title, ignoreCase = true)
+                }
                 found?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
                     ?: fallbackCandidate
             }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }

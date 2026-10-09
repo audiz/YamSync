@@ -252,4 +252,120 @@ class YamSyncTest {
         assertFalse(manager.selectedFiles.contains(trackC.matchKey))
         assertTrue(manager.selectedFiles.contains(trackB.matchKey))
     }
+
+    @Test
+    fun testFindMissingFilesMatchesByFileNameFallback() {
+        // Track on remote peer where artist was parsed as "Keep-Shelly-In-Athens"
+        val remoteTrack = YamSyncTrack(
+            fileName = "Keep-Shelly-In-Athens-Nobody.mp3",
+            artist = "Keep-Shelly-In-Athens",
+            title = "Nobody",
+            checksum = "keep-shelly-in-athens_nobody"
+        )
+        // Track in merged playlist where artist was Unknown
+        val playlistTrack = YamSyncTrack(
+            fileName = "Keep-Shelly-In-Athens-Nobody.mp3",
+            artist = "Unknown Artist",
+            title = "Keep-Shelly-In-Athens-Nobody",
+            checksum = "unknown artist_keep-shelly-in-athens-nobody"
+        )
+
+        val mergedPlaylists = listOf(
+            YamSyncPlaylist(
+                id = "pl_1",
+                title = "Road Trip",
+                tracks = listOf(playlistTrack)
+            )
+        )
+
+        // Local peer has no files
+        val localAvailable = emptyList<YamSyncTrack>()
+        // Remote peer has the file
+        val remoteAvailable = listOf(remoteTrack)
+
+        val missing = YamSyncDiffEngine.findMissingFiles(
+            mergedPlaylists = mergedPlaylists,
+            localAvailableFiles = localAvailable,
+            remoteAvailableFiles = remoteAvailable
+        )
+
+        // Must find remoteTrack via fileName fallback even though checksum/matchKey differed!
+        assertEquals(1, missing.size)
+        assertEquals("Keep-Shelly-In-Athens-Nobody.mp3", missing[0].fileName)
+        assertEquals(remoteTrack, missing[0])
+    }
+
+    @Test
+    fun testFindMissingFilesDoesNotReportAlreadyDownloadedFileWithDifferentMetadata() {
+        val localTrack = YamSyncTrack(
+            fileName = "Keep-Shelly-In-Athens-Nobody.mp3",
+            artist = "Local Artist",
+            title = "Local Title",
+            checksum = "local_artist_local_title"
+        )
+        val remoteTrack = YamSyncTrack(
+            fileName = "Keep-Shelly-In-Athens-Nobody.mp3",
+            artist = "Remote Artist",
+            title = "Remote Title",
+            checksum = "remote_artist_remote_title"
+        )
+
+        val mergedPlaylists = listOf(
+            YamSyncPlaylist(
+                id = "pl_1",
+                title = "Road Trip",
+                tracks = listOf(remoteTrack)
+            )
+        )
+
+        val missing = YamSyncDiffEngine.findMissingFiles(
+            mergedPlaylists = mergedPlaylists,
+            localAvailableFiles = listOf(localTrack),
+            remoteAvailableFiles = listOf(remoteTrack)
+        )
+
+        // The file is already on the local device, so it must NOT be marked as missing!
+        assertEquals(0, missing.size)
+    }
+
+    @Test
+    fun testBuildLocalManifestIncludesLocalPlaylistTracksNotInBasePathScan() {
+        val baseDir = java.nio.file.Files.createTempDirectory("yamsync_base").toFile()
+        val customDir = java.nio.file.Files.createTempDirectory("yamsync_custom").toFile()
+        try {
+            // Create a track inside custom directory (outside basePath)
+            val customFile = java.io.File(customDir, "Keep-Shelly-In-Athens-Nobody.mp3")
+            customFile.writeBytes("ID3dummy_audio_bytes_123456789".toByteArray())
+
+            // Create a local playlist referencing this custom file
+            val pl = LocalPlaylist(
+                id = "pl_local",
+                title = "В дорогу",
+                trackPaths = listOf(customFile.absolutePath)
+            )
+            saveLocalPlaylists(baseDir.absolutePath, listOf(pl))
+
+            val manager = YamSyncManager(
+                scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
+                getMusicStoragePath = { baseDir.absolutePath },
+                onPlaylistsUpdated = {}
+            )
+
+            val manifest = manager.buildLocalManifest()
+
+            // 1. Manifest availableFiles MUST contain this local file even though it's outside basePath!
+            val available = manifest.availableFiles.firstOrNull { it.fileName == "Keep-Shelly-In-Athens-Nobody.mp3" }
+            assertNotNull(available, "availableFiles must include local track from playlist")
+            assertTrue(available.fileSize > 0, "fileSize must be positive")
+
+            // 2. Playlist tracks must have valid track metadata
+            val plTrack = manifest.playlists[0].tracks.firstOrNull { it.fileName == "Keep-Shelly-In-Athens-Nobody.mp3" }
+            assertNotNull(plTrack, "playlist tracks must include the track")
+            assertEquals(available.matchKey, plTrack.matchKey)
+        } finally {
+            baseDir.deleteRecursively()
+            customDir.deleteRecursively()
+        }
+    }
 }
+

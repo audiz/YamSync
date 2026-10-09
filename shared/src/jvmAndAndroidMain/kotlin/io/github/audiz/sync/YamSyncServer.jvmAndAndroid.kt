@@ -327,8 +327,10 @@ actual class YamSyncServer actual constructor(
         return query.split("&").mapNotNull { part ->
             val idx = part.indexOf('=')
             if (idx > 0) {
-                val k = part.substring(0, idx)
-                val v = try { URLDecoder.decode(part.substring(idx + 1), "UTF-8") } catch (_: Exception) { part.substring(idx + 1) }
+                val rawK = part.substring(0, idx)
+                val rawV = part.substring(idx + 1)
+                val k = try { URLDecoder.decode(rawK, "UTF-8") } catch (_: Exception) { rawK }
+                val v = try { URLDecoder.decode(rawV, "UTF-8") } catch (_: Exception) { rawV }
                 k to v
             } else null
         }.toMap()

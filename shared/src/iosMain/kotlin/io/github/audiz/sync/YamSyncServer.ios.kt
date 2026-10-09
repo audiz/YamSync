@@ -353,7 +353,11 @@ actual class YamSyncServer actual constructor(
         return query.split("&").mapNotNull { part ->
             val idx = part.indexOf('=')
             if (idx > 0) {
-                part.substring(0, idx) to part.substring(idx + 1)
+                val rawK = part.substring(0, idx)
+                val rawV = part.substring(idx + 1)
+                val k = (rawK as NSString).stringByRemovingPercentEncoding ?: rawK.replace("+", " ")
+                val v = (rawV as NSString).stringByRemovingPercentEncoding ?: rawV.replace("+", " ")
+                k to v
             } else null
         }.toMap()
     }
