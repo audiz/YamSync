@@ -812,7 +812,10 @@ private fun LocalPlaylistsTab(
                         ) {
                             val availableCount = remember(playlist.trackPaths) {
                                 playlist.trackPaths.count { path ->
-                                    localFileExists(resolveLocalPath(path))
+                                    localFileExists(resolveLocalPath(path)) || run {
+                                        val fn = path.substringAfterLast('/').substringAfterLast('\\')
+                                        fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
+                                    }
                                 }
                             }
                             val isFullyAvailable = availableCount == playlist.trackCount
@@ -1015,7 +1018,10 @@ private fun LocalPlaylistsTab(
                                                 .substringAfterLast('\\')
                                                 .substringBeforeLast('.')
                                             val isFileAvailable = remember(trackPath) {
-                                                localFileExists(resolveLocalPath(trackPath))
+                                                localFileExists(resolveLocalPath(trackPath)) || run {
+                                                    val fn = trackPath.substringAfterLast('/').substringAfterLast('\\')
+                                                    fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
+                                                }
                                             }
 
                                             Surface(
@@ -1025,7 +1031,12 @@ private fun LocalPlaylistsTab(
                                                     .fillMaxWidth()
                                                     .clickable {
                                                         if (isFileAvailable) {
-                                                            viewModel.openLocalPlaylist(playlist, restoreTrackId = trackPath, autoPlayFirst = true)
+                                                            val resolved = resolveLocalPath(trackPath).takeIf { localFileExists(it) }
+                                                                ?: run {
+                                                                    val fn = trackPath.substringAfterLast('/').substringAfterLast('\\')
+                                                                    resolveLocalPath(fn).takeIf { localFileExists(it) }
+                                                                } ?: trackPath
+                                                            viewModel.openLocalPlaylist(playlist, restoreTrackId = resolved, autoPlayFirst = true)
                                                             onDismiss()
                                                         } else if (onOpenSync != null) {
                                                             onDismiss()

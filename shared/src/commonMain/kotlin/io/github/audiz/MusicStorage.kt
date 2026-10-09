@@ -96,6 +96,12 @@ fun sanitizeKeepSpaces(input: String): String {
     return input.replace(illegalChars, "_")
 }
 
+/** Очистка недопустимых символов в именах папок */
+fun sanitizeDirName(name: String): String {
+    val illegalChars = Regex("[\\\\/:*?\"<>|]")
+    return name.replace(illegalChars, "_").trim().ifEmpty { "Unknown" }
+}
+
 /** Получить листинг содержимого директории (подпапки и аудиофайлы) для встроенного проводника */
 expect fun listFolderContents(folderPath: String, rootPath: String? = null): io.github.audiz.models.FolderListing
 

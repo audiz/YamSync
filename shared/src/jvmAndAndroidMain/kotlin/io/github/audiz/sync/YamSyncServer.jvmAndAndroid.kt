@@ -24,7 +24,8 @@ actual class YamSyncServer actual constructor(
     private val getManifest: () -> YamSyncManifest,
     private val resolveFilePath: (fileName: String, checksum: String) -> String?,
     private val onMergeReceived: (YamSyncMergePayload) -> Unit,
-    private val onClientConnected: (YamSyncDevice) -> Unit
+    private val onClientConnected: (YamSyncDevice) -> Unit,
+    private val onManifestReceived: ((YamSyncManifest) -> Unit)?
 ) {
     private var serverSocket: ServerSocket? = null
     private var activePort: Int = 0
@@ -156,6 +157,24 @@ actual class YamSyncServer actual constructor(
                 }
 
                 "/yamsync/v1/manifest" -> {
+                    if (method == "POST") {
+                        val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
+                        val bodyStr = if (contentLength > 0) {
+                            val chars = CharArray(contentLength)
+                            reader.read(chars, 0, contentLength)
+                            String(chars)
+                        } else ""
+
+                        if (bodyStr.isNotBlank()) {
+                            try {
+                                val clientManifest = syncJson.decodeFromString(YamSyncManifest.serializer(), bodyStr)
+                                onManifestReceived?.invoke(clientManifest)
+                            } catch (t: Throwable) {
+                                println("⚡ [YamSyncServer] Ошибка декодирования client manifest: ${t.message}")
+                            }
+                        }
+                    }
+
                     val manifest = getManifest()
                     val body = syncJson.encodeToString(YamSyncManifest.serializer(), manifest).encodeToByteArray()
                     sendResponse(output, 200, "OK", mapOf("Content-Type" to "application/json"), body)

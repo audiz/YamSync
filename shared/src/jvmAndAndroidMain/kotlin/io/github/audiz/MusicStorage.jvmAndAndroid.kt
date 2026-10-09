@@ -19,10 +19,6 @@ private val playlistJson = Json {
     isLenient = true
 }
 
-/** Очистка имени папки/файла от запрещённых символов */
-private fun sanitizeDirName(name: String): String {
-    return name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
-}
 
 private fun sanitizePlaylistFileName(title: String): String {
     val clean = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
@@ -571,10 +567,43 @@ actual fun exportPlaylistToM3u8(basePath: String, playlist: LocalPlaylist, track
 actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
     val results = mutableListOf<FullTrackInfo>()
     val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+    var cachedScanned: List<FullTrackInfo>? = null
+
     for (p in paths) {
         val resolved = resolveLocalPath(p)
-        val file = File(resolved)
-        if (!file.exists() || !file.isFile) continue
+        var file = File(resolved)
+        if (!file.exists() || !file.isFile) {
+            val fileName = p.substringAfterLast('/').substringAfterLast('\\')
+            if (fileName.isNotBlank()) {
+                val fallbackResolved = resolveLocalPath(fileName)
+                val fallbackFile = File(fallbackResolved)
+                if (fallbackFile.exists() && fallbackFile.isFile) {
+                    file = fallbackFile
+                } else {
+                    if (cachedScanned == null) {
+                        val baseMusic = loadMusicStoragePath() ?: getDefaultMusicDir()
+                        cachedScanned = scanDownloadedTracks(baseMusic)
+                    }
+                    val matched = cachedScanned.firstOrNull {
+                        val real = it.realId ?: it.id.removePrefix("local:")
+                        real.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
+                    }
+                    if (matched != null) {
+                        val matchedPath = matched.realId?.ifBlank { matched.id.removePrefix("local:") } ?: matched.id.removePrefix("local:")
+                        val mf = File(matchedPath)
+                        if (mf.exists() && mf.isFile) {
+                            file = mf
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!file.exists() || !file.isFile) {
+            println("MusicStorage: ⚠️ Трек плейлиста не найден на диске: '$p'")
+            appendLogToFile("MusicStorage: ⚠️ Трек плейлиста не найден на диске: '$p'")
+            continue
+        }
         val meta = io.github.audiz.util.AudioHeaderParser.extractAudioMetadata(file)
         val rawName = file.nameWithoutExtension
         var artist = meta.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist"

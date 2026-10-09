@@ -14,7 +14,8 @@ expect class YamSyncServer(
     getManifest: () -> YamSyncManifest,
     resolveFilePath: (fileName: String, checksum: String) -> String?,
     onMergeReceived: (YamSyncMergePayload) -> Unit,
-    onClientConnected: (YamSyncDevice) -> Unit
+    onClientConnected: (YamSyncDevice) -> Unit,
+    onManifestReceived: ((YamSyncManifest) -> Unit)? = null
 ) {
     val port: Int
     val isRunning: Boolean

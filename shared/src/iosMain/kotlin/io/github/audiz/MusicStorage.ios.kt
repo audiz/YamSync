@@ -30,9 +30,6 @@ private val playlistJson = Json {
     isLenient = true
 }
 
-private fun sanitizeDirName(name: String): String {
-    return name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
-}
 
 actual fun getDefaultMusicDir(): String {
     val paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true)
@@ -626,9 +623,40 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
     val fileManager = NSFileManager.defaultManager
     val foundTracks = mutableListOf<FullTrackInfo>()
     val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+    var cachedScanned: List<FullTrackInfo>? = null
+
     for (rawPath in paths) {
-        val fullPath = resolveIosLocalPath(rawPath)
-        if (!fileManager.fileExistsAtPath(fullPath)) continue
+        var fullPath = resolveIosLocalPath(rawPath)
+        if (!fileManager.fileExistsAtPath(fullPath)) {
+            val fileName = rawPath.substringAfterLast('/').substringAfterLast('\\')
+            if (fileName.isNotBlank()) {
+                val fallbackResolved = resolveIosLocalPath(fileName)
+                if (fileManager.fileExistsAtPath(fallbackResolved)) {
+                    fullPath = fallbackResolved
+                } else {
+                    if (cachedScanned == null) {
+                        val baseMusic = loadMusicStoragePath() ?: getDefaultMusicDir()
+                        cachedScanned = scanDownloadedTracks(baseMusic)
+                    }
+                    val matched = cachedScanned.firstOrNull {
+                        val real = it.realId ?: it.id.removePrefix("local:")
+                        real.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
+                    }
+                    if (matched != null) {
+                        val matchedPath = matched.realId?.ifBlank { matched.id.removePrefix("local:") } ?: matched.id.removePrefix("local:")
+                        if (fileManager.fileExistsAtPath(matchedPath)) {
+                            fullPath = matchedPath
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!fileManager.fileExistsAtPath(fullPath)) {
+            println("MusicStorage: ⚠️ Трек плейлиста не найден на диске: '$rawPath'")
+            appendLogToFile("MusicStorage: ⚠️ Трек плейлиста не найден на диске: '$rawPath'")
+            continue
+        }
         val fileName = fullPath.substringAfterLast('/')
         val rawName = fileName.substringBeforeLast('.')
         var artist = "Unknown Artist"

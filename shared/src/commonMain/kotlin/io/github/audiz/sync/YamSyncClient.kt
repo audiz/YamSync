@@ -67,6 +67,22 @@ class YamSyncClient {
     }
 
     /**
+     * Отправить свой манифест на удаленный хост (POST) и одновременно получить свежий манифест хоста в ответе
+     */
+    suspend fun exchangeManifests(ip: String, port: Int, token: String, localManifest: YamSyncManifest): Result<YamSyncManifest> = runCatching {
+        val response = httpClient.post("http://$ip:$port/yamsync/v1/manifest") {
+            header("X-YamSync-Token", token)
+            contentType(ContentType.Application.Json)
+            setBody(localManifest)
+        }
+        if (response.status.isSuccess()) {
+            response.body<YamSyncManifest>()
+        } else {
+            error("Failed to exchange manifests: HTTP ${response.status}")
+        }
+    }
+
+    /**
      * Потоковая загрузка аудиофайла по кусочкам с отправкой обновлений прогресса в UI
      */
     suspend fun downloadTrackBytes(

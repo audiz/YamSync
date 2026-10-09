@@ -47,6 +47,7 @@ class YamSyncManager(
     private var activePairInfo: YamSyncPairInfo? = null
     private var localManifestCache: YamSyncManifest? = null
     private var remoteManifestCache: YamSyncManifest? = null
+    private val localFilePathsByMatchKey = mutableMapOf<String, String>()
 
     val isConnected: Boolean
         get() = connectionState is YamSyncConnectionState.Connected || connectionState is YamSyncConnectionState.Syncing
@@ -82,6 +83,24 @@ class YamSyncManager(
                 fileSize = getFileSize(cleanPath),
                 checksum = "${artistName.lowercase()}_${titleName.lowercase()}"
             )
+        }
+
+        // Кэшируем прямые пути для быстрого O(1) поиска сервером при отдаче файлов
+        localFilePathsByMatchKey.clear()
+        for (track in downloadedTracks) {
+            val cleanPath = track.realId?.ifBlank { track.id.removePrefix("local:") } ?: track.id.removePrefix("local:")
+            val fn = cleanPath.substringAfterLast('/').substringAfterLast('\\')
+            localFilePathsByMatchKey[fn.lowercase()] = cleanPath
+            val artistName = track.artists.firstOrNull()?.name?.trim()?.ifBlank { "Unknown Artist" } ?: "Unknown Artist"
+            val titleName = track.title.trim().ifBlank { fn.substringBeforeLast('.') }
+            val key = "${artistName.lowercase()}_${titleName.lowercase()}"
+            localFilePathsByMatchKey[key] = cleanPath
+        }
+        for (pl in localPls) {
+            for (path in pl.trackPaths) {
+                val fn = path.substringAfterLast('/').substringAfterLast('\\')
+                localFilePathsByMatchKey[fn.lowercase()] = path
+            }
         }
 
         val syncPlaylists = localPls.map { pl ->
@@ -131,6 +150,102 @@ class YamSyncManager(
         return manifest
     }
 
+    private fun handleRemoteManifest(remoteMan: YamSyncManifest) {
+        scope.launch(Dispatchers.Main) {
+            remoteManifestCache = remoteMan
+            val localMan = localManifestCache ?: buildLocalManifest()
+            applyDiffs(localMan, remoteMan)
+        }
+    }
+
+    private fun applyDiffs(localMan: YamSyncManifest, remoteMan: YamSyncManifest) {
+        val diffs = YamSyncDiffEngine.calculateDiff(localMan, remoteMan)
+        playlistDiffs.clear()
+        playlistDiffs.addAll(diffs)
+
+        val merged = YamSyncDiffEngine.mergePlaylists(diffs)
+        val missing = YamSyncDiffEngine.findMissingFiles(merged, localMan.availableFiles, remoteMan.availableFiles)
+        missingFiles.clear()
+        missingFiles.addAll(missing)
+
+        selectedFiles.clear()
+        selectedFiles.addAll(missing.map { it.matchKey })
+    }
+
+    private fun resolveFilePathInternal(fileName: String, checksum: String): String? {
+        val cleanFn = sanitizeKeepSpaces(fileName).trim()
+        val base = getMusicStoragePath()
+
+        // 1. O(1) поиск по сохраненным прямым путям локальной медиатеки
+        val direct = localFilePathsByMatchKey[cleanFn.lowercase()]
+            ?: localFilePathsByMatchKey[fileName.trim().lowercase()]
+            ?: if (checksum.isNotBlank()) localFilePathsByMatchKey[checksum.trim().lowercase()] else null
+        if (direct != null && localFileExists(direct)) {
+            val res = resolveLocalPath(direct)
+            if (localFileExists(res)) return res
+        }
+
+        // 2. Быстрый поиск через платформенный resolveLocalPath
+        val resolved = resolveLocalPath(cleanFn)
+        if (localFileExists(resolved)) return resolved
+
+        val fallback = "$base/$cleanFn"
+        if (localFileExists(fallback)) return fallback
+
+        // 3. Поиск по уже сформированному кэшу доступных файлов манифеста
+        val cachedTrack = localManifestCache?.availableFiles?.firstOrNull {
+            it.fileName.equals(fileName, ignoreCase = true) ||
+            it.fileName.equals(cleanFn, ignoreCase = true) ||
+            (checksum.isNotBlank() && it.checksum.equals(checksum, ignoreCase = true))
+        }
+        if (cachedTrack != null) {
+            val p = resolveLocalPath(cachedTrack.fileName)
+            if (localFileExists(p)) return p
+
+            val cleanArt = sanitizeDirName(cachedTrack.artist.ifBlank { "Unknown Artist" })
+            val fn = sanitizeKeepSpaces(cachedTrack.fileName)
+            val candidates = listOf(
+                "$base/$cleanArt/$fn",
+                "$base/HQ/$cleanArt/$fn",
+                "$base/LQ/$cleanArt/$fn",
+                "$base/$fn",
+                "$base/HQ/$fn",
+                "$base/LQ/$fn"
+            )
+            for (cand in candidates) {
+                val resolvedCand = resolveLocalPath(cand)
+                if (localFileExists(resolvedCand)) return resolvedCand
+            }
+        }
+
+        // 4. Fallback через scanDownloadedTracks
+        val downloaded = scanDownloadedTracks(base)
+        val byName = downloaded.firstOrNull {
+            val p = it.realId ?: it.id.removePrefix("local:")
+            val fn = p.substringAfterLast('/').substringAfterLast('\\')
+            fn.equals(fileName, ignoreCase = true) || fn.equals(cleanFn, ignoreCase = true)
+        }
+        if (byName != null) {
+            val p = byName.realId ?: byName.id.removePrefix("local:")
+            if (localFileExists(p)) return p
+        }
+
+        if (checksum.isNotBlank()) {
+            val cleanCheck = checksum.trim().lowercase()
+            val byChecksum = downloaded.firstOrNull {
+                val artist = it.artists.firstOrNull()?.name?.trim()?.lowercase() ?: ""
+                val title = it.title.trim().lowercase()
+                "${artist}_${title}" == cleanCheck
+            }
+            if (byChecksum != null) {
+                val p = byChecksum.realId ?: byChecksum.id.removePrefix("local:")
+                if (localFileExists(p)) return p
+            }
+        }
+
+        return null
+    }
+
     /** Запустить режим раздачи (Host): поднять сервер и показать QR-код */
     fun startHosting() {
         stopHosting()
@@ -153,68 +268,7 @@ class YamSyncManager(
             token = token,
             localDevice = localDevice,
             getManifest = { buildLocalManifest() },
-            resolveFilePath = { fileName, checksum ->
-                val base = getMusicStoragePath()
-
-                // 1. Быстрый поиск через платформенный resolveLocalPath (проверяет base, HQ, LQ, подпапку артиста O(1))
-                val resolved = resolveLocalPath(fileName)
-                if (localFileExists(resolved)) return@YamSyncServer resolved
-
-                val fallback = "$base/$fileName"
-                if (localFileExists(fallback)) return@YamSyncServer fallback
-
-                // 2. Поиск по уже сформированному кэшу доступных файлов манифеста
-                val cachedTrack = localManifestCache?.availableFiles?.firstOrNull {
-                    it.fileName.equals(fileName, ignoreCase = true) ||
-                    (checksum.isNotBlank() && it.checksum.equals(checksum, ignoreCase = true))
-                }
-                if (cachedTrack != null) {
-                    val p = resolveLocalPath(cachedTrack.fileName)
-                    if (localFileExists(p)) return@YamSyncServer p
-
-                    val cleanArt = sanitizeKeepSpaces(cachedTrack.artist.ifBlank { "Unknown Artist" }).trim()
-                    val cleanFn = sanitizeKeepSpaces(cachedTrack.fileName)
-                    val candidates = listOf(
-                        "$base/$cleanArt/$cleanFn",
-                        "$base/HQ/$cleanArt/$cleanFn",
-                        "$base/LQ/$cleanArt/$cleanFn",
-                        "$base/$cleanFn",
-                        "$base/HQ/$cleanFn",
-                        "$base/LQ/$cleanFn"
-                    )
-                    for (cand in candidates) {
-                        val resolvedCand = resolveLocalPath(cand)
-                        if (localFileExists(resolvedCand)) return@YamSyncServer resolvedCand
-                    }
-                }
-
-                // 3. Fallback через scanDownloadedTracks только если быстрые методы не нашли файл
-                val downloaded = scanDownloadedTracks(base)
-                val byName = downloaded.firstOrNull {
-                    val p = it.realId ?: it.id.removePrefix("local:")
-                    val fn = p.substringAfterLast('/').substringAfterLast('\\')
-                    fn.equals(fileName, ignoreCase = true)
-                }
-                if (byName != null) {
-                    val p = byName.realId ?: byName.id.removePrefix("local:")
-                    if (localFileExists(p)) return@YamSyncServer p
-                }
-
-                if (checksum.isNotBlank()) {
-                    val cleanCheck = checksum.trim().lowercase()
-                    val byChecksum = downloaded.firstOrNull {
-                        val artist = it.artists.firstOrNull()?.name?.trim()?.lowercase() ?: ""
-                        val title = it.title.trim().lowercase()
-                        "${artist}_${title}" == cleanCheck
-                    }
-                    if (byChecksum != null) {
-                        val p = byChecksum.realId ?: byChecksum.id.removePrefix("local:")
-                        if (localFileExists(p)) return@YamSyncServer p
-                    }
-                }
-
-                null
-            },
+            resolveFilePath = { fileName, checksum -> resolveFilePathInternal(fileName, checksum) },
             onMergeReceived = { payload ->
                 applyRemoteMergedPlaylists(payload.playlists)
             },
@@ -230,9 +284,15 @@ class YamSyncManager(
                     activePairInfo = pairInfo
                     connectionState = YamSyncConnectionState.Connected(clientDevice, pairInfo)
                     statusMessage = "Устройство подключено: ${clientDevice.name}"
-                    refreshManifestAndDiff()
+                    if (remoteManifestCache == null && clientDevice.port > 0) {
+                        refreshManifestAndDiff()
+                    } else if (remoteManifestCache != null) {
+                        val localMan = localManifestCache ?: buildLocalManifest()
+                        applyDiffs(localMan, remoteManifestCache!!)
+                    }
                 }
-            }
+            },
+            onManifestReceived = { remoteMan -> handleRemoteManifest(remoteMan) }
         )
 
         val assignedPort = server.start()
@@ -279,7 +339,8 @@ class YamSyncManager(
         connectionState = YamSyncConnectionState.Connecting("Подключение к ${pairInfo.name} (${pairInfo.ip})...")
 
         scope.launch(Dispatchers.Main) {
-            val localDev = YamSyncDevice(
+            val token = pairInfo.token
+            val clientDev = YamSyncDevice(
                 id = "client_${currentTimeMillis()}",
                 name = getDeviceName(),
                 platform = getPlatform().name,
@@ -287,8 +348,24 @@ class YamSyncManager(
                 port = 0
             )
 
+            // Запускаем сервер на клиенте с динамическим портом (0), чтобы хост мог при необходимости запрашивать файлы
+            val clientServer = YamSyncServer(
+                initialPort = 0,
+                token = token,
+                localDevice = clientDev,
+                getManifest = { buildLocalManifest() },
+                resolveFilePath = { fileName, checksum -> resolveFilePathInternal(fileName, checksum) },
+                onMergeReceived = { payload -> applyRemoteMergedPlaylists(payload.playlists) },
+                onClientConnected = { },
+                onManifestReceived = { remoteMan -> handleRemoteManifest(remoteMan) }
+            )
+            val assignedPort = clientServer.start()
+            activeServer = clientServer
+
+            val devWithPort = clientDev.copy(port = assignedPort)
+
             val pairRes = withContext(DispatcherIO) {
-                client.pair(pairInfo.ip, pairInfo.port, pairInfo.token, localDev)
+                client.pair(pairInfo.ip, pairInfo.port, pairInfo.token, devWithPort)
             }
 
             pairRes.fold(
@@ -298,6 +375,7 @@ class YamSyncManager(
                     refreshManifestAndDiff()
                 },
                 onFailure = { err ->
+                    stopHosting()
                     connectionState = YamSyncConnectionState.Disconnected
                     errorMessage = "Не удалось подключиться: ${err.message}"
                 }
@@ -323,28 +401,45 @@ class YamSyncManager(
         val pair = activePairInfo ?: return
         scope.launch(Dispatchers.Main) {
             val localMan = buildLocalManifest()
+
+            // Если удаленный порт <= 0, хост полагается на полученный кэш манифеста без сетевых вызовов в несуществующий порт
+            if (pair.port <= 0) {
+                val cached = remoteManifestCache
+                if (cached != null) {
+                    applyDiffs(localMan, cached)
+                }
+                return@launch
+            }
+
+            // Пробуем exchangeManifests (POST /manifest) для мгновенного двустороннего обмена манифестами
             val remoteRes = withContext(DispatcherIO) {
-                client.fetchManifest(pair.ip, pair.port, pair.token)
+                client.exchangeManifests(pair.ip, pair.port, pair.token, localMan)
             }
 
             remoteRes.fold(
                 onSuccess = { remoteMan ->
                     remoteManifestCache = remoteMan
-                    val diffs = YamSyncDiffEngine.calculateDiff(localMan, remoteMan)
-                    playlistDiffs.clear()
-                    playlistDiffs.addAll(diffs)
-
-                    val merged = YamSyncDiffEngine.mergePlaylists(diffs)
-                    val missing = YamSyncDiffEngine.findMissingFiles(merged, localMan.availableFiles, remoteMan.availableFiles)
-                    missingFiles.clear()
-                    missingFiles.addAll(missing)
-
-                    // По умолчанию выбираем все недостающие файлы
-                    selectedFiles.clear()
-                    selectedFiles.addAll(missing.map { it.matchKey })
+                    applyDiffs(localMan, remoteMan)
                 },
-                onFailure = { err ->
-                    errorMessage = "Ошибка получения манифеста: ${err.message}"
+                onFailure = { exchangeErr ->
+                    // Fallback на обычный GET /manifest
+                    val getRes = withContext(DispatcherIO) {
+                        client.fetchManifest(pair.ip, pair.port, pair.token)
+                    }
+                    getRes.fold(
+                        onSuccess = { remoteMan ->
+                            remoteManifestCache = remoteMan
+                            applyDiffs(localMan, remoteMan)
+                        },
+                        onFailure = { getErr ->
+                            val cached = remoteManifestCache
+                            if (cached != null) {
+                                applyDiffs(localMan, cached)
+                            } else {
+                                errorMessage = "Ошибка получения манифеста: ${getErr.message}"
+                            }
+                        }
+                    )
                 }
             )
         }
@@ -422,10 +517,14 @@ class YamSyncManager(
         if (toDownload.isEmpty()) return
 
         isDownloadingFiles = true
+        errorMessage = null
         scope.launch(Dispatchers.Main) {
             try {
                 val totalCount = toDownload.size
                 var currentIdx = 0
+                var successCount = 0
+                var failCount = 0
+                val errorDetails = mutableListOf<String>()
                 val basePath = getMusicStoragePath()
 
                 for (track in toDownload) {
@@ -440,24 +539,43 @@ class YamSyncManager(
 
                     res.fold(
                         onSuccess = { bytes ->
-                            val cleanArtist = sanitizeKeepSpaces(track.artist.ifBlank { "Unknown Artist" }).trim()
-                            val cleanFileName = sanitizeKeepSpaces(track.fileName)
-                            withContext(DispatcherIO) {
-                                saveTrackFile(basePath, cleanArtist, cleanFileName, bytes)
+                            try {
+                                val cleanArtist = sanitizeDirName(track.artist.ifBlank { "Unknown Artist" })
+                                val cleanFileName = sanitizeKeepSpaces(track.fileName)
+                                withContext(DispatcherIO) {
+                                    saveTrackFile(basePath, cleanArtist, cleanFileName, bytes)
+                                }
+                                successCount++
+                                fileTransfers[track.matchKey] = YamSyncTransferProgress(
+                                    fileName = track.fileName,
+                                    trackTitle = "${track.artist} — ${track.title}",
+                                    bytesTransferred = bytes.size.toLong(),
+                                    totalBytes = bytes.size.toLong(),
+                                    isCompleted = true
+                                )
+                                println("YamSync: ✅ Успешно сохранён файл: $cleanFileName (${bytes.size} байт)")
+                            } catch (e: Exception) {
+                                failCount++
+                                val msg = e.message ?: e.toString()
+                                errorDetails.add("${track.title}: $msg")
+                                println("YamSync: ❌ Ошибка сохранения файла ${track.fileName}: $msg")
+                                fileTransfers[track.matchKey] = YamSyncTransferProgress(
+                                    fileName = track.fileName,
+                                    trackTitle = "${track.artist} — ${track.title}",
+                                    error = msg,
+                                    isCompleted = true
+                                )
                             }
-                            fileTransfers[track.matchKey] = YamSyncTransferProgress(
-                                fileName = track.fileName,
-                                trackTitle = "${track.artist} — ${track.title}",
-                                bytesTransferred = bytes.size.toLong(),
-                                totalBytes = bytes.size.toLong(),
-                                isCompleted = true
-                            )
                         },
                         onFailure = { err ->
+                            failCount++
+                            val msg = err.message ?: err.toString()
+                            errorDetails.add("${track.title}: $msg")
+                            println("YamSync: ❌ Ошибка скачивания файла ${track.fileName}: $msg")
                             fileTransfers[track.matchKey] = YamSyncTransferProgress(
                                 fileName = track.fileName,
                                 trackTitle = "${track.artist} — ${track.title}",
-                                error = err.message,
+                                error = msg,
                                 isCompleted = true
                             )
                         }
@@ -484,7 +602,16 @@ class YamSyncManager(
                     saveLocalPlaylists(basePath, updatedLocal)
                 }
 
-                statusMessage = "✅ Загрузка $totalCount файлов завершена!"
+                if (failCount == 0) {
+                    statusMessage = "✅ Загрузка $successCount файлов завершена!"
+                } else if (successCount > 0) {
+                    statusMessage = "⚠️ Скачано $successCount из $totalCount файлов ($failCount ошибок)"
+                    errorMessage = "Не удалось скачать некоторые файлы:\n" + errorDetails.take(3).joinToString("\n")
+                } else {
+                    statusMessage = "❌ Ошибка загрузки файлов ($failCount ошибок)"
+                    errorMessage = "Ошибки загрузки файлов:\n" + errorDetails.take(3).joinToString("\n")
+                }
+
                 refreshManifestAndDiff()
                 onPlaylistsUpdated()
             } finally {
@@ -505,9 +632,12 @@ class YamSyncManager(
                     it.title.equals(syncTrack.title, ignoreCase = true) ||
                     (it.realId ?: "").endsWith(syncTrack.fileName, ignoreCase = true)
                 }
-                val cleanArtist = sanitizeKeepSpaces(syncTrack.artist.ifBlank { "Unknown Artist" }).trim()
+                val cleanArtist = sanitizeDirName(syncTrack.artist.ifBlank { "Unknown Artist" })
+                val cleanFileName = sanitizeKeepSpaces(syncTrack.fileName)
+                val sep = if (basePath.contains('\\')) "\\" else "/"
+                val fallbackCandidate = "${basePath.trimEnd('/', '\\')}$sep$cleanArtist$sep$cleanFileName"
                 found?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
-                    ?: "$basePath/$cleanArtist/${syncTrack.fileName}"
+                    ?: fallbackCandidate
             }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
 
             LocalPlaylist(
