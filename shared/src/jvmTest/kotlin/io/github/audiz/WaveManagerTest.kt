@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -280,6 +281,57 @@ class WaveManagerTest {
             assertEquals(list, decoded)
         } finally {
             saveAppConfig(AppConfigKeys.RECENT_THEMATIC_WAVES, original ?: "")
+        }
+    }
+
+    @Test
+    fun testWaveStylePersistenceAcrossRestarts() {
+        val originalStyle = loadAppConfig(AppConfigKeys.LAST_WAVE_STYLE)
+        try {
+            // 1. Проверяем наличие "Поп-рок" среди пресетов
+            val popRockPreset = WaveManager.ALL_STYLE_PRESETS.firstOrNull { it.title == "Поп-рок" }
+            assertNotNull(popRockPreset)
+            assertEquals(listOf("genre:pop-rock"), popRockPreset.seeds)
+
+            val manager1 = WaveManager(
+                scope = CoroutineScope(Dispatchers.Unconfined),
+                repository = MusicRepository(),
+                getAccessToken = { "" }
+            )
+
+            // Запускаем волну "Поп-рок"
+            manager1.startThematicWave("Поп-рок", listOf("genre:pop-rock"))
+            assertEquals("Поп-рок", manager1.currentWaveTitle)
+            assertEquals(listOf("genre:pop-rock"), manager1.currentWaveSeeds)
+
+            val saved = manager1.loadSavedWaveStyle()
+            assertNotNull(saved)
+            assertEquals("Поп-рок", saved.title)
+            assertEquals(listOf("genre:pop-rock"), saved.seeds)
+
+            // 2. Имитируем перезапуск приложения: создаем новый менеджер
+            val manager2 = WaveManager(
+                scope = CoroutineScope(Dispatchers.Unconfined),
+                repository = MusicRepository(),
+                getAccessToken = { "" }
+            )
+            assertNull(manager2.currentWaveTitle)
+            assertFalse(manager2.isWaveMode)
+
+            // 🔒 Восстанавливаем стиль из конфига
+            val restored = manager2.restoreWaveStyleFromConfig()
+            assertNotNull(restored)
+            assertEquals("Поп-рок", manager2.currentWaveTitle)
+            assertEquals(listOf("genre:pop-rock"), manager2.currentWaveSeeds)
+            assertTrue(manager2.isWaveMode)
+
+            // 3. Сброс к персональной волне очищает сохраненный стиль
+            manager2.resetToDefaultWave(autoPlay = false)
+            assertNull(manager2.currentWaveTitle)
+            assertTrue(manager2.currentWaveSeeds.isEmpty())
+            assertNull(manager2.loadSavedWaveStyle())
+        } finally {
+            saveAppConfig(AppConfigKeys.LAST_WAVE_STYLE, originalStyle ?: "")
         }
     }
 }

@@ -74,6 +74,7 @@ class WaveManager(
         val ALL_STYLE_PRESETS: List<ThematicWavePreset> = listOf(
             ThematicWavePreset("Рок", listOf("genre:rock")),
             ThematicWavePreset("Поп", listOf("genre:pop")),
+            ThematicWavePreset("Поп-рок", listOf("genre:pop-rock")),
             ThematicWavePreset("Хип-хоп", listOf("genre:rap")),
             ThematicWavePreset("Электроника", listOf("genre:electronic")),
             ThematicWavePreset("Метал", listOf("genre:metal")),
@@ -110,6 +111,28 @@ class WaveManager(
     // 🌊 До 3 недавних тематических волн:
     val recentThematicWaves: SnapshotStateList<ThematicWavePreset> = mutableStateListOf()
     private val waveJson = Json { ignoreUnknownKeys = true }
+
+    fun loadSavedWaveStyle(): ThematicWavePreset? {
+        return try {
+            val jsonStr = loadAppConfig(AppConfigKeys.LAST_WAVE_STYLE)
+            if (!jsonStr.isNullOrBlank()) {
+                waveJson.decodeFromString<ThematicWavePreset>(jsonStr)
+            } else null
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    fun restoreWaveStyleFromConfig(): ThematicWavePreset? {
+        val saved = loadSavedWaveStyle()
+        if (saved != null && saved.seeds.isNotEmpty()) {
+            currentWaveTitle = saved.title
+            currentWaveSeeds = saved.seeds
+            isWaveMode = true
+            return saved
+        }
+        return null
+    }
 
     init {
         loadRecentThematicWaves()
@@ -194,6 +217,11 @@ class WaveManager(
     override fun loadInitialWave(autoPlay: Boolean, source: TrackPlaySource) {
         currentWaveTitle = null
         currentWaveSeeds = emptyList()
+        try {
+            saveAppConfig(AppConfigKeys.LAST_WAVE_STYLE, "")
+        } catch (e: Throwable) {
+            println("WaveManager: Ошибка сброса стиля волны: ${e.message}")
+        }
         val token = getAccessToken()
         if (token.isBlank()) return
         if (autoPlay) {
@@ -283,6 +311,13 @@ class WaveManager(
         currentWaveSeeds = seeds
         recordThematicWave(title, seeds)
 
+        try {
+            val jsonStr = waveJson.encodeToString(ThematicWavePreset(title?.takeIf { it.isNotBlank() } ?: "Моя Волна", seeds))
+            saveAppConfig(AppConfigKeys.LAST_WAVE_STYLE, jsonStr)
+        } catch (e: Throwable) {
+            println("WaveManager: Ошибка сохранения последнего стиля волны: ${e.message}")
+        }
+
         val token = getAccessToken()
         if (token.isBlank()) return
 
@@ -324,6 +359,10 @@ class WaveManager(
                     }
                 }
                 waveCurrentIndex = 0
+                if (waveTracks.isNotEmpty()) {
+                    isWaveMode = true
+                    activeWaveTrack = parsedTracks.firstOrNull()
+                }
                 println("WaveManager: Тематическая Волна запущена! Загружено треков: ${waveTracks.size}, radioSessionId: $waveRadioSessionId, batchId: $waveBatchId")
 
                 if (autoPlay && waveTracks.isNotEmpty()) {
@@ -350,6 +389,11 @@ class WaveManager(
     fun resetToDefaultWave(autoPlay: Boolean = true) {
         currentWaveTitle = null
         currentWaveSeeds = emptyList()
+        try {
+            saveAppConfig(AppConfigKeys.LAST_WAVE_STYLE, "")
+        } catch (e: Throwable) {
+            println("WaveManager: Ошибка сброса стиля волны: ${e.message}")
+        }
         loadInitialWave(autoPlay = autoPlay, source = TrackPlaySource.PLAY)
     }
 
@@ -504,6 +548,21 @@ class WaveManager(
     }
 
     /**
+     * 🌊 Возобновить или запустить Мою Волну с сохранением выбранного стиля (без сброса на дефолт)
+     */
+    override fun resumeOrLoadWave(autoPlay: Boolean, source: TrackPlaySource) {
+        if (waveTracks.isNotEmpty()) {
+            if (autoPlay) {
+                playWaveTrack(waveCurrentIndex, source)
+            }
+        } else if (currentWaveSeeds.isNotEmpty()) {
+            startThematicWave(currentWaveTitle, currentWaveSeeds, autoPlay = autoPlay, source = source)
+        } else {
+            loadInitialWave(autoPlay = autoPlay, source = source)
+        }
+    }
+
+    /**
      * 🌊 Переключить play/pause для Моей волны
      */
     fun togglePlayPauseWave() {
@@ -511,11 +570,7 @@ class WaveManager(
         if (isWaveMode && pm?.trackId != null) {
             pm.togglePlayPause()
         } else {
-            if (waveTracks.isEmpty()) {
-                loadInitialWave(autoPlay = true, source = TrackPlaySource.PLAY)
-            } else {
-                playWaveTrack(waveCurrentIndex, source = TrackPlaySource.PLAY)
-            }
+            resumeOrLoadWave(autoPlay = true, source = TrackPlaySource.PLAY)
         }
     }
 

@@ -101,6 +101,7 @@ class PlaybackManager(
             override fun playPrevWaveTrack() { onPlayPrevWave?.invoke() }
             override fun onWaveTrackFinished(crossfadeMs: Long) { onWaveTrackFinished?.invoke(crossfadeMs) }
             override fun loadInitialWave(autoPlay: Boolean, source: TrackPlaySource) { onInitialWave?.invoke(autoPlay, source) }
+            override fun resumeOrLoadWave(autoPlay: Boolean, source: TrackPlaySource) { onInitialWave?.invoke(autoPlay, source) }
             override fun getNextWaveTrackCandidate(): FullTrackInfo? = getNextWaveTrack?.invoke()
         },
         getSelectedQuality = getSelectedQuality,
@@ -387,7 +388,7 @@ class PlaybackManager(
             if (waveTracks.isNotEmpty()) {
                 waveBridge?.playWaveTrack(waveBridge.waveCurrentIndex, TrackPlaySource.PLAY)
             } else {
-                waveBridge?.loadInitialWave(true, TrackPlaySource.PLAY)
+                waveBridge?.resumeOrLoadWave(true, TrackPlaySource.PLAY)
             }
         } else {
             isPlayLoading = true

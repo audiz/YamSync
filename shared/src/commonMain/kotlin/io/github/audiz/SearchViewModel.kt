@@ -481,7 +481,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         isRecordToDisk = { downloadManager.isRecordToDiskActive },
         onTrackSavedToDisk = { downloadManager.incrementDownloadVersion() },
         onTrackStarted = { trackId, title, artist, cover, isWave ->
-            if (isWave && !isTracksListVisible) {
+            if (isWave) {
                 playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
             }
             playbackSessionManager.updateLastTrack(
@@ -631,16 +631,27 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     private fun restoreLastPlaybackSession() {
         val session = playbackSessionManager.loadSession()
         val wasTracksListVisible = loadAppConfig(AppConfigKeys.TRACKS_LIST_VISIBLE) == "true"
+        val savedWaveStyle = waveManager.loadSavedWaveStyle()
+
         if (session == null || session.type == LastPlaybackType.WAVE) {
             isTracksListVisible = false
             if (currentAccessToken.isNotBlank()) {
-                if (session?.waveSeeds?.isNotEmpty() == true) {
-                    startThematicWave(session.waveTitle, session.waveSeeds, autoPlay = false)
+                val seeds = session?.waveSeeds?.takeIf { it.isNotEmpty() } ?: savedWaveStyle?.seeds ?: emptyList()
+                val title = session?.waveTitle ?: savedWaveStyle?.title
+                if (seeds.isNotEmpty()) {
+                    startThematicWave(title, seeds, autoPlay = false)
                 } else {
                     loadInitialWave(autoPlay = false)
                 }
             }
             return
+        }
+
+        // Если перед закрытием играл плейлист/диск, но у пользователя сохранен стиль Волны,
+        // фоном инициализируем этот стиль (без автоплея), чтобы на Главном экране чип и карточка Волны
+        // показывали выбранный стиль, а не сбрасывались на «Главное»
+        if (currentAccessToken.isNotBlank() && savedWaveStyle != null && savedWaveStyle.seeds.isNotEmpty()) {
+            startThematicWave(savedWaveStyle.title, savedWaveStyle.seeds, autoPlay = false)
         }
 
         restorePlaylistSession(session, wasTracksListVisible)
@@ -759,7 +770,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.WAVE -> {
-                // Обработано выше
+                if (waveManager.waveTracks.isNotEmpty()) {
+                    playWaveTrack(waveManager.waveCurrentIndex)
+                } else if (session.waveSeeds.isNotEmpty()) {
+                    startThematicWave(session.waveTitle, session.waveSeeds, autoPlay = true)
+                } else {
+                    loadInitialWave(autoPlay = true)
+                }
             }
         }
     }

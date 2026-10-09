@@ -32,6 +32,9 @@ interface WavePlaybackBridge {
     /** Запуск воспроизведения стартовой Волны */
     fun loadInitialWave(autoPlay: Boolean = false, source: TrackPlaySource = TrackPlaySource.PLAY)
 
+    /** Возобновление или запуск текущей/тематической Волны без сброса стиля */
+    fun resumeOrLoadWave(autoPlay: Boolean = true, source: TrackPlaySource = TrackPlaySource.PLAY)
+
     /** Получение запланированного следующего кандидата для предзагрузки */
     fun getNextWaveTrackCandidate(): FullTrackInfo?
 }

@@ -20,6 +20,7 @@ object AppConfigKeys {
     const val EQ_PRESET = "eq_preset"
     const val SESSION_COOKIE = "session_cookie"
     const val RECENT_THEMATIC_WAVES = "recent_thematic_waves"
+    const val LAST_WAVE_STYLE = "last_wave_style"
     const val CUSTOM_LOCAL_SOURCES = "custom_local_sources"
     const val LAST_PLAYBACK_SESSION = "last_playback_session"
     const val UI_WATCHDOG_ENABLED = "ui_watchdog_enabled"
