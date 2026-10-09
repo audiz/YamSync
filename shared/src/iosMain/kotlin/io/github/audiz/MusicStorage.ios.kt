@@ -171,6 +171,7 @@ actual fun saveTrackFile(basePath: String, artist: String, fileName: String, byt
         val data = NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
         data.writeToFile(filePath, atomically = true)
     }
+    io.github.audiz.player.LocalTrackResolver.invalidateAllCaches()
 
     // Исключаем из резервной копии iCloud, чтобы не заполнять облачный лимит пользователя
     try {

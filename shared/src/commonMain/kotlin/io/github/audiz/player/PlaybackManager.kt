@@ -658,6 +658,7 @@ class PlaybackManager(
 
                 if (isRecordToDisk() && musicStoragePath.isNotBlank()) {
                     saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+                    localTrackResolver.invalidateCache()
                     onTrackSavedToDisk?.invoke()
                     val resolvedFile = localTrackResolver.findLocalTrackFile(
                         trackId = targetTrackId,
@@ -1522,6 +1523,7 @@ class PlaybackManager(
                         "$cleanTitle.$extension"
                     })
                     saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+                    localTrackResolver.invalidateCache()
                     onTrackSavedToDisk?.invoke()
                     val filePath = "$basePath/$sanitizedArtist/$fullFileName"
                     println("⚡ [Предзагрузка] Трек '$cleanTitle' сохранен на диск: $filePath")

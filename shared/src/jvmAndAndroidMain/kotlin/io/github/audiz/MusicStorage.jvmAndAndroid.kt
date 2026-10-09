@@ -65,6 +65,7 @@ actual fun saveTrackFile(basePath: String, artist: String, fileName: String, byt
 
     val outputFile = File(artistDir, sanitizeKeepSpaces(fileName))
     outputFile.writeBytes(bytes)
+    io.github.audiz.player.LocalTrackResolver.invalidateAllCaches()
     println("MusicStorage: Сохранён файл: ${outputFile.absolutePath}")
 }
 
@@ -75,6 +76,7 @@ actual fun saveTrackToFolder(targetDir: String, fileName: String, bytes: ByteArr
         if (!dir.exists()) dir.mkdirs()
         val destFile = File(dir, sanitizeKeepSpaces(fileName))
         destFile.writeBytes(bytes)
+        io.github.audiz.player.LocalTrackResolver.invalidateAllCaches()
         println("MusicStorage: Файл сохранён напрямую в папку: ${destFile.absolutePath}")
         destFile.absolutePath
     } catch (e: Exception) {

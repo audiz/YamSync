@@ -92,6 +92,7 @@ class DownloadManager(
         private set
 
     fun incrementDownloadVersion() {
+        localTrackResolver.invalidateCache()
         downloadVersion++
     }
 
@@ -304,6 +305,7 @@ class DownloadManager(
                 val count = withContext(DispatcherIO) {
                     io.github.audiz.clearAllDownloadedMusic(storagePath)
                 }
+                localTrackResolver.invalidateCache()
                 downloadVersion++
                 onAllTracksCleared?.invoke()
                 onStatusMessage("✅ Удалено скачанных треков: $count шт.")

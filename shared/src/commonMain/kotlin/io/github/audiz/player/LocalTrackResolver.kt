@@ -20,6 +20,24 @@ class LocalTrackResolver(
         val KNOWN_LQ_EXTENSIONS = listOf("m4a", "aac", "mp3", "opus", "flac", "wav", "ogg")
 
         fun sanitizeKeepSpaces(input: String): String = io.github.audiz.sanitizeKeepSpaces(input)
+
+        @kotlin.concurrent.Volatile
+        var globalCacheVersion: Long = 0L
+
+        fun invalidateAllCaches() {
+            globalCacheVersion++
+        }
+    }
+
+    private var localCacheVersion: Long = -1L
+    private val downloadedPathCache = mutableMapOf<String, String>()
+    private val cacheLock = Any()
+
+    fun invalidateCache() {
+        synchronized(cacheLock) {
+            downloadedPathCache.clear()
+            localCacheVersion = globalCacheVersion
+        }
     }
 
     /**
@@ -44,81 +62,51 @@ class LocalTrackResolver(
             return resolvedTrackId
         }
 
-        val musicStoragePath = getMusicStoragePath().trim()
-        if (musicStoragePath.isBlank()) return null
-
-        val cleanArtist = artist.trim()
-        val cleanTitle = title.trim()
-        val sanitizedArtist = sanitizeKeepSpaces(cleanArtist.ifBlank { "Unknown Artist" }).trim()
-
-        val knownExtensions = if (selectedQuality == "2") KNOWN_HQ_EXTENSIONS else KNOWN_LQ_EXTENSIONS
-        val candidateFolders = if (selectedQuality == "2") {
-            listOf("$musicStoragePath/HQ", "$musicStoragePath/LQ", musicStoragePath)
-        } else {
-            listOf("$musicStoragePath/LQ", "$musicStoragePath/HQ", musicStoragePath)
-        }
-
-        for (folder in candidateFolders) {
-            for (ext in knownExtensions) {
-                val candidateNames = listOfNotNull(
-                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext") else null,
-                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext") else null,
-                    sanitizeKeepSpaces("$cleanTitle.$ext")
-                ).distinct()
-
-                for (candidateName in candidateNames) {
-                    val fullPath = "$folder/$sanitizedArtist/$candidateName"
-                    val resolved = resolveLocalPath(fullPath)
-                    if (localFileExists(resolved)) {
-                        return resolved
-                    }
-                }
-            }
-        }
-
-        return null
+        return getDownloadedTrackPath(artist, title)
     }
 
     /**
-     * Проверка, скачан ли трек на диск (ищет во всех папках HQ/LQ/root).
+     * Проверка, скачан ли трек на диск (ищет во всех папках HQ/LQ/root с кэшированием в памяти).
      */
     fun isTrackDownloaded(artist: String, title: String): Boolean {
-        val cleanArtist = artist.trim()
-        val cleanTitle = title.trim()
-        val musicStoragePath = getMusicStoragePath().trim()
-        if (musicStoragePath.isBlank()) return false
-        val qualityFolders = listOf("$musicStoragePath/HQ", "$musicStoragePath/LQ", musicStoragePath)
-
-        for (basePath in qualityFolders) {
-            for (ext in KNOWN_HQ_EXTENSIONS) {
-                val candidateNames = listOfNotNull(
-                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext") else null,
-                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext") else null,
-                    sanitizeKeepSpaces("$cleanTitle.$ext")
-                ).distinct()
-
-                for (candidateName in candidateNames) {
-                    if (trackFileExists(basePath, cleanArtist, candidateName)) {
-                        return true
-                    }
-                }
-            }
-        }
-        return false
+        return getDownloadedTrackPath(artist, title) != null
     }
 
     /**
      * Получить абсолютный путь к скачанному треку, если он существует.
+     * Результаты кэшируются в памяти, предотвращая блокировку UI-потока повторными системными вызовами диска.
      */
     fun getDownloadedTrackPath(artist: String, title: String): String? {
         val cleanArtist = artist.trim()
         val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return null
+        val cacheKey = "$cleanArtist::$cleanTitle"
+
+        synchronized(cacheLock) {
+            if (localCacheVersion != globalCacheVersion) {
+                downloadedPathCache.clear()
+                localCacheVersion = globalCacheVersion
+            }
+            downloadedPathCache[cacheKey]?.let { cached ->
+                return if (cached.isEmpty()) null else cached
+            }
+        }
+
         val sanitizedArtist = sanitizeKeepSpaces(cleanArtist.ifBlank { "Unknown Artist" }).trim()
         val musicStoragePath = getMusicStoragePath().trim()
-        if (musicStoragePath.isBlank()) return null
+        if (musicStoragePath.isBlank()) {
+            synchronized(cacheLock) { downloadedPathCache[cacheKey] = "" }
+            return null
+        }
         val qualityFolders = listOf("$musicStoragePath/HQ", "$musicStoragePath/LQ", musicStoragePath)
 
         for (basePath in qualityFolders) {
+            val artistFolder = "$basePath/$sanitizedArtist"
+            val resolvedArtistFolder = resolveLocalPath(artistFolder)
+            if (!localFileExists(resolvedArtistFolder)) {
+                continue
+            }
+
             for (ext in KNOWN_HQ_EXTENSIONS) {
                 val candidateNames = listOfNotNull(
                     if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext") else null,
@@ -130,11 +118,13 @@ class LocalTrackResolver(
                     val fullPath = "$basePath/$sanitizedArtist/$candidateName"
                     val resolved = resolveLocalPath(fullPath)
                     if (localFileExists(resolved)) {
+                        synchronized(cacheLock) { downloadedPathCache[cacheKey] = resolved }
                         return resolved
                     }
                 }
             }
         }
+        synchronized(cacheLock) { downloadedPathCache[cacheKey] = "" }
         return null
     }
 }

@@ -131,6 +131,14 @@ fun App() {
             }
             val isCurrentTrackDownloadedOrLocal = searchViewModel.isCurrentTrackLocal || isCurrentTrackDownloaded
 
+            val currentTrackKey = searchViewModel.playerTrackId ?: currentWave?.id ?: "$displayArtist::$displayTitle"
+            val isCurrentTrackInPlaylist = remember(currentTrackKey) {
+                searchViewModel.isCurrentTrackInPlaylist
+            }
+            val currentTrackPlaylistsCount = remember(currentTrackKey) {
+                searchViewModel.currentTrackPlaylistsCount
+            }
+
             val playerBarState = PlayerBarState(
                 trackTitle = displayTitle,
                 artistName = displayArtist,
@@ -149,8 +157,8 @@ fun App() {
                 isSharing = searchViewModel.isSharingTrack,
                 isFavorite = if (searchViewModel.isCurrentTrackLocal) false else searchViewModel.isCurrentTrackLiked,
                 isDisliked = if (searchViewModel.isCurrentTrackLocal) false else searchViewModel.isCurrentTrackDisliked,
-                isInPlaylist = searchViewModel.isCurrentTrackInPlaylist,
-                playlistCount = searchViewModel.currentTrackPlaylistsCount,
+                isInPlaylist = isCurrentTrackInPlaylist,
+                playlistCount = currentTrackPlaylistsCount,
                 isConfigActive = settingsExpanded,
                 isEqualizerActive = eqState.isEnabled,
                 hasTrackCandidate = hasTrackCandidate,

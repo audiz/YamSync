@@ -608,40 +608,64 @@ class PlaylistManager(
     fun isTrackInLocalPlaylist(playlist: LocalPlaylist, track: FullTrackInfo): Boolean {
         val cleanPath = (track.realId ?: track.id).removePrefix("local:")
         val rawId = track.id.removePrefix("local:")
-        val artist = track.artists.firstOrNull()?.name ?: ""
-        val downloadedPath = downloadManager.getDownloadedTrackPath(artist, track.title)
-        return playlist.trackPaths.any { path ->
+
+        // 1. Быстрая проверка по памяти (ID и пути) без обращения к диску!
+        if (playlist.trackPaths.any { path ->
             path == cleanPath ||
             path == rawId ||
             path == track.id ||
-            (downloadedPath != null && path == downloadedPath) ||
             (cleanPath.isNotBlank() && path.endsWith(cleanPath))
+        }) {
+            return true
         }
+
+        // 2. Только если по ID не совпало — проверяем совпадение со скачанным файлом
+        val artist = track.artists.firstOrNull()?.name ?: ""
+        val downloadedPath = downloadManager.getDownloadedTrackPath(artist, track.title)
+        return downloadedPath != null && playlist.trackPaths.contains(downloadedPath)
     }
 
     /**
      * 🔍 Проверить, содержится ли трек хотя бы в одном плейлисте (локальном или облачном Яндекс)
      */
     fun isTrackInAnyPlaylist(track: FullTrackInfo): Boolean {
-        // 1. Проверяем локальные оффлайн-плейлисты
-        if (localPlaylists.any { isTrackInLocalPlaylist(it, track) }) {
-            return true
-        }
-
-        // 2. Проверяем облачные плейлисты Яндекс Музыки
+        // 1. Сначала быстрая проверка облачных плейлистов Яндекс Музыки (чисто память O(1))
         val cleanTrackId = (track.realId?.ifBlank { null } ?: track.id).removePrefix("local:").substringBefore(":")
         val rawTrackId = track.id.removePrefix("local:").substringBefore(":")
 
-        return userPlaylistsTrackIds.values.any { ids ->
+        if (userPlaylistsTrackIds.values.any { ids ->
             ids.contains(cleanTrackId) || ids.contains(rawTrackId) || ids.contains(track.id)
+        }) {
+            return true
         }
+
+        // 2. Проверяем локальные оффлайн-плейлисты
+        return localPlaylists.any { isTrackInLocalPlaylist(it, track) }
     }
 
     /**
      * 🔢 Подсчитать количество плейлистов, в которых содержится трек
      */
     fun getTrackPlaylistsCount(track: FullTrackInfo): Int {
-        var count = localPlaylists.count { isTrackInLocalPlaylist(it, track) }
+        val cleanPath = (track.realId ?: track.id).removePrefix("local:")
+        val rawId = track.id.removePrefix("local:")
+        val artist = track.artists.firstOrNull()?.name ?: ""
+        val downloadedPath = downloadManager.getDownloadedTrackPath(artist, track.title)
+
+        var count = 0
+        for (playlist in localPlaylists) {
+            val matched = playlist.trackPaths.any { path ->
+                path == cleanPath ||
+                path == rawId ||
+                path == track.id ||
+                (downloadedPath != null && path == downloadedPath) ||
+                (cleanPath.isNotBlank() && path.endsWith(cleanPath))
+            }
+            if (matched) {
+                count++
+            }
+        }
+
         val cleanTrackId = (track.realId?.ifBlank { null } ?: track.id).removePrefix("local:").substringBefore(":")
         val rawTrackId = track.id.removePrefix("local:").substringBefore(":")
 
