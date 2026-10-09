@@ -99,9 +99,11 @@ fun resolveIosLocalPath(path: String): String {
     val fileName = clean.substringAfterLast('/')
     val parentFolder = clean.substringBeforeLast('/').substringAfterLast('/')
     val searchRoots = listOf(
+        "$currentMusic/YamSync",
         "$currentMusic/HQ",
         "$currentMusic/LQ",
         currentMusic,
+        "$currentDocs/YamSync",
         "$currentDocs/HQ",
         "$currentDocs/LQ",
         currentDocs
@@ -327,9 +329,11 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
                 }
             }
 
+            val isYamSync = fullPath.contains("/YamSync/", ignoreCase = true)
             val isHQ = fullPath.contains("/HQ/", ignoreCase = true) || fullPath.endsWith("/HQ", ignoreCase = true)
             val isLQ = fullPath.contains("/LQ/", ignoreCase = true) || fullPath.endsWith("/LQ", ignoreCase = true)
             val albumQuality = when {
+                isYamSync -> "YamSync (P2P)"
                 isHQ -> "Скачано (HQ)"
                 isLQ -> "Скачано (LQ)"
                 else -> "На диске (${ext.uppercase()})"
@@ -724,7 +728,7 @@ actual fun deleteTrackFile(basePath: String, artist: String, trackTitle: String,
             if (artist.isNotBlank()) sanitizeKeepSpaces(artist) else null
         ).distinct()
 
-        for (sub in listOf("HQ", "LQ", "")) {
+        for (sub in listOf("YamSync", "HQ", "LQ", "")) {
             for (cleanArtist in artistDirNames) {
                 val artistDir = if (sub.isNotEmpty()) "$basePath/$sub/$cleanArtist" else "$basePath/$cleanArtist"
                 if (!fileManager.fileExistsAtPath(artistDir)) continue
@@ -769,7 +773,7 @@ actual fun clearAllDownloadedMusic(basePath: String): Int {
     val fileManager = NSFileManager.defaultManager
     var count = 0
     val supportedExts = setOf("m4a", "flac", "mp3", "aac", "opus", "wav", "ogg")
-    for (sub in listOf("HQ", "LQ")) {
+    for (sub in listOf("YamSync", "HQ", "LQ")) {
         val dir = "$basePath/$sub"
         if (!fileManager.fileExistsAtPath(dir)) continue
         val subpaths = fileManager.subpathsOfDirectoryAtPath(dir, error = null) as? List<String> ?: continue

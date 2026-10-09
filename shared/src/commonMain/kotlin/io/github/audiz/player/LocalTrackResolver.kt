@@ -98,7 +98,7 @@ class LocalTrackResolver(
             synchronized(cacheLock) { downloadedPathCache[cacheKey] = "" }
             return null
         }
-        val qualityFolders = listOf("$musicStoragePath/HQ", "$musicStoragePath/LQ", musicStoragePath)
+        val qualityFolders = listOf("$musicStoragePath/YamSync", "$musicStoragePath/HQ", "$musicStoragePath/LQ", musicStoragePath)
 
         for (basePath in qualityFolders) {
             val artistFolder = "$basePath/$sanitizedArtist"

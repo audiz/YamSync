@@ -205,9 +205,11 @@ class YamSyncManager(
             val cleanArt = sanitizeDirName(cachedTrack.artist.ifBlank { "Unknown Artist" })
             val fn = sanitizeKeepSpaces(cachedTrack.fileName)
             val candidates = listOf(
+                "$base/YamSync/$cleanArt/$fn",
                 "$base/$cleanArt/$fn",
                 "$base/HQ/$cleanArt/$fn",
                 "$base/LQ/$cleanArt/$fn",
+                "$base/YamSync/$fn",
                 "$base/$fn",
                 "$base/HQ/$fn",
                 "$base/LQ/$fn"
@@ -542,8 +544,9 @@ class YamSyncManager(
                             try {
                                 val cleanArtist = sanitizeDirName(track.artist.ifBlank { "Unknown Artist" })
                                 val cleanFileName = sanitizeKeepSpaces(track.fileName)
+                                val syncBasePath = if (basePath.endsWith('/') || basePath.endsWith('\\')) "${basePath}YamSync" else "$basePath/YamSync"
                                 withContext(DispatcherIO) {
-                                    saveTrackFile(basePath, cleanArtist, cleanFileName, bytes)
+                                    saveTrackFile(syncBasePath, cleanArtist, cleanFileName, bytes)
                                 }
                                 successCount++
                                 fileTransfers[track.matchKey] = YamSyncTransferProgress(
@@ -635,7 +638,7 @@ class YamSyncManager(
                 val cleanArtist = sanitizeDirName(syncTrack.artist.ifBlank { "Unknown Artist" })
                 val cleanFileName = sanitizeKeepSpaces(syncTrack.fileName)
                 val sep = if (basePath.contains('\\')) "\\" else "/"
-                val fallbackCandidate = "${basePath.trimEnd('/', '\\')}$sep$cleanArtist$sep$cleanFileName"
+                val fallbackCandidate = "${basePath.trimEnd('/', '\\')}${sep}YamSync$sep$cleanArtist$sep$cleanFileName"
                 found?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
                     ?: fallbackCandidate
             }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }

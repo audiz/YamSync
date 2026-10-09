@@ -38,10 +38,12 @@ private fun cleanUpEmptyDir(dir: File?, basePath: String) {
     val base = File(basePath).canonicalFile
     val hq = File(base, "HQ").canonicalFile
     val lq = File(base, "LQ").canonicalFile
+    val yamsync = File(base, "YamSync").canonicalFile
+    val playlists = File(base, "playlists").canonicalFile
     val cache = File(base, "playlists_cache").canonicalFile
     val current = dir.canonicalFile
 
-    if (current == base || current == hq || current == lq || current == cache) return
+    if (current == base || current == hq || current == lq || current == yamsync || current == playlists || current == cache) return
 
     val contents = dir.listFiles()
     if (contents != null && contents.isEmpty()) {
@@ -150,16 +152,19 @@ actual fun resolveLocalPath(path: String): String {
     // Кандидаты прямого поиска (директории для O(1) проверок существования файлов)
     val candidateDirs = mutableListOf<File>()
     candidateDirs.add(baseDir)
+    candidateDirs.add(File(baseDir, "YamSync"))
     candidateDirs.add(File(baseDir, "HQ"))
     candidateDirs.add(File(baseDir, "LQ"))
 
-    if (!parentName.isNullOrBlank() && parentName != "HQ" && parentName != "LQ") {
+    if (!parentName.isNullOrBlank() && parentName != "HQ" && parentName != "LQ" && parentName != "YamSync") {
         candidateDirs.add(File(baseDir, parentName))
+        candidateDirs.add(File(baseDir, "YamSync/$parentName"))
         candidateDirs.add(File(baseDir, "HQ/$parentName"))
         candidateDirs.add(File(baseDir, "LQ/$parentName"))
         val sanitizedParent = sanitizeDirName(parentName)
         if (sanitizedParent != parentName) {
             candidateDirs.add(File(baseDir, sanitizedParent))
+            candidateDirs.add(File(baseDir, "YamSync/$sanitizedParent"))
             candidateDirs.add(File(baseDir, "HQ/$sanitizedParent"))
             candidateDirs.add(File(baseDir, "LQ/$sanitizedParent"))
         }
@@ -172,11 +177,13 @@ actual fun resolveLocalPath(path: String): String {
             val potentialArtist = fileName.split(delim, limit = 2)[0].trim()
             if (potentialArtist.isNotBlank() && potentialArtist != parentName) {
                 candidateDirs.add(File(baseDir, potentialArtist))
+                candidateDirs.add(File(baseDir, "YamSync/$potentialArtist"))
                 candidateDirs.add(File(baseDir, "HQ/$potentialArtist"))
                 candidateDirs.add(File(baseDir, "LQ/$potentialArtist"))
                 val sanArtist = sanitizeDirName(potentialArtist)
                 if (sanArtist != potentialArtist) {
                     candidateDirs.add(File(baseDir, sanArtist))
+                    candidateDirs.add(File(baseDir, "YamSync/$sanArtist"))
                     candidateDirs.add(File(baseDir, "HQ/$sanArtist"))
                     candidateDirs.add(File(baseDir, "LQ/$sanArtist"))
                 }
@@ -280,7 +287,7 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
 
             if (artist.isBlank()) {
                 val parent = file.parentFile?.name?.trim() ?: ""
-                val ignoreParents = setOf("hq", "lq", "music", "yandexdownloader", "download", "downloads", rootDir.name.lowercase())
+                val ignoreParents = setOf("hq", "lq", "yamsync", "music", "yandexdownloader", "download", "downloads", rootDir.name.lowercase())
                 if (parent.isNotBlank() && parent.lowercase() !in ignoreParents) {
                     artist = parent
                 } else {
@@ -289,9 +296,11 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
             }
 
             val normalizedPath = file.absolutePath.replace('\\', '/')
+            val isYamSync = normalizedPath.contains("/YamSync/", ignoreCase = true)
             val isHQ = normalizedPath.contains("/HQ/", ignoreCase = true) || normalizedPath.endsWith("/HQ", ignoreCase = true)
             val isLQ = normalizedPath.contains("/LQ/", ignoreCase = true) || normalizedPath.endsWith("/LQ", ignoreCase = true)
             val albumQuality = when {
+                isYamSync -> "YamSync (P2P)"
                 isHQ -> "Скачано (HQ)"
                 isLQ -> "Скачано (LQ)"
                 else -> "На диске (${file.extension.uppercase()})"
@@ -845,16 +854,16 @@ actual fun clearAllDownloadedMusic(basePath: String): Int {
     var count = 0
     val audioExtensions = setOf("flac", "m4a", "aac", "mp3", "opus", "wav", "ogg")
     try {
-        val folders = listOf(File(basePath, "HQ"), File(basePath, "LQ"), File(basePath))
+        val folders = listOf(File(basePath, "YamSync"), File(basePath, "HQ"), File(basePath, "LQ"), File(basePath))
         for (folder in folders) {
             if (!folder.exists() || !folder.isDirectory) continue
-            // Удаляем аудиофайлы рекурсивно (но не заходя в playlists_cache!)
+            // Удаляем аудиофайлы рекурсивно (но не заходя в playlists_cache и playlists!)
             folder.walkBottomUp().forEach { file ->
                 if (file.isFile && audioExtensions.contains(file.extension.lowercase())) {
                     if (file.delete()) {
                         count++
                     }
-                } else if (file.isDirectory && file != folder && file.name != "playlists_cache") {
+                } else if (file.isDirectory && file != folder && file.name != "playlists_cache" && file.name != "playlists") {
                     // Удаляем пустые папки
                     if (file.listFiles()?.isEmpty() == true) {
                         file.delete()
