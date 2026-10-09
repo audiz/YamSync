@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +33,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.audiz.models.*
 import io.github.audiz.sync.YamSyncConnectionState
+import io.github.audiz.sync.YamSyncKnownDevice
 import io.github.audiz.sync.YamSyncManager
 import kotlinx.coroutines.delay
 
@@ -53,8 +56,8 @@ fun YamSyncDialog(
             contentAlignment = Alignment.Center
         ) {
             val isCompact = maxWidth < 600.dp
-            val dialogWidth = if (isCompact) maxWidth else 580.dp
-            val dialogHeight = if (isCompact) maxHeight else 680.dp
+            val dialogWidth = if (isCompact) maxWidth else minOf(maxWidth - 24.dp, 580.dp)
+            val dialogHeight = if (isCompact) maxHeight else minOf(maxHeight - 24.dp, 680.dp)
 
             Surface(
                 shape = RoundedCornerShape(20.dp),
@@ -168,8 +171,22 @@ private fun YamSyncDialogHeader(
                 }
             }
 
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (syncManager.isConnected) {
+                    IconButton(
+                        onClick = { syncManager.refreshManifestAndDiff() },
+                        enabled = !syncManager.isDownloadingFiles
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Обновить списки и манифест",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                }
             }
         }
 
@@ -234,7 +251,10 @@ private fun YamSyncPairingTab(
     var inputUri by remember { mutableStateOf("") }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Переключатель [Показать QR] | [Подключиться]
@@ -342,7 +362,7 @@ private fun YamSyncPairingTab(
                     }
                 }
                 is YamSyncConnectionState.Connected -> {
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF67C23A), modifier = Modifier.size(56.dp))
                             Spacer(modifier = Modifier.height(12.dp))
@@ -360,7 +380,7 @@ private fun YamSyncPairingTab(
                     }
                 }
                 else -> {
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
                             Spacer(modifier = Modifier.height(12.dp))
@@ -450,6 +470,124 @@ private fun YamSyncPairingTab(
                 )
             }
         }
+
+        // 3. Сохранённые устройства (Known Devices)
+        if (syncManager.connectionState !is YamSyncConnectionState.Connected && syncManager.knownDevices.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Сохранённые устройства",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "${syncManager.knownDevices.size}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (dev in syncManager.knownDevices) {
+                    KnownDeviceCard(
+                        device = dev,
+                        onConnect = { syncManager.connectToKnownDevice(dev) },
+                        onRemove = { syncManager.removeKnownDevice(dev) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KnownDeviceCard(
+    device: YamSyncKnownDevice,
+    onConnect: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        tonalElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        val isMobile = device.platform.contains("Android", ignoreCase = true) ||
+                                device.platform.contains("iOS", ignoreCase = true)
+                        val icon = if (isMobile) Icons.Default.PhoneAndroid else Icons.Default.Laptop
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = device.name,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${device.ip} • ${device.platform.ifBlank { "YamSync" }}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Button(
+                    onClick = onConnect,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Text("Связать", fontSize = 12.sp)
+                }
+                IconButton(
+                    onClick = onRemove,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Удалить устройство",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -510,11 +648,28 @@ private fun YamSyncPlaylistsTab(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Плейлистов: ${syncManager.playlistDiffs.size}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    IconButton(
+                        onClick = { syncManager.refreshManifestAndDiff() },
+                        enabled = !syncManager.isDownloadingFiles,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Обновить списки",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = "Плейлистов: ${syncManager.playlistDiffs.size}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (syncManager.missingFiles.isNotEmpty()) {

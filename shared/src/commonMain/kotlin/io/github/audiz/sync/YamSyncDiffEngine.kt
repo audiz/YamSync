@@ -23,6 +23,8 @@ object YamSyncDiffEngine {
         // Все уникальные названия плейлистов
         val allTitles = (localMap.keys + remoteMap.keys).toList()
 
+        val remoteAvailableKeys = remoteManifest.availableFiles.map { it.matchKey }.toSet()
+
         for (titleKey in allTitles) {
             val localPl = localMap[titleKey]
             val remotePl = remoteMap[titleKey]
@@ -44,6 +46,9 @@ object YamSyncDiffEngine {
                     )
                 }
                 localPl == null && remotePl != null -> {
+                    // Если на удаленном устройстве в плейлисте 0 реальных файлов на диске, не навязываем его
+                    val hasFilesOnRemote = remotePl.tracks.isEmpty() || remotePl.tracks.any { it.matchKey in remoteAvailableKeys }
+                    val defaultResolution = if (hasFilesOnRemote) YamSyncResolution.TAKE_REMOTE else YamSyncResolution.KEEP_LOCAL
                     result.add(
                         YamSyncPlaylistDiff(
                             playlistId = remotePl.id,
@@ -54,7 +59,7 @@ object YamSyncDiffEngine {
                             localOnlyTracks = emptyList(),
                             remoteOnlyTracks = remotePl.tracks,
                             commonTracks = emptyList(),
-                            resolution = YamSyncResolution.TAKE_REMOTE
+                            resolution = defaultResolution
                         )
                     )
                 }
@@ -186,9 +191,11 @@ object YamSyncDiffEngine {
         for (pl in mergedPlaylists) {
             for (track in pl.tracks) {
                 if (track.matchKey !in localKeys && seenMissingKeys.add(track.matchKey)) {
-                    // Берем объект с удаленного устройства (содержит точный размер и хеш)
-                    val remoteTrack = remoteMap[track.matchKey] ?: track
-                    missingTracks.add(remoteTrack)
+                    // Файл отсутствует у нас. Скачать можно только то, что физически есть на удаленном устройстве!
+                    val remoteTrack = remoteMap[track.matchKey]
+                    if (remoteTrack != null) {
+                        missingTracks.add(remoteTrack)
+                    }
                 }
             }
         }

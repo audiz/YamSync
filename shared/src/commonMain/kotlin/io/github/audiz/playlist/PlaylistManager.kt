@@ -75,6 +75,11 @@ class PlaylistManager(
     val localPlaylists = mutableStateListOf<LocalPlaylist>()
     var isLocalPlaylistsLoading by mutableStateOf(false)
         private set
+    var onLocalPlaylistsChanged: (() -> Unit)? = null
+
+    private fun notifyLocalPlaylistsChanged() {
+        onLocalPlaylistsChanged?.invoke()
+    }
 
     // ☁️ Пользовательские плейлисты из Яндекс Музыки
     val userPlaylists = mutableStateListOf<PlaylistInfo>()
@@ -234,6 +239,7 @@ class PlaylistManager(
         val storagePath = getMusicStoragePath()
         scope.launch(DispatcherIO) {
             saveLocalPlaylists(storagePath, localPlaylists.toList())
+            notifyLocalPlaylistsChanged()
         }
         onStatusMessage("✅ Создан плейлист '$cleanTitle'")
         return newPlaylist
@@ -252,6 +258,7 @@ class PlaylistManager(
         val storagePath = getMusicStoragePath()
         scope.launch(DispatcherIO) {
             saveLocalPlaylists(storagePath, localPlaylists.toList())
+            notifyLocalPlaylistsChanged()
         }
         onStatusMessage("✅ Плейлист переименован в '$cleanTitle'")
     }
@@ -265,6 +272,7 @@ class PlaylistManager(
             val storagePath = getMusicStoragePath()
             scope.launch(DispatcherIO) {
                 saveLocalPlaylists(storagePath, localPlaylists.toList())
+                notifyLocalPlaylistsChanged()
             }
             onStatusMessage("🗑️ Плейлист удален")
         }
@@ -301,6 +309,7 @@ class PlaylistManager(
                 val storagePath = getMusicStoragePath()
                 withContext(DispatcherIO) {
                     saveLocalPlaylists(storagePath, localPlaylists.toList())
+                    notifyLocalPlaylistsChanged()
                 }
                 onStatusMessage("✅ Добавлено в '${playlist.title}': ${track.title}")
                 onComplete?.invoke(true)
@@ -329,6 +338,7 @@ class PlaylistManager(
         val storagePath = getMusicStoragePath()
         scope.launch(DispatcherIO) {
             saveLocalPlaylists(storagePath, localPlaylists.toList())
+            notifyLocalPlaylistsChanged()
         }
         onTrackRemoved?.invoke(cleanPath)
         onStatusMessage("Удалено из плейлиста")
@@ -361,6 +371,7 @@ class PlaylistManager(
         val storagePath = getMusicStoragePath()
         scope.launch(DispatcherIO) {
             saveLocalPlaylists(storagePath, localPlaylists.toList())
+            notifyLocalPlaylistsChanged()
         }
         onTrackRemoved?.invoke(cleanPath)
         onStatusMessage("Удалено из плейлиста")
@@ -386,6 +397,7 @@ class PlaylistManager(
             val storagePath = getMusicStoragePath()
             scope.launch(DispatcherIO) {
                 saveLocalPlaylists(storagePath, localPlaylists.toList())
+                notifyLocalPlaylistsChanged()
             }
         }
     }
@@ -738,6 +750,7 @@ class PlaylistManager(
             val storagePath = getMusicStoragePath()
             withContext(DispatcherIO) {
                 saveLocalPlaylists(storagePath, localPlaylists.toList())
+                notifyLocalPlaylistsChanged()
             }
             onStatusMessage("✅ Плейлист '${playlist.title}' полностью сохранён ($downloadedCount треков)!")
         }

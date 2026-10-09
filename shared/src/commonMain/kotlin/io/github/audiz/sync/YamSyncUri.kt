@@ -1,8 +1,11 @@
 package io.github.audiz.sync
 
+import kotlinx.serialization.Serializable
+
 /**
  * 🔗 Данные для подключения и авторизации сессии YamSync, кодируемые в QR-код.
  */
+@Serializable
 data class YamSyncPairInfo(
     val ip: String,
     val port: Int,
@@ -88,4 +91,25 @@ private fun decodeUrlParam(s: String): String {
         i++
     }
     return bytes.toByteArray().decodeToString()
+}
+
+/**
+ * 📱 Сохраненное устройство, с которым ранее была успешная синхронизация
+ */
+@Serializable
+data class YamSyncKnownDevice(
+    val name: String,
+    val ip: String,
+    val port: Int,
+    val token: String,
+    val platform: String,
+    val lastSeenMs: Long
+) {
+    fun toPairInfo(): YamSyncPairInfo = YamSyncPairInfo(
+        ip = ip,
+        port = port,
+        token = token,
+        name = name,
+        platform = platform
+    )
 }

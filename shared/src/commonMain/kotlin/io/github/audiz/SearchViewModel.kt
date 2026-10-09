@@ -504,7 +504,11 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         scope = viewModelScope,
         getMusicStoragePath = { settingsManager.musicStoragePath },
         onPlaylistsUpdated = { playlistManager.loadLocalPlaylistsFromDisk() }
-    )
+    ).apply {
+        playlistManager.onLocalPlaylistsChanged = {
+            invalidateLocalManifestAndRefresh()
+        }
+    }
 
     val audioPlayer: AudioPlayer get() = playbackManager.audioPlayer
     val systemMediaControls: SystemMediaControls get() = playbackManager.systemMediaControls

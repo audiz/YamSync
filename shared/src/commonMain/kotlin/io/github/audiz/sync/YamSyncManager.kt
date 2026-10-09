@@ -9,6 +9,8 @@ import androidx.compose.runtime.setValue
 import io.github.audiz.*
 import io.github.audiz.models.*
 import kotlinx.coroutines.*
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 /**
  * Состояния подключения YamSync
@@ -41,6 +43,7 @@ class YamSyncManager(
     val missingFiles = mutableStateListOf<YamSyncTrack>()
     val selectedFiles = mutableStateSetOf<String>()
     val fileTransfers = mutableStateMapOf<String, YamSyncTransferProgress>()
+    val knownDevices = mutableStateListOf<YamSyncKnownDevice>()
 
     private var activeServer: YamSyncServer? = null
     private val client = YamSyncClient()
@@ -48,6 +51,142 @@ class YamSyncManager(
     private var localManifestCache: YamSyncManifest? = null
     private var remoteManifestCache: YamSyncManifest? = null
     private val localFilePathsByMatchKey = mutableMapOf<String, String>()
+    private var pollingJob: Job? = null
+
+    private val syncJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        isLenient = true
+    }
+
+    init {
+        loadKnownDevices()
+    }
+
+    private fun loadKnownDevices() {
+        try {
+            val jsonStr = loadAppConfig(AppConfigKeys.YAMSYNC_KNOWN_DEVICES)
+            if (!jsonStr.isNullOrBlank()) {
+                val list = syncJson.decodeFromString(
+                    ListSerializer(YamSyncKnownDevice.serializer()),
+                    jsonStr
+                )
+                knownDevices.clear()
+                knownDevices.addAll(list.sortedByDescending { it.lastSeenMs })
+            }
+        } catch (e: Exception) {
+            println("YamSync: Ошибка загрузки известных устройств: ${e.message}")
+        }
+    }
+
+    private fun persistKnownDevices() {
+        try {
+            val jsonStr = syncJson.encodeToString(
+                ListSerializer(YamSyncKnownDevice.serializer()),
+                knownDevices.toList()
+            )
+            saveAppConfig(AppConfigKeys.YAMSYNC_KNOWN_DEVICES, jsonStr)
+        } catch (e: Exception) {
+            println("YamSync: Ошибка сохранения известных устройств: ${e.message}")
+        }
+    }
+
+    fun saveKnownDevice(pairInfo: YamSyncPairInfo) {
+        val existingIdx = knownDevices.indexOfFirst {
+            it.name.equals(pairInfo.name, ignoreCase = true) || (it.ip == pairInfo.ip && it.port == pairInfo.port)
+        }
+        val item = YamSyncKnownDevice(
+            name = pairInfo.name,
+            ip = pairInfo.ip,
+            port = pairInfo.port,
+            token = pairInfo.token,
+            platform = pairInfo.platform,
+            lastSeenMs = currentTimeMillis()
+        )
+        if (existingIdx >= 0) {
+            knownDevices[existingIdx] = item
+        } else {
+            knownDevices.add(0, item)
+        }
+        persistKnownDevices()
+    }
+
+    fun removeKnownDevice(device: YamSyncKnownDevice) {
+        knownDevices.removeAll { it.name == device.name && it.ip == device.ip }
+        persistKnownDevices()
+    }
+
+    fun connectToKnownDevice(device: YamSyncKnownDevice) {
+        connectToPairInfo(device.toPairInfo())
+    }
+
+    fun getOrCreateDeviceSyncToken(): String {
+        val saved = loadAppConfig(AppConfigKeys.YAMSYNC_DEVICE_TOKEN)
+        if (!saved.isNullOrBlank()) return saved
+        val newToken = generateRandomSessionToken()
+        saveAppConfig(AppConfigKeys.YAMSYNC_DEVICE_TOKEN, newToken)
+        return newToken
+    }
+
+    private fun startBackgroundSyncPolling() {
+        pollingJob?.cancel()
+        pollingJob = scope.launch(Dispatchers.Main) {
+            while (isActive && isConnected) {
+                delay(5000)
+                if (!isConnected) break
+                if (!isDownloadingFiles) {
+                    refreshManifestAndDiffSilently()
+                }
+            }
+        }
+    }
+
+    private fun stopBackgroundSyncPolling() {
+        pollingJob?.cancel()
+        pollingJob = null
+    }
+
+    private fun refreshManifestAndDiffSilently() {
+        val pair = activePairInfo ?: return
+        scope.launch(Dispatchers.Main) {
+            val localMan = buildLocalManifest()
+            if (pair.port <= 0) {
+                val cached = remoteManifestCache
+                if (cached != null) {
+                    applyDiffs(localMan, cached)
+                }
+                return@launch
+            }
+            val remoteRes = withContext(DispatcherIO) {
+                client.exchangeManifests(pair.ip, pair.port, pair.token, localMan)
+            }
+            remoteRes.fold(
+                onSuccess = { remoteMan ->
+                    remoteManifestCache = remoteMan
+                    applyDiffs(localMan, remoteMan)
+                },
+                onFailure = {
+                    val getRes = withContext(DispatcherIO) {
+                        client.fetchManifest(pair.ip, pair.port, pair.token)
+                    }
+                    getRes.fold(
+                        onSuccess = { remoteMan ->
+                            remoteManifestCache = remoteMan
+                            applyDiffs(localMan, remoteMan)
+                        },
+                        onFailure = { /* keep silent */ }
+                    )
+                }
+            )
+        }
+    }
+
+    fun invalidateLocalManifestAndRefresh() {
+        localManifestCache = null
+        if (isConnected) {
+            refreshManifestAndDiff()
+        }
+    }
 
     val isConnected: Boolean
         get() = connectionState is YamSyncConnectionState.Connected || connectionState is YamSyncConnectionState.Syncing
@@ -98,8 +237,10 @@ class YamSyncManager(
         }
         for (pl in localPls) {
             for (path in pl.trackPaths) {
-                val fn = path.substringAfterLast('/').substringAfterLast('\\')
-                localFilePathsByMatchKey[fn.lowercase()] = path
+                if (localFileExists(path) || localFileExists(resolveLocalPath(path))) {
+                    val fn = path.substringAfterLast('/').substringAfterLast('\\')
+                    localFilePathsByMatchKey[fn.lowercase()] = path
+                }
             }
         }
 
@@ -255,7 +396,7 @@ class YamSyncManager(
         statusMessage = "Запуск сервера YamSync..."
 
         val basePath = getMusicStoragePath()
-        val token = generateRandomSessionToken()
+        val token = getOrCreateDeviceSyncToken()
         val ip = getLocalIpAddress()
         val localDevice = YamSyncDevice(
             id = "host_${currentTimeMillis()}",
@@ -284,6 +425,8 @@ class YamSyncManager(
                         platform = clientDevice.platform
                     )
                     activePairInfo = pairInfo
+                    saveKnownDevice(pairInfo)
+                    startBackgroundSyncPolling()
                     connectionState = YamSyncConnectionState.Connected(clientDevice, pairInfo)
                     statusMessage = "Устройство подключено: ${clientDevice.name}"
                     if (remoteManifestCache == null && clientDevice.port > 0) {
@@ -316,6 +459,7 @@ class YamSyncManager(
 
     /** Остановить сервер и режим раздачи */
     fun stopHosting() {
+        stopBackgroundSyncPolling()
         activeServer?.stop()
         activeServer = null
         if (connectionState is YamSyncConnectionState.Hosting) {
@@ -372,12 +516,15 @@ class YamSyncManager(
 
             pairRes.fold(
                 onSuccess = { remoteDev ->
+                    saveKnownDevice(pairInfo.copy(name = remoteDev.name, platform = remoteDev.platform))
+                    startBackgroundSyncPolling()
                     connectionState = YamSyncConnectionState.Connected(remoteDev, pairInfo)
                     statusMessage = "Связано с ${remoteDev.name}"
                     refreshManifestAndDiff()
                 },
                 onFailure = { err ->
                     stopHosting()
+                    stopBackgroundSyncPolling()
                     connectionState = YamSyncConnectionState.Disconnected
                     errorMessage = "Не удалось подключиться: ${err.message}"
                 }
@@ -387,6 +534,7 @@ class YamSyncManager(
 
     /** Разорвать текущее соединение */
     fun disconnect() {
+        stopBackgroundSyncPolling()
         stopHosting()
         activePairInfo = null
         remoteManifestCache = null
