@@ -461,13 +461,31 @@ private fun YamSyncPairingTab(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Text(
-                    text = "💡 На ПК без камеры: скопируйте ссылку на раздающем устройстве и вставьте её здесь кнопкой «Вставить из буфера».",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "💡 Как подключиться:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "1. На втором устройстве откройте вкладку «Показать QR-код» и нажмите «Раздать».\n" +
+                                   "2. Со смартфона: наведите обычную камеру на QR-код на экране другого устройства и нажмите на появившуюся ссылку YamSync (или скопируйте её).\n" +
+                                   "3. Либо скопируйте ссылку на раздающем устройстве и вставьте её сюда кнопкой «Вставить из буфера».",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
             }
         }
 

@@ -115,6 +115,17 @@ fun App() {
                 saveAppConfig(AppConfigKeys.SHOW_PLAYLISTS_DIALOG, show.toString())
             }
             var showYamSyncDialog by remember { mutableStateOf(false) }
+
+            // 🔗 Обработка глубоких ссылок синхронизации YamSync (сканирование QR-кода камерой)
+            LaunchedEffect(Unit) {
+                DeepLinkHandler.pendingYamSyncUri.collect { uri ->
+                    if (uri != null) {
+                        DeepLinkHandler.consumeYamSyncUri()
+                        searchViewModel.yamSyncManager.connectToPeer(uri)
+                        showYamSyncDialog = true
+                    }
+                }
+            }
             var trackForPlaylistDialog by remember { mutableStateOf<FullTrackInfo?>(null) }
             var showLogsDialog by remember { mutableStateOf(false) }
             var trackToDelete by remember { mutableStateOf<TrackDeleteConfirmInfo?>(null) }

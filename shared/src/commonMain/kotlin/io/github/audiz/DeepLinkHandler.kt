@@ -11,9 +11,17 @@ object DeepLinkHandler {
     private val _pendingTrackId = MutableStateFlow<String?>(null)
     val pendingTrackId: StateFlow<String?> = _pendingTrackId.asStateFlow()
 
+    private val _pendingYamSyncUri = MutableStateFlow<String?>(null)
+    val pendingYamSyncUri: StateFlow<String?> = _pendingYamSyncUri.asStateFlow()
+
     fun handleUrl(url: String?) {
         if (url.isNullOrBlank()) return
-        val trackId = extractTrackId(url)
+        val clean = url.trim()
+        if (clean.startsWith("yamsync://pair")) {
+            _pendingYamSyncUri.value = clean
+            return
+        }
+        val trackId = extractTrackId(clean)
         if (trackId != null) {
             _pendingTrackId.value = trackId
         }
@@ -46,5 +54,11 @@ object DeepLinkHandler {
         val id = _pendingTrackId.value
         _pendingTrackId.value = null
         return id
+    }
+
+    fun consumeYamSyncUri(): String? {
+        val uri = _pendingYamSyncUri.value
+        _pendingYamSyncUri.value = null
+        return uri
     }
 }

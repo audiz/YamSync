@@ -51,4 +51,14 @@ class DeepLinkHandlerTest {
         assertEquals("42", DeepLinkHandler.consumeTrackId())
         assertNull(DeepLinkHandler.pendingTrackId.value)
     }
+
+    @Test
+    fun testConsumeYamSyncPairUri() {
+        val pairUri = "yamsync://pair?ip=192.168.1.5&port=43594&token=abc123xyz&name=MyPC&platform=Desktop"
+        DeepLinkHandler.handleUrl(pairUri)
+        assertEquals(pairUri, DeepLinkHandler.pendingYamSyncUri.value)
+        assertNull(DeepLinkHandler.pendingTrackId.value)
+        assertEquals(pairUri, DeepLinkHandler.consumeYamSyncUri())
+        assertNull(DeepLinkHandler.pendingYamSyncUri.value)
+    }
 }
