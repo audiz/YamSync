@@ -806,13 +806,7 @@ fun MobileFullPlayerSheet(
                         bottomPlayerPadding = 0.dp
                     )
                 } else {
-                    // Дизлайк на мобильных устройствах (44 dp)
-                    DislikeButton(
-                        isDisliked = state.isDisliked,
-                        isDownloadedOrLocal = state.isDownloadedOrLocal,
-                        size = 44.dp,
-                        onClick = { actions.onToggleDislike?.invoke() }
-                    )
+                    // Плейлист / очередь воспроизведения на мобильных устройствах (44 dp)
                     if (actions.onOpenQueue != null) {
                         IconButton(
                             onClick = {
@@ -829,6 +823,14 @@ fun MobileFullPlayerSheet(
                             )
                         }
                     }
+
+                    // Дизлайк / удаление на мобильных устройствах (44 dp)
+                    DislikeButton(
+                        isDisliked = state.isDisliked,
+                        isDownloadedOrLocal = state.isDownloadedOrLocal,
+                        size = 44.dp,
+                        onClick = { actions.onToggleDislike?.invoke() }
+                    )
                 }
             }
 
