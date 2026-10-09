@@ -7,6 +7,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class PlaybackQueueManagerTest {
@@ -106,9 +107,10 @@ class PlaybackQueueManagerTest {
 
         val candidates = queueManager.getShuffleCandidates(activeId = "2", tracks = tracks)
 
-        // When size <= 5, only active track is excluded to prevent candidate starvation
+        // In True Shuffle: 1 and 2 are already played in this cycle, so only 3, 4, 5 remain
         val candidateIds = candidates.map { it.id }.toSet()
-        assertEquals(setOf("1", "3", "4", "5"), candidateIds)
+        assertEquals(setOf("3", "4", "5"), candidateIds)
+        assertFalse(candidateIds.contains("1"))
         assertFalse(candidateIds.contains("2"))
     }
 
@@ -123,42 +125,66 @@ class PlaybackQueueManagerTest {
     }
 
     @Test
-    fun testFifoTrackReavailabilityInShuffle() {
+    fun testShuffleFullCycleNoRepeatsUntilAllPlayed() {
         val queueManager = PlaybackQueueManager()
         queueManager.isShuffleEnabled = true
         val tracks = (1..7).map { createDummyTrack(it.toString()) }
 
-        // Play 1, 2, 3, 4, 5
-        queueManager.recordPlayed("1")
-        queueManager.recordPlayed("2")
-        queueManager.recordPlayed("3")
-        queueManager.recordPlayed("4")
-        queueManager.recordPlayed("5")
+        val playedOrder = mutableListOf<String>()
+        var currentId: String? = "1"
+        playedOrder.add("1")
 
-        // Active track is 6. Recent 5 are: 6, 5, 4, 3, 2.
-        // Track 1 should be eligible again because it is not in the last 5!
-        val candidates = queueManager.getShuffleCandidates(activeId = "6", tracks = tracks)
-        val candidateIds = candidates.map { it.id }.toSet()
-        assertEquals(setOf("1", "7"), candidateIds)
-        assertTrue(candidateIds.contains("1"))
-        assertTrue(candidateIds.contains("7"))
+        // Play through the remaining 6 tracks of the 7-track playlist
+        repeat(6) {
+            val next = queueManager.getNextFromList(activeId = currentId, tracks = tracks)
+            assertNotNull(next)
+            queueManager.recordPlayed(currentId!!)
+            playedOrder.add(next.id)
+            currentId = next.id
+        }
+
+        // Entire playlist of 7 tracks must have played with ZERO duplicates
+        assertEquals(7, playedOrder.size)
+        assertEquals(7, playedOrder.distinct().size, "All 7 tracks in cycle must be unique")
+        assertEquals((1..7).map { it.toString() }.toSet(), playedOrder.toSet())
     }
 
     @Test
-    fun testGetNextFromListWithShuffleRespectsRecentFive() {
+    fun testShuffleNewCycleBoundaryProtection() {
         val queueManager = PlaybackQueueManager()
         queueManager.isShuffleEnabled = true
-        val tracks = (1..8).map { createDummyTrack(it.toString()) }
+        val tracks = (1..5).map { createDummyTrack(it.toString()) }
 
+        // Play 1, 2, 3, 4
         queueManager.recordPlayed("1")
         queueManager.recordPlayed("2")
         queueManager.recordPlayed("3")
         queueManager.recordPlayed("4")
 
-        // Current track is 5
-        val next = queueManager.getNextFromList(activeId = "5", tracks = tracks)
-        val validIds = setOf("6", "7", "8")
-        assertTrue(validIds.contains(next?.id), "Expected next track in $validIds, but was ${next?.id}")
+        // Active track is 5 (final track of cycle 1)
+        val candidatesForCycle2 = queueManager.getShuffleCandidates(activeId = "5", tracks = tracks)
+
+        // Cycle 1 completed! First track of cycle 2 must NOT be track 5
+        val candidateIds = candidatesForCycle2.map { it.id }.toSet()
+        assertEquals(setOf("1", "2", "3", "4"), candidateIds)
+        assertFalse(candidateIds.contains("5"), "Last track of cycle 1 must not repeat as first track of cycle 2")
+    }
+
+    @Test
+    fun testShuffleTwoTracksAlternation() {
+        val queueManager = PlaybackQueueManager()
+        queueManager.isShuffleEnabled = true
+        val tracks = listOf(createDummyTrack("1"), createDummyTrack("2"))
+
+        var current = "1"
+        repeat(6) {
+            val next = queueManager.getNextFromList(activeId = current, tracks = tracks)
+            assertNotNull(next)
+            val expected = if (current == "1") "2" else "1"
+            assertEquals(expected, next.id)
+            queueManager.recordPlayed(current)
+            current = next.id
+        }
     }
 
     @Test

@@ -48,20 +48,53 @@ class PlaybackQueueManager {
     val playbackHistory = mutableListOf<String>()
     val forwardHistory = mutableListOf<String>()
 
+    // 🔀 ID треков, уже сыгравших в текущем цикле перемешивания (True Shuffle)
+    val playedInCycleTrackIds = mutableSetOf<String>()
+
+    // ID последнего завершенного трека предыдущего цикла для защиты от повтора на стыке кругов
+    var lastCompletedCycleTrackId: String? = null
+
     fun toggleShuffle(): Boolean {
         isShuffleEnabled = !isShuffleEnabled
+        resetShuffleCycle()
         return isShuffleEnabled
     }
 
     fun setShuffle(enabled: Boolean) {
-        isShuffleEnabled = enabled
+        if (isShuffleEnabled != enabled) {
+            isShuffleEnabled = enabled
+            resetShuffleCycle()
+        }
     }
 
     fun recordPlayed(trackId: String) {
+        if (trackId.isBlank()) return
         playbackHistory.add(trackId)
         if (playbackHistory.size > MAX_HISTORY_SIZE) {
             playbackHistory.removeAt(0)
         }
+        recordPlayedInCycle(trackId)
+    }
+
+    fun recordPlayedInCycle(trackId: String) {
+        if (trackId.isBlank()) return
+        val clean = trackId.removePrefix("local:")
+        playedInCycleTrackIds.add(trackId)
+        playedInCycleTrackIds.add(clean)
+    }
+
+    fun isTrackPlayedInCycle(track: FullTrackInfo): Boolean {
+        val clean = track.id.removePrefix("local:")
+        val realClean = track.realId?.removePrefix("local:")
+        return playedInCycleTrackIds.contains(track.id) ||
+               playedInCycleTrackIds.contains(clean) ||
+               (track.realId != null && playedInCycleTrackIds.contains(track.realId)) ||
+               (realClean != null && playedInCycleTrackIds.contains(realClean))
+    }
+
+    fun resetShuffleCycle() {
+        playedInCycleTrackIds.clear()
+        lastCompletedCycleTrackId = null
     }
 
     fun recordForward(trackId: String) {
@@ -79,6 +112,7 @@ class PlaybackQueueManager {
         playbackHistory.clear()
         forwardHistory.clear()
         plannedNextTrack = null
+        resetShuffleCycle()
     }
 
     /**
@@ -155,11 +189,14 @@ class PlaybackQueueManager {
     }
 
     /**
-     * Вычисление списка кандидатов для режима перемешивания (Shuffle).
-     * Если общее число треков больше [RECENT_HISTORY_SIZE] (5):
-     * исключаются последние [RECENT_HISTORY_SIZE] недавно игравших треков.
-     * Если треков <= 5 или фильтр исключил все треки:
-     * исключается только активный трек [activeId], чтобы избежать повторения одного и того же трека подряд.
+     * 🔀 Вычисление списка кандидатов для режима перемешивания (Shuffle) без повторов треков (True Shuffle).
+     *
+     * 1. Все треки, уже сыгравшие в текущем круге (включая активный [activeId]), исключаются,
+     *    чтобы каждый трек плейлиста сыграл ровно один раз.
+     * 2. Если все треки плейлиста сыграли (круг завершен):
+     *    - Автоматически запускается НОВЫЙ КРУГ со свежей перетасовкой (Вариант 1).
+     *    - Защита на стыке: последний трек завершенного круга исключается из первого выбора нового круга,
+     *      чтобы одна и та же композиция не играла дважды подряд.
      */
     fun getShuffleCandidates(
         activeId: String?,
@@ -168,16 +205,36 @@ class PlaybackQueueManager {
         if (tracks.isEmpty()) return emptyList()
         if (tracks.size <= 1) return tracks
 
-        if (tracks.size > RECENT_HISTORY_SIZE) {
-            val recentIds = getRecentTrackIds(activeId, RECENT_HISTORY_SIZE)
-            val filtered = tracks.filter { track -> recentIds.none { isSameTrack(track, it) } }
-            if (filtered.isNotEmpty()) {
-                return filtered
-            }
+        // Если в сыгранных треках круга нет ни одного трека из переданного списка (пользователь переключил плейлист), сбрасываем круг
+        val hasAnyTrackFromCurrentList = tracks.any { isTrackPlayedInCycle(it) }
+        if (!hasAnyTrackFromCurrentList && playedInCycleTrackIds.isNotEmpty()) {
+            resetShuffleCycle()
         }
 
-        val fallback = if (activeId != null) tracks.filter { !isSameTrack(it, activeId) } else tracks
-        return if (fallback.isNotEmpty()) fallback else tracks
+        // 1. Фиксируем текущий активный трек в сыгранных текущего круга
+        if (activeId != null) {
+            recordPlayedInCycle(activeId)
+        }
+
+        // 2. Ищем еще не игравшие в текущем круге треки (исключая сыгранные и текущий активный)
+        val unplayed = tracks.filter { track ->
+            !isTrackPlayedInCycle(track) && !isSameTrack(track, activeId)
+        }
+
+        if (unplayed.isNotEmpty()) {
+            return unplayed
+        }
+
+        // 3. Все треки плейлиста сыграли! Круг завершен.
+        // Запоминаем последний отыгравший трек для защиты стыка между кругами
+        lastCompletedCycleTrackId = activeId
+
+        // Начинаем новый круг со свежей перетасовкой
+        playedInCycleTrackIds.clear()
+
+        // Кандидаты нового круга: все треки плейлиста КРОМЕ только что отыгравшего lastCompletedCycleTrackId
+        val newCycleCandidates = tracks.filter { !isSameTrack(it, lastCompletedCycleTrackId) }
+        return if (newCycleCandidates.isNotEmpty()) newCycleCandidates else tracks
     }
 
     /**
