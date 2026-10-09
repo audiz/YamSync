@@ -152,4 +152,25 @@ class PlaybackQueueManagerTest {
         val validIds = setOf("6", "7", "8")
         assertTrue(validIds.contains(next?.id), "Expected next track in $validIds, but was ${next?.id}")
     }
+
+    @Test
+    fun testShufflePersistenceAcrossInstances() {
+        val original = io.github.audiz.loadAppConfig(io.github.audiz.AppConfigKeys.PLAYER_SHUFFLE)
+        try {
+            val qm1 = PlaybackQueueManager()
+            qm1.isShuffleEnabled = true
+            assertEquals(true, qm1.isShuffleEnabled)
+
+            val qm2 = PlaybackQueueManager()
+            assertEquals(true, qm2.isShuffleEnabled, "Shuffle state should be restored from app config")
+
+            qm2.toggleShuffle()
+            assertEquals(false, qm2.isShuffleEnabled)
+
+            val qm3 = PlaybackQueueManager()
+            assertEquals(false, qm3.isShuffleEnabled, "Shuffle toggle should be reflected in new instance")
+        } finally {
+            io.github.audiz.saveAppConfig(io.github.audiz.AppConfigKeys.PLAYER_SHUFFLE, original ?: "")
+        }
+    }
 }

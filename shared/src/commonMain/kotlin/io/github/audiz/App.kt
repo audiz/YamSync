@@ -97,10 +97,23 @@ fun App() {
             // Навигация: если список загруженных треков активен и не пуст — переключаемся на Экран Б
             val showTracksScreen = searchViewModel.isTracksListVisible && (searchViewModel.loadedTracks.isNotEmpty() || searchViewModel.isLoading)
             var settingsExpanded by remember { mutableStateOf(false) }
-            var isMobilePlayerExpanded by remember { mutableStateOf(false) }
+            var isMobilePlayerExpanded by remember {
+                mutableStateOf(loadAppConfig(AppConfigKeys.MOBILE_PLAYER_EXPANDED) == "true")
+            }
+            fun updateMobilePlayerExpanded(expanded: Boolean) {
+                isMobilePlayerExpanded = expanded
+                saveAppConfig(AppConfigKeys.MOBILE_PLAYER_EXPANDED, expanded.toString())
+            }
+
             var showEqualizerDialog by remember { mutableStateOf(false) }
             var equalizerInitialTab by remember { mutableStateOf(0) }
-            var showPlaylistsDialog by remember { mutableStateOf(false) }
+            var showPlaylistsDialog by remember {
+                mutableStateOf(loadAppConfig(AppConfigKeys.SHOW_PLAYLISTS_DIALOG) == "true")
+            }
+            fun updateShowPlaylistsDialog(show: Boolean) {
+                showPlaylistsDialog = show
+                saveAppConfig(AppConfigKeys.SHOW_PLAYLISTS_DIALOG, show.toString())
+            }
             var showYamSyncDialog by remember { mutableStateOf(false) }
             var trackForPlaylistDialog by remember { mutableStateOf<FullTrackInfo?>(null) }
             var showLogsDialog by remember { mutableStateOf(false) }
@@ -233,13 +246,13 @@ fun App() {
                     {
                         if (isMobileUi) {
                             searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
-                            isMobilePlayerExpanded = false
+                            updateMobilePlayerExpanded(false)
                         } else {
                             searchViewModel.toggleQueueView()
                         }
                     }
                 } else null,
-                onExpandMobilePlayer = { isMobilePlayerExpanded = true },
+                onExpandMobilePlayer = { updateMobilePlayerExpanded(true) },
                 onResetWave = { searchViewModel.resetToDefaultWave() }
             )
 
@@ -365,7 +378,7 @@ fun App() {
                                         viewModel = searchViewModel,
                                         onOpenMediaLibrary = {
                                             searchViewModel.resetBrowsedFolder()
-                                            showPlaylistsDialog = true
+                                            updateShowPlaylistsDialog(true)
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     )
@@ -491,11 +504,11 @@ fun App() {
                                 searchViewModel.closeArtistTracks()
                                 searchViewModel.activeBrowsedFolderSource = targetSource
                                 searchViewModel.activeBrowsedFolderPath = targetPath
-                                showPlaylistsDialog = true
+                                updateShowPlaylistsDialog(true)
                             } else if (isBackGoingToMobilePlayer) {
                                 searchViewModel.isTracksListVisible = false
                                 searchViewModel.tracksListOrigin = TracksListOrigin.HOME
-                                isMobilePlayerExpanded = true
+                                updateMobilePlayerExpanded(true)
                             } else {
                                 searchViewModel.closeArtistTracks()
                             }
@@ -518,11 +531,11 @@ fun App() {
                                     searchViewModel.closeArtistTracks()
                                     searchViewModel.activeBrowsedFolderSource = targetSource
                                     searchViewModel.activeBrowsedFolderPath = targetPath
-                                    showPlaylistsDialog = true
+                                    updateShowPlaylistsDialog(true)
                                 } else if (isBackGoingToMobilePlayer) {
                                     searchViewModel.isTracksListVisible = false
                                     searchViewModel.tracksListOrigin = TracksListOrigin.HOME
-                                    isMobilePlayerExpanded = true
+                                    updateMobilePlayerExpanded(true)
                                 } else {
                                     searchViewModel.closeArtistTracks()
                                 }
@@ -608,7 +621,7 @@ fun App() {
                 MobileFullPlayerSheet(
                     state = playerBarState,
                     actions = playerBarActions,
-                    onDismiss = { isMobilePlayerExpanded = false }
+                    onDismiss = { updateMobilePlayerExpanded(false) }
                 )
             }
 
@@ -669,9 +682,9 @@ fun App() {
             if (showPlaylistsDialog) {
                 PlaylistsDialog(
                     viewModel = searchViewModel,
-                    onDismiss = { showPlaylistsDialog = false },
+                    onDismiss = { updateShowPlaylistsDialog(false) },
                     onOpenSync = {
-                        showPlaylistsDialog = false
+                        updateShowPlaylistsDialog(false)
                         showYamSyncDialog = true
                     }
                 )

@@ -35,9 +35,11 @@ import io.github.audiz.pickAudioOrPlaylistFile
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import io.github.audiz.DispatcherIO
+import io.github.audiz.AppConfigKeys
+import io.github.audiz.loadAppConfig
+import io.github.audiz.saveAppConfig
 import io.github.audiz.localFileExists
 import io.github.audiz.resolveLocalPath
 
@@ -604,7 +606,9 @@ private fun LocalPlaylistsTab(
     onOpenSync: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
-    var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
+    var expandedPlaylistId by remember {
+        mutableStateOf(loadAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID)?.takeIf { it.isNotBlank() })
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -943,7 +947,9 @@ private fun LocalPlaylistsTab(
 
                                     TextButton(
                                         onClick = {
-                                            expandedPlaylistId = if (expandedPlaylistId == playlist.id) null else playlist.id
+                                            val next = if (expandedPlaylistId == playlist.id) null else playlist.id
+                                            expandedPlaylistId = next
+                                            saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
                                         },
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                                         modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)

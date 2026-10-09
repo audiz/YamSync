@@ -82,7 +82,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     var isDownloadedTracksScreen by mutableStateOf(false)
 
     // 📋 Флаг видимости экрана списка треков / активной очереди (Экран Б)
-    var isTracksListVisible by mutableStateOf(false)
+    private var _isTracksListVisible = mutableStateOf(loadAppConfig(AppConfigKeys.TRACKS_LIST_VISIBLE) == "true")
+    var isTracksListVisible: Boolean
+        get() = _isTracksListVisible.value
+        set(value) {
+            _isTracksListVisible.value = value
+            saveAppConfig(AppConfigKeys.TRACKS_LIST_VISIBLE, value.toString())
+        }
 
     // 📁 Контекст текущего открытого проводника по локальным папкам (для возврата в ту же папку)
     var activeBrowsedFolderSource by mutableStateOf<CustomMediaSource?>(null)
@@ -475,7 +481,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         isRecordToDisk = { downloadManager.isRecordToDiskActive },
         onTrackSavedToDisk = { downloadManager.incrementDownloadVersion() },
         onTrackStarted = { trackId, title, artist, cover, isWave ->
-            if (isWave) {
+            if (isWave && !isTracksListVisible) {
                 playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
             }
             playbackSessionManager.updateLastTrack(
@@ -624,6 +630,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      */
     private fun restoreLastPlaybackSession() {
         val session = playbackSessionManager.loadSession()
+        val wasTracksListVisible = loadAppConfig(AppConfigKeys.TRACKS_LIST_VISIBLE) == "true"
         if (session == null || session.type == LastPlaybackType.WAVE) {
             isTracksListVisible = false
             if (currentAccessToken.isNotBlank()) {
@@ -636,17 +643,18 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             return
         }
 
-        restorePlaylistSession(session)
+        restorePlaylistSession(session, wasTracksListVisible)
     }
 
     fun resumeLastSession(session: LastPlaybackSession) {
-        restorePlaylistSession(session)
+        restorePlaylistSession(session, wasTracksListVisible = true)
     }
 
-    private fun restorePlaylistSession(session: LastPlaybackSession) {
+    private fun restorePlaylistSession(session: LastPlaybackSession, wasTracksListVisible: Boolean = true) {
         when (session.type) {
             LastPlaybackType.DOWNLOADED -> {
                 loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.LOCAL_PLAYLIST -> {
                 launchSafe {
@@ -659,12 +667,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                             localPlaylists.addAll(list)
                         }
                     }
-                    val playlist = localPlaylists.firstOrNull { it.id == session.id || it.title == session.title }
+                    val playlist = localPlaylists.firstOrNull { 
+                        it.id == session.id || it.title.equals(session.title, ignoreCase = true) 
+                    }
                     if (playlist != null) {
                         openLocalPlaylist(playlist, restoreTrackId = session.lastTrackId)
                     } else {
                         loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
                     }
+                    if (!wasTracksListVisible) isTracksListVisible = false
                 }
             }
             LastPlaybackType.CUSTOM_SOURCE -> {
@@ -681,6 +692,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 } else {
                     loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
                 }
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.CUSTOM_FOLDER -> {
                 val folderPath = session.path
@@ -696,6 +708,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 } else {
                     loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
                 }
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.YANDEX_USER_PLAYLIST -> {
                 val uid = session.uid
@@ -713,6 +726,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 } else {
                     loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
                 }
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.YANDEX_UUID -> {
                 val uuid = session.uuid
@@ -721,12 +735,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 } else {
                     loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
                 }
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.YANDEX_LIKES -> {
                 loadLikesPlaylist(restoreTrackId = session.lastTrackId)
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.YANDEX_HISTORY -> {
                 loadHistory(restoreTrackId = session.lastTrackId)
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.ARTIST -> {
                 val artistId = session.artistId
@@ -739,6 +756,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 } else {
                     loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
                 }
+                if (!wasTracksListVisible) isTracksListVisible = false
             }
             LastPlaybackType.WAVE -> {
                 // Обработано выше
@@ -1231,6 +1249,11 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                         val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
                         if (target != null) {
                             playbackManager.setInitialTrack(target)
+                        }
+                    } else {
+                        val first = tracks.firstOrNull()
+                        if (first != null) {
+                            playbackManager.setInitialTrack(first)
                         }
                     }
                 } else {

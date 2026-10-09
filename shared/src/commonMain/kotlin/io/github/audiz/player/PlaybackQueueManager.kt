@@ -3,7 +3,10 @@ package io.github.audiz.player
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.github.audiz.AppConfigKeys
+import io.github.audiz.loadAppConfig
 import io.github.audiz.models.FullTrackInfo
+import io.github.audiz.saveAppConfig
 
 /**
  * 🔀 Менеджер очереди воспроизведения.
@@ -32,7 +35,14 @@ class PlaybackQueueManager {
         }
     }
 
-    var isShuffleEnabled by mutableStateOf(false)
+    private var _isShuffleEnabled = mutableStateOf(loadAppConfig(AppConfigKeys.PLAYER_SHUFFLE) == "true")
+    var isShuffleEnabled: Boolean
+        get() = _isShuffleEnabled.value
+        set(value) {
+            _isShuffleEnabled.value = value
+            saveAppConfig(AppConfigKeys.PLAYER_SHUFFLE, value.toString())
+        }
+
     var plannedNextTrack by mutableStateOf<FullTrackInfo?>(null)
 
     val playbackHistory = mutableListOf<String>()
