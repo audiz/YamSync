@@ -5,6 +5,8 @@ import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.player.PlaybackManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -12,6 +14,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackManagerPreloadTest {
+
+    @BeforeTest
+    fun setUp() {
+        saveAppConfig(AppConfigKeys.PLAYER_SHUFFLE, "false")
+    }
+
+    @AfterTest
+    fun tearDown() {
+        saveAppConfig(AppConfigKeys.PLAYER_SHUFFLE, "false")
+    }
 
     private fun createDummyTrack(id: String, title: String): FullTrackInfo {
         return FullTrackInfo(

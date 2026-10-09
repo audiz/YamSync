@@ -1,12 +1,20 @@
 package io.github.audiz.player
 
+import io.github.audiz.AppConfigKeys
 import io.github.audiz.models.FullTrackInfo
+import io.github.audiz.saveAppConfig
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackQueueManagerTest {
+
+    @AfterTest
+    fun tearDown() {
+        saveAppConfig(AppConfigKeys.PLAYER_SHUFFLE, "false")
+    }
 
     private fun createDummyTrack(id: String, title: String = "Track $id"): FullTrackInfo {
         return FullTrackInfo(

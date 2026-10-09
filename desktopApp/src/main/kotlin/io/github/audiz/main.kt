@@ -1,8 +1,15 @@
 package io.github.audiz
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.delay
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
@@ -105,16 +112,75 @@ fun main(args: Array<String>) {
         DeepLinkHandler.handleUrl(initialLink)
     }
 
-    // 5. Запуск оконного Compose UI
+    // 5. Запуск оконного Compose UI с сохранением и восстановлением размера окна
+    val minWidth = 520.dp
+    val minHeight = 500.dp
+    val defaultWidth = 1100.dp
+    val defaultHeight = 780.dp
+
+    val screenSize = try {
+        java.awt.Toolkit.getDefaultToolkit().screenSize
+    } catch (_: Throwable) {
+        null
+    }
+    val safeMaxWidth = screenSize?.width?.toFloat() ?: 1920f
+    val safeMaxHeight = screenSize?.height?.toFloat() ?: 1080f
+    val effectiveMaxWidth = maxOf(minWidth.value, safeMaxWidth)
+    val effectiveMaxHeight = maxOf(minHeight.value, safeMaxHeight)
+
+    val savedWidth = loadAppConfig(AppConfigKeys.WINDOW_WIDTH)?.toFloatOrNull() ?: defaultWidth.value
+    val savedHeight = loadAppConfig(AppConfigKeys.WINDOW_HEIGHT)?.toFloatOrNull() ?: defaultHeight.value
+    val isMaximized = loadAppConfig(AppConfigKeys.WINDOW_IS_MAXIMIZED) == "true"
+
+    val initialWidth = savedWidth.coerceIn(minWidth.value, effectiveMaxWidth).dp
+    val initialHeight = savedHeight.coerceIn(minHeight.value, effectiveMaxHeight).dp
+    val initialPlacement = if (isMaximized) WindowPlacement.Maximized else WindowPlacement.Floating
+
     application {
+        val windowState = rememberWindowState(
+            placement = initialPlacement,
+            size = DpSize(initialWidth, initialHeight)
+        )
+
         Window(
+            state = windowState,
             onCloseRequest = {
+                if (windowState.placement == WindowPlacement.Floating) {
+                    val w = windowState.size.width.value
+                    val h = windowState.size.height.value
+                    if (w.isFinite() && h.isFinite() && w >= minWidth.value && h >= minHeight.value) {
+                        saveAppConfig(AppConfigKeys.WINDOW_WIDTH, w.toString())
+                        saveAppConfig(AppConfigKeys.WINDOW_HEIGHT, h.toString())
+                    }
+                }
+                val isMax = windowState.placement == WindowPlacement.Maximized
+                saveAppConfig(AppConfigKeys.WINDOW_IS_MAXIMIZED, isMax.toString())
+
                 exitApplication()
                 exitProcess(0)
             },
             title = "YamSync",
             icon = painterResource("icon.png")
         ) {
+            DisposableEffect(window) {
+                window.minimumSize = java.awt.Dimension(minWidth.value.toInt(), minHeight.value.toInt())
+                onDispose { }
+            }
+
+            LaunchedEffect(windowState.size, windowState.placement) {
+                delay(300)
+                if (windowState.placement == WindowPlacement.Floating) {
+                    val w = windowState.size.width.value
+                    val h = windowState.size.height.value
+                    if (w.isFinite() && h.isFinite() && w >= minWidth.value && h >= minHeight.value) {
+                        saveAppConfig(AppConfigKeys.WINDOW_WIDTH, w.toString())
+                        saveAppConfig(AppConfigKeys.WINDOW_HEIGHT, h.toString())
+                    }
+                }
+                val isMax = windowState.placement == WindowPlacement.Maximized
+                saveAppConfig(AppConfigKeys.WINDOW_IS_MAXIMIZED, isMax.toString())
+            }
+
             App()
         }
     }
