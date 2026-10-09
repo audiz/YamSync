@@ -647,12 +647,17 @@ class PlaybackManager(
                 bitrate = calculatedBitrate ?: defaultBitrate
                 isCurrentTrackHQ = (selectedQuality == "2")
 
-                if (isRecordToDisk()) {
+                if (isRecordToDisk() && musicStoragePath.isNotBlank()) {
                     saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
                     onTrackSavedToDisk?.invoke()
-                    val filePath = "$basePath/$sanitizedArtist/$fullFileName"
-                    currentPlayingFilePath = filePath
-                    audioPlayer.playFromFile(filePath, effectiveCrossfade)
+                    val resolvedFile = localTrackResolver.findLocalTrackFile(
+                        trackId = targetTrackId,
+                        artist = cleanArtist,
+                        title = cleanTitle,
+                        selectedQuality = selectedQuality
+                    ) ?: "$basePath/$sanitizedArtist/$fullFileName"
+                    currentPlayingFilePath = resolvedFile
+                    audioPlayer.playFromFile(resolvedFile, effectiveCrossfade)
                 } else {
                     println("💾 Record to disk выключен: воспроизводим трек без сохранения в библиотеку")
                     currentPlayingFilePath = null
@@ -823,12 +828,17 @@ class PlaybackManager(
                 bitrate = calculatedBitrate ?: 192
                 isCurrentTrackHQ = false
 
-                if (isRecordToDisk()) {
+                if (isRecordToDisk() && musicStoragePath.isNotBlank()) {
                     saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
                     onTrackSavedToDisk?.invoke()
-                    val filePath = "$basePath/$sanitizedArtist/$fullFileName"
-                    currentPlayingFilePath = filePath
-                    audioPlayer.playFromFile(filePath)
+                    val resolvedFile = localTrackResolver.findLocalTrackFile(
+                        trackId = targetTrackId,
+                        artist = cleanArtist,
+                        title = cleanTitle,
+                        selectedQuality = "1"
+                    ) ?: "$basePath/$sanitizedArtist/$fullFileName"
+                    currentPlayingFilePath = resolvedFile
+                    audioPlayer.playFromFile(resolvedFile)
                 } else {
                     currentPlayingFilePath = null
                     audioPlayer.playFromBytes(audioData.result)

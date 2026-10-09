@@ -1307,50 +1307,64 @@ actual class AudioPlayer actual constructor() {
     }
 
     private fun findSystemPlayer(): String? {
-        val isWin = System.getProperty("os.name", "").lowercase().contains("win")
-        val cmdsToTry = if (isWin) listOf("ffplay.exe", "ffplay", "mpv.exe", "mpv") else listOf("ffplay", "mpv")
-        
-        for (cmd in cmdsToTry) {
-            try {
-                // Try executing the command directly to see if it exists in PATH
-                val p = ProcessBuilder(cmd, "-version").redirectErrorStream(true).start()
-                val exited = p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
-                if (exited) {
-                    return cmd
-                }
-            } catch (_: Exception) {}
-        }
-        
-        // On Windows, if PATH is stale, try PowerShell
-        if (isWin) {
-            for (cmd in listOf("ffplay", "mpv")) {
+        if (systemPlayerChecked) return cachedSystemPlayer
+        synchronized(AudioPlayer::class.java) {
+            if (systemPlayerChecked) return cachedSystemPlayer
+            val isWin = System.getProperty("os.name", "").lowercase().contains("win")
+            val cmdsToTry = if (isWin) listOf("ffplay.exe", "ffplay", "mpv.exe", "mpv") else listOf("ffplay", "mpv")
+            
+            for (cmd in cmdsToTry) {
                 try {
-                    val p = ProcessBuilder("powershell", "-NoProfile", "-Command", "(Get-Command $cmd).Source").start()
-                    val reader = java.io.BufferedReader(java.io.InputStreamReader(p.inputStream))
-                    val path = reader.readLine()?.trim()
-                    p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
-                    if (!path.isNullOrEmpty() && File(path).exists()) {
-                        return path
+                    // Try executing the command directly to see if it exists in PATH
+                    val p = ProcessBuilder(cmd, "-version").redirectErrorStream(true).start()
+                    val exited = p.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
+                    if (exited) {
+                        cachedSystemPlayer = cmd
+                        systemPlayerChecked = true
+                        return cmd
                     }
                 } catch (_: Exception) {}
             }
             
-            // If ffplay is still not found, but we know where ffmpeg is, they are usually in the same folder
-            val ffmpegPath = getFfmpegPath()
-            if (ffmpegPath != null) {
-                val assumedFfplay = File(ffmpegPath).parentFile?.resolve("ffplay.exe")
-                if (assumedFfplay != null && assumedFfplay.exists()) {
-                    return assumedFfplay.absolutePath
+            // On Windows, if PATH is stale, try where.exe (lightweight native binary)
+            if (isWin) {
+                for (cmd in listOf("ffplay", "mpv")) {
+                    try {
+                        val p = ProcessBuilder("where.exe", cmd).redirectErrorStream(true).start()
+                        val reader = java.io.BufferedReader(java.io.InputStreamReader(p.inputStream))
+                        val path = reader.readLine()?.trim()
+                        p.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
+                        if (!path.isNullOrEmpty() && File(path).exists()) {
+                            cachedSystemPlayer = path
+                            systemPlayerChecked = true
+                            return path
+                        }
+                    } catch (_: Exception) {}
+                }
+                
+                // If ffplay is still not found, but we know where ffmpeg is, they are usually in the same folder
+                val ffmpegPath = getFfmpegPath()
+                if (ffmpegPath != null) {
+                    val assumedFfplay = File(ffmpegPath).parentFile?.resolve("ffplay.exe")
+                    if (assumedFfplay != null && assumedFfplay.exists()) {
+                        val path = assumedFfplay.absolutePath
+                        cachedSystemPlayer = path
+                        systemPlayerChecked = true
+                        return path
+                    }
                 }
             }
+            
+            systemPlayerChecked = true
+            return null
         }
-        
-        return null
     }
 
     companion object {
         @Volatile private var cachedFfmpegPath: String? = null
         @Volatile private var ffmpegPathChecked: Boolean = false
+        @Volatile private var cachedSystemPlayer: String? = null
+        @Volatile private var systemPlayerChecked: Boolean = false
     }
 
     private fun getFfmpegPath(): String? {
@@ -1372,17 +1386,17 @@ actual class AudioPlayer actual constructor() {
         for (cmd in cmds) {
             try {
                 val p = ProcessBuilder(cmd, "-version").start()
-                if (p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) return cmd
+                if (p.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)) return cmd
             } catch (_: Exception) {}
         }
         
-        // 2. On Windows, try finding it via PowerShell if PATH is stale
+        // 2. On Windows, try finding it via where.exe if PATH is stale
         if (isWin) {
             try {
-                val p = ProcessBuilder("powershell", "-NoProfile", "-Command", "(Get-Command ffmpeg).Source").start()
+                val p = ProcessBuilder("where.exe", "ffmpeg").redirectErrorStream(true).start()
                 val reader = java.io.BufferedReader(java.io.InputStreamReader(p.inputStream))
                 val path = reader.readLine()?.trim()
-                p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                p.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
                 if (!path.isNullOrEmpty() && File(path).exists()) {
                     return path
                 }
