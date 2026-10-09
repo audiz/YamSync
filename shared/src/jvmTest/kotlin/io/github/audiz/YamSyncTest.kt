@@ -3,6 +3,7 @@ package io.github.audiz
 import io.github.audiz.models.*
 import io.github.audiz.sync.QrCodeGenerator
 import io.github.audiz.sync.YamSyncDiffEngine
+import io.github.audiz.sync.YamSyncManager
 import io.github.audiz.sync.YamSyncPairInfo
 import kotlin.test.*
 
@@ -187,5 +188,68 @@ class YamSyncTest {
         // Must be deduplicated to exactly 1 track!
         assertEquals(1, merged[0].tracks.size)
         assertEquals("Song.mp3", merged[0].tracks[0].fileName)
+    }
+
+    @Test
+    fun testYamSyncManagerPreservesUserResolutionAndFileSelectionsOnRefresh() {
+        val manager = YamSyncManager(
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
+            getMusicStoragePath = { "/tmp/music" },
+            onPlaylistsUpdated = {}
+        )
+
+        val trackA = YamSyncTrack("trackA.mp3", "Artist", "Song A")
+        val trackB = YamSyncTrack("trackB.mp3", "Artist", "Song B")
+        val trackC = YamSyncTrack("trackC.mp3", "Artist", "Song C")
+
+        val localPl = YamSyncPlaylist("pl_local_1", "Hits", tracks = listOf(trackA))
+        val remotePl = YamSyncPlaylist("pl_remote_1", "Hits", tracks = listOf(trackB, trackC))
+
+        val localManifest = YamSyncManifest(
+            device = YamSyncDevice("d1", "PC", "Desktop"),
+            playlists = listOf(localPl),
+            availableFiles = listOf(trackA)
+        )
+        val remoteManifest = YamSyncManifest(
+            device = YamSyncDevice("d2", "Phone", "Mobile"),
+            playlists = listOf(remotePl),
+            availableFiles = listOf(trackB, trackC)
+        )
+
+        // 1. Первоначальный diff
+        manager.applyDiffs(localManifest, remoteManifest)
+        assertEquals(1, manager.playlistDiffs.size)
+        // По умолчанию для совпадающего названия: MERGE_ALL
+        assertEquals(YamSyncResolution.MERGE_ALL, manager.playlistDiffs[0].resolution)
+        assertEquals(2, manager.missingFiles.size) // trackB and trackC
+        assertTrue(manager.selectedFiles.contains(trackB.matchKey))
+        assertTrue(manager.selectedFiles.contains(trackC.matchKey))
+
+        // 2. Пользователь меняет стратегию на KEEP_LOCAL
+        manager.setResolution(manager.playlistDiffs[0].playlistId, YamSyncResolution.KEEP_LOCAL)
+        assertEquals(YamSyncResolution.KEEP_LOCAL, manager.playlistDiffs[0].resolution)
+        // Для KEEP_LOCAL чужие треки не добавляются, поэтому missingFiles пуст
+        assertEquals(0, manager.missingFiles.size)
+
+        // 3. Фоновое обновление (тихий опрос каждые 4 секунды)
+        manager.applyDiffs(localManifest, remoteManifest)
+        // 🔒 Выбор пользователя KEEP_LOCAL должен сохраниться!
+        assertEquals(YamSyncResolution.KEEP_LOCAL, manager.playlistDiffs[0].resolution)
+        assertEquals(0, manager.missingFiles.size)
+
+        // 4. Пользователь переключает на MERGE_ALL и снимает галочку с trackC
+        manager.setResolution(manager.playlistDiffs[0].playlistId, YamSyncResolution.MERGE_ALL)
+        assertEquals(YamSyncResolution.MERGE_ALL, manager.playlistDiffs[0].resolution)
+        assertEquals(2, manager.missingFiles.size)
+
+        manager.toggleFileSelection(trackC.matchKey)
+        assertFalse(manager.selectedFiles.contains(trackC.matchKey))
+        assertTrue(manager.selectedFiles.contains(trackB.matchKey))
+
+        // 5. Повторное фоновое обновление не должно сбрасывать галочку пользователя!
+        manager.applyDiffs(localManifest, remoteManifest)
+        assertEquals(YamSyncResolution.MERGE_ALL, manager.playlistDiffs[0].resolution)
+        assertFalse(manager.selectedFiles.contains(trackC.matchKey))
+        assertTrue(manager.selectedFiles.contains(trackB.matchKey))
     }
 }

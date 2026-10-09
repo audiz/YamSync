@@ -45,6 +45,10 @@ class YamSyncManager(
     val fileTransfers = mutableStateMapOf<String, YamSyncTransferProgress>()
     val knownDevices = mutableStateListOf<YamSyncKnownDevice>()
 
+    // 🔒 Сохраненные решения пользователя по слиянию плейлистов (защита от сброса при фоновом автообновлении)
+    private val userResolutions = mutableMapOf<String, YamSyncResolution>()
+    private val userExplicitlyUnselectedFiles = mutableSetOf<String>()
+
     private var activeServer: YamSyncServer? = null
     private val client = YamSyncClient()
     private var activePairInfo: YamSyncPairInfo? = null
@@ -136,6 +140,8 @@ class YamSyncManager(
         stopBackgroundSyncPolling()
         activePairInfo = null
         remoteManifestCache = null
+        userResolutions.clear()
+        userExplicitlyUnselectedFiles.clear()
         playlistDiffs.clear()
         missingFiles.clear()
         selectedFiles.clear()
@@ -336,18 +342,62 @@ class YamSyncManager(
         }
     }
 
-    private fun applyDiffs(localMan: YamSyncManifest, remoteMan: YamSyncManifest) {
-        val diffs = YamSyncDiffEngine.calculateDiff(localMan, remoteMan)
-        playlistDiffs.clear()
-        playlistDiffs.addAll(diffs)
+    internal fun applyDiffs(localMan: YamSyncManifest, remoteMan: YamSyncManifest) {
+        localManifestCache = localMan
+        remoteManifestCache = remoteMan
 
-        val merged = YamSyncDiffEngine.mergePlaylists(diffs)
+        val rawDiffs = YamSyncDiffEngine.calculateDiff(localMan, remoteMan)
+
+        // Восстанавливаем выбранные пользователем правила слияния (resolution)
+        val resolvedDiffs = rawDiffs.map { diff ->
+            val normTitle = YamSyncDiffEngine.normalizeTitle(diff.title)
+            val savedRes = userResolutions[diff.playlistId]
+                ?: userResolutions[normTitle]
+                ?: playlistDiffs.firstOrNull {
+                    it.playlistId == diff.playlistId || YamSyncDiffEngine.normalizeTitle(it.title) == normTitle
+                }?.resolution
+
+            if (savedRes != null) diff.copy(resolution = savedRes) else diff
+        }
+
+        // Обновляем список плейлистов без резкого сброса (без .clear()) во избежание мерцания UI
+        val newMap = resolvedDiffs.associateBy { it.playlistId }
+        playlistDiffs.removeAll { it.playlistId !in newMap }
+        resolvedDiffs.forEachIndexed { index, diff ->
+            val existingIndex = playlistDiffs.indexOfFirst { it.playlistId == diff.playlistId }
+            if (existingIndex >= 0) {
+                if (playlistDiffs[existingIndex] != diff) {
+                    playlistDiffs[existingIndex] = diff
+                }
+            } else {
+                if (index <= playlistDiffs.size) {
+                    playlistDiffs.add(index, diff)
+                } else {
+                    playlistDiffs.add(diff)
+                }
+            }
+        }
+
+        recomputeMissingFilesInternal()
+    }
+
+    private fun recomputeMissingFilesInternal() {
+        val localMan = localManifestCache ?: return
+        val remoteMan = remoteManifestCache ?: return
+
+        val merged = YamSyncDiffEngine.mergePlaylists(playlistDiffs)
         val missing = YamSyncDiffEngine.findMissingFiles(merged, localMan.availableFiles, remoteMan.availableFiles)
+
+        val newMissingKeys = missing.map { it.matchKey }.toSet()
         missingFiles.clear()
         missingFiles.addAll(missing)
 
-        selectedFiles.clear()
-        selectedFiles.addAll(missing.map { it.matchKey })
+        selectedFiles.retainAll(newMissingKeys)
+        missing.forEach { track ->
+            if (track.matchKey !in userExplicitlyUnselectedFiles) {
+                selectedFiles.add(track.matchKey)
+            }
+        }
     }
 
     private fun resolveFilePathInternal(fileName: String, checksum: String): String? {
@@ -652,18 +702,13 @@ class YamSyncManager(
 
     /** Изменить стратегию слияния для конкретного плейлиста */
     fun setResolution(playlistId: String, resolution: YamSyncResolution) {
+        userResolutions[playlistId] = resolution
         val idx = playlistDiffs.indexOfFirst { it.playlistId == playlistId }
         if (idx >= 0) {
             val cur = playlistDiffs[idx]
+            userResolutions[YamSyncDiffEngine.normalizeTitle(cur.title)] = resolution
             playlistDiffs[idx] = cur.copy(resolution = resolution)
-
-            // Пересчитываем недостающие файлы
-            val localMan = localManifestCache ?: return
-            val remoteMan = remoteManifestCache ?: return
-            val merged = YamSyncDiffEngine.mergePlaylists(playlistDiffs)
-            val missing = YamSyncDiffEngine.findMissingFiles(merged, localMan.availableFiles, remoteMan.availableFiles)
-            missingFiles.clear()
-            missingFiles.addAll(missing)
+            recomputeMissingFilesInternal()
         }
     }
 
@@ -671,8 +716,10 @@ class YamSyncManager(
     fun toggleFileSelection(trackKey: String) {
         if (selectedFiles.contains(trackKey)) {
             selectedFiles.remove(trackKey)
+            userExplicitlyUnselectedFiles.add(trackKey)
         } else {
             selectedFiles.add(trackKey)
+            userExplicitlyUnselectedFiles.remove(trackKey)
         }
     }
 
@@ -680,7 +727,9 @@ class YamSyncManager(
     fun toggleSelectAllFiles() {
         if (selectedFiles.size == missingFiles.size) {
             selectedFiles.clear()
+            userExplicitlyUnselectedFiles.addAll(missingFiles.map { it.matchKey })
         } else {
+            userExplicitlyUnselectedFiles.clear()
             selectedFiles.clear()
             selectedFiles.addAll(missingFiles.map { it.matchKey })
         }
@@ -705,6 +754,8 @@ class YamSyncManager(
             }
 
             statusMessage = "✅ Плейлисты успешно объединены!"
+            userResolutions.clear()
+            userExplicitlyUnselectedFiles.clear()
             refreshManifestAndDiff()
             onPlaylistsUpdated()
 

@@ -203,6 +203,6 @@ object YamSyncDiffEngine {
         return missingTracks.sortedBy { it.title.lowercase() }
     }
 
-    private fun normalizeTitle(title: String): String =
+    internal fun normalizeTitle(title: String): String =
         title.trim().lowercase().replace(Regex("\\s+"), " ")
 }
