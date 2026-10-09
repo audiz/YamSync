@@ -3,6 +3,7 @@ package io.github.audiz.player
 import io.github.audiz.localFileExists
 import io.github.audiz.resolveLocalPath
 import io.github.audiz.sanitizeKeepSpaces
+import io.github.audiz.synchronized
 import io.github.audiz.trackFileExists
 
 /**

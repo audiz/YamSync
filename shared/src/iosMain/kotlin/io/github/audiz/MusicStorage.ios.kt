@@ -15,9 +15,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.serialization.json.Json
-import platform.AVFoundation.AVURLAsset
-import platform.AVFoundation.AVMetadataCommonKeyArtwork
-import platform.AVFoundation.AVMetadataItem
+import platform.AVFoundation.*
 import platform.CoreMedia.CMTimeGetSeconds
 import platform.Foundation.*
 import platform.posix.memcpy

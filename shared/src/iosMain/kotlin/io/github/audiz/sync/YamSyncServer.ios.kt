@@ -17,6 +17,13 @@ private val syncJson = Json {
     encodeDefaults = true
 }
 
+private fun htons(port: UShort): UShort {
+    val p = port.toInt()
+    return (((p and 0xFF) shl 8) or ((p shr 8) and 0xFF)).toUShort()
+}
+
+private fun ntohs(port: UShort): UShort = htons(port)
+
 actual class YamSyncServer actual constructor(
     private val initialPort: Int,
     private val token: String,
@@ -168,10 +175,7 @@ actual class YamSyncServer actual constructor(
 
                 "/yamsync/v1/manifest" -> {
                     if (method == "POST") {
-                        val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
-                        val bodyStr = if (contentLength > 0 && bodyBytes.isNotEmpty()) {
-                            bodyBytes.decodeToString()
-                        } else ""
+                        val bodyStr = requestStr.substringAfter("\r\n\r\n", "")
 
                         if (bodyStr.isNotBlank()) {
                             try {
