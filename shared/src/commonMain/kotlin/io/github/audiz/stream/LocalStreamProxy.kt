@@ -17,4 +17,6 @@ expect object LocalStreamProxy {
     fun stop()
     fun getStreamUrl(trackId: String, quality: String, title: String, artist: String): String
     fun isRunning(): Boolean
+    suspend fun preloadTrack(trackId: String, quality: String): String
+    fun onTrackCompleted(trackId: String, quality: String)
 }

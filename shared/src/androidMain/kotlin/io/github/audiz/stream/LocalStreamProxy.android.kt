@@ -50,6 +50,23 @@ actual object LocalStreamProxy {
 
     actual fun isRunning(): Boolean = isStarted && repository != null
 
+    actual suspend fun preloadTrack(trackId: String, quality: String): String {
+        val repo = repository ?: return ""
+        return try {
+            val meta = repo.getTrackStreamMeta(trackId, quality)
+            val cleanTrackId = trackId.removePrefix("local:")
+            val rawExt = meta.codec.substringBefore("-")
+            val ext = if (rawExt.equals("aac", ignoreCase = true)) "m4a" else rawExt
+            "yamusic-stream://stream/$cleanTrackId.$ext?quality=$quality"
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    actual fun onTrackCompleted(trackId: String, quality: String) {
+        // Android использует потоковый MediaDataSource
+    }
+
     actual fun getStreamUrl(trackId: String, quality: String, title: String, artist: String): String {
         val cleanTrackId = trackId.removePrefix("local:")
         val ext = if (quality == "2") "flac" else "m4a"

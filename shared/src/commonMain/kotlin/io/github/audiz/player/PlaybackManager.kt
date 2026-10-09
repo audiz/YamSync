@@ -604,7 +604,16 @@ class PlaybackManager(
                     isStreamingStarted = true
                     audioPlayer.playFromUrl(streamUrl, effectiveCrossfade)
 
+                    isPlaying = true
+                    isPaused = false
+                    isNextLoading = false
+                    isPrevLoading = false
+                    isPlayLoading = false
+                    releasePlaybackWakeLock()
                     systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, coverUri)
+                    systemMediaControls.updatePlaybackState(true, false, 0L)
+                    onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, coverUri, isWave)
+                    startProgressPolling()
                     preloadedAudio = null
                     queueManager.plannedNextTrack = calculateNextTrackCandidate()
                     schedulePreload()
@@ -792,13 +801,21 @@ class PlaybackManager(
                     println("⚡ [Стриминг LQ] Запуск потока через LocalStreamProxy: $streamUrl")
                     audioPlayer.playFromUrl(streamUrl)
 
+                    val resolvedCoverUri = findTrackInfo(targetTrackId)?.coverUri
+                    coverUri = resolvedCoverUri
+                    val isWave = waveBridge?.isWaveMode == true
+
                     isPlaying = true
                     isPaused = false
                     isNextLoading = false
                     isPrevLoading = false
                     isPlayLoading = false
                     releasePlaybackWakeLock()
+                    systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, resolvedCoverUri)
+                    systemMediaControls.updatePlaybackState(true, false, 0L)
+                    onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, resolvedCoverUri, isWave)
                     startProgressPolling()
+                    preloadedAudio = null
                     queueManager.plannedNextTrack = calculateNextTrackCandidate()
                     schedulePreload()
                     return@launch
@@ -1117,6 +1134,9 @@ class PlaybackManager(
             val playedTimeMs = currentTimeMillis() - trackStartSystemTime
             if (prevId != null) {
                 if (isNaturalCompletion) {
+                    if (LocalStreamProxy.isRunning()) {
+                        LocalStreamProxy.onTrackCompleted(prevId, if (isCurrentTrackHQ) "2" else "1")
+                    }
                     val naturalCrossfadeMs = if (wasAutoTriggered) {
                         (crossfadeSeconds * 1000L).takeIf { it > 0L } ?: 0L
                     } else {
@@ -1464,7 +1484,26 @@ class PlaybackManager(
                     return@launch
                 }
 
-                // 2. Скачиваем трек в фоне
+                // 2. ⚡ Если запущен LocalStreamProxy — предзагружаем только Chunk 0 (256 КБ), экономя трафик!
+                if (LocalStreamProxy.isRunning()) {
+                    println("⚡ [Предзагрузка] Предзагрузка первого чанка стрима через LocalStreamProxy: $cleanTitle")
+                    try {
+                        LocalStreamProxy.preloadTrack(targetTrackId, selectedQuality)
+                        if (plannedNextTrack?.id == targetTrackId) {
+                            preloadedAudio = PreloadedAudio(
+                                trackId = targetTrackId,
+                                audioData = null,
+                                quality = selectedQuality,
+                                filePath = null
+                            )
+                        }
+                    } catch (e: Exception) {
+                        println("⚡ [Предзагрузка] Ошибка предзагрузки стрима: ${e.message}")
+                    }
+                    return@launch
+                }
+
+                // 3. Скачиваем трек в фоне (fallback для сред без прокси)
                 println("⚡ [Предзагрузка] Фоновое скачивание трека: $cleanTitle ($cleanArtist) [Качество: $selectedQuality]")
                 val audioData = repository.downloadTrackAudio(targetTrackId, quality = selectedQuality)
 
