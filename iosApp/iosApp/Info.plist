@@ -96,5 +96,7 @@
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>YamSync использует локальную сеть для быстрой передачи плейлистов и треков между вашими устройствами.</string>
 </dict>
 </plist>

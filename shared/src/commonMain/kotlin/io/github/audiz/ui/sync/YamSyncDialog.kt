@@ -111,10 +111,10 @@ fun YamSyncDialog(
                     }
 
                     // 3. Содержимое активной вкладки
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         when (selectedTabIndex) {
                             0 -> YamSyncPairingTab(syncManager = syncManager, isCompact = isCompact)
-                            1 -> YamSyncPlaylistsTab(syncManager = syncManager, onNavigateToFiles = { selectedTabIndex = 2 })
+                            1 -> YamSyncPlaylistsTab(syncManager = syncManager, isCompact = isCompact, onNavigateToFiles = { selectedTabIndex = 2 })
                             2 -> YamSyncFilesTab(syncManager = syncManager)
                         }
                     }
@@ -122,6 +122,20 @@ fun YamSyncDialog(
             }
         }
     }
+}
+
+private fun sanitizeErrorMessage(err: String): String {
+    val lower = err.lowercase()
+    if (lower.contains("local network prohibited") || lower.contains("kcfstreamerrorcodekey=50") || lower.contains("unsatisfied") || lower.contains("code=-1009")) {
+        return "Доступ к локальной сети ограничен iOS. Разрешите «Локальная сеть» для YamSync в Настройках iPhone (Настройки → YamSync → Локальная сеть)."
+    }
+    if (lower.contains("connection refused") || lower.contains("econnrefused")) {
+        return "Устройство отклонило подключение. Убедитесь, что на втором устройстве открыт YamSync и запущена раздача."
+    }
+    if (lower.contains("timed out") || lower.contains("etimedout")) {
+        return "Превышено время ожидания. Проверьте, что оба устройства подключены к одной сети Wi-Fi."
+    }
+    return err.take(250)
 }
 
 @Composable
@@ -135,7 +149,11 @@ private fun YamSyncDialogHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -150,11 +168,13 @@ private fun YamSyncDialogHeader(
                         )
                     }
                 }
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Синхронизация YamSync",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     val subtitle = when (val s = syncManager.connectionState) {
                         is YamSyncConnectionState.Connected -> "🟢 Связано с ${s.peer.name}"
@@ -166,7 +186,9 @@ private fun YamSyncDialogHeader(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -202,12 +224,34 @@ private fun YamSyncDialogHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    Text(
-                        text = syncManager.errorMessage ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer
+                    Icon(
+                        imageVector = Icons.Default.Error,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
                     )
+                    val displayError = remember(syncManager.errorMessage) {
+                        sanitizeErrorMessage(syncManager.errorMessage ?: "")
+                    }
+                    Text(
+                        text = displayError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = { syncManager.errorMessage = null },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Скрыть ошибку",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
@@ -218,12 +262,31 @@ private fun YamSyncDialogHeader(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
             ) {
-                Text(
-                    text = syncManager.statusMessage ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = syncManager.statusMessage ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = { syncManager.statusMessage = null },
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Скрыть",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -615,6 +678,7 @@ private fun KnownDeviceCard(
 @Composable
 private fun YamSyncPlaylistsTab(
     syncManager: YamSyncManager,
+    isCompact: Boolean,
     onNavigateToFiles: () -> Unit
 ) {
     if (!syncManager.isConnected) {
@@ -642,10 +706,10 @@ private fun YamSyncPlaylistsTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(syncManager.playlistDiffs, key = { it.playlistId }) { diff ->
+            items(syncManager.playlistDiffs, key = { "${it.playlistId}_${it.title}" }) { diff ->
                 PlaylistDiffCard(
                     diff = diff,
                     onResolutionChanged = { res ->
@@ -661,42 +725,58 @@ private fun YamSyncPlaylistsTab(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = { syncManager.refreshManifestAndDiff() },
-                        enabled = !syncManager.isDownloadingFiles,
-                        modifier = Modifier.size(28.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Обновить списки",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        IconButton(
+                            onClick = { syncManager.refreshManifestAndDiff() },
+                            enabled = !syncManager.isDownloadingFiles,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Обновить списки",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "Плейлистов: ${syncManager.playlistDiffs.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text(
-                        text = "Плейлистов: ${syncManager.playlistDiffs.size}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
+                    if (syncManager.missingFiles.isNotEmpty()) {
+                        Text(
+                            text = "Файлов к скачиванию: ${syncManager.missingFiles.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (syncManager.missingFiles.isNotEmpty()) {
                         OutlinedButton(
                             onClick = { syncManager.applyPlaylistMerge(autoDownloadFiles = false) },
                             enabled = !syncManager.isDownloadingFiles,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                         ) {
-                            Text("Только плейлисты", fontSize = 12.sp)
+                            Text("Только плейлисты", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
 
                         Button(
@@ -705,15 +785,17 @@ private fun YamSyncPlaylistsTab(
                                 onNavigateToFiles()
                             },
                             enabled = !syncManager.isDownloadingFiles,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            modifier = Modifier.weight(1.3f).height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
                         ) {
-                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Применить и скачать (${syncManager.missingFiles.size})", fontSize = 12.sp)
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Применить и скачать (${syncManager.missingFiles.size})", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     } else {
                         Button(
-                            onClick = { syncManager.applyPlaylistMerge(autoDownloadFiles = false) }
+                            onClick = { syncManager.applyPlaylistMerge(autoDownloadFiles = false) },
+                            modifier = Modifier.fillMaxWidth().height(38.dp)
                         ) {
                             Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -793,27 +875,36 @@ private fun PlaylistDiffCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Переключатель резолюции: [Моё] | [Чужое] | [Объединить]
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                SegmentedButton(
-                    selected = diff.resolution == YamSyncResolution.KEEP_LOCAL,
-                    onClick = { onResolutionChanged(YamSyncResolution.KEEP_LOCAL) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("Моё", fontSize = 11.sp)
-                }
-                SegmentedButton(
-                    selected = diff.resolution == YamSyncResolution.TAKE_REMOTE,
-                    onClick = { onResolutionChanged(YamSyncResolution.TAKE_REMOTE) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
-                ) {
-                    Text("Чужое", fontSize = 11.sp)
-                }
-                SegmentedButton(
-                    selected = diff.resolution == YamSyncResolution.MERGE_ALL,
-                    onClick = { onResolutionChanged(YamSyncResolution.MERGE_ALL) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
-                ) {
-                    Text("Объединить", fontSize = 11.sp)
+                    ResolutionOption(
+                        title = "Моё",
+                        selected = diff.resolution == YamSyncResolution.KEEP_LOCAL,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        onResolutionChanged(YamSyncResolution.KEEP_LOCAL)
+                    }
+                    ResolutionOption(
+                        title = "Чужое",
+                        selected = diff.resolution == YamSyncResolution.TAKE_REMOTE,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        onResolutionChanged(YamSyncResolution.TAKE_REMOTE)
+                    }
+                    ResolutionOption(
+                        title = "Объединить",
+                        selected = diff.resolution == YamSyncResolution.MERGE_ALL,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        onResolutionChanged(YamSyncResolution.MERGE_ALL)
+                    }
                 }
             }
 
@@ -870,6 +961,34 @@ private fun PlaylistDiffCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResolutionOption(
+    title: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier.padding(vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
