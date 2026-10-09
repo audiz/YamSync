@@ -52,6 +52,10 @@ class YamSyncManager(
     private var remoteManifestCache: YamSyncManifest? = null
     private val localFilePathsByMatchKey = mutableMapOf<String, String>()
     private var pollingJob: Job? = null
+    private var isHostingMode = false
+    private var hostPairInfo: YamSyncPairInfo? = null
+    private var hostQrMatrix: Array<BooleanArray>? = null
+    private var consecutivePollFailures = 0
 
     private val syncJson = Json {
         ignoreUnknownKeys = true
@@ -128,11 +132,35 @@ class YamSyncManager(
         return newToken
     }
 
+    private fun handleRemotePeerDisconnected(reason: String) {
+        stopBackgroundSyncPolling()
+        activePairInfo = null
+        remoteManifestCache = null
+        playlistDiffs.clear()
+        missingFiles.clear()
+        selectedFiles.clear()
+        fileTransfers.clear()
+
+        val hostInfo = hostPairInfo
+        val hostQr = hostQrMatrix
+        if (isHostingMode && activeServer != null && hostInfo != null && hostQr != null) {
+            connectionState = YamSyncConnectionState.Hosting(hostInfo, hostQr)
+            statusMessage = "$reason. Ожидание подключения партнёра..."
+            println("YamSync: Сервер вернулся в режим ожидания (Hosting): $reason")
+        } else {
+            stopHosting()
+            connectionState = YamSyncConnectionState.Disconnected
+            statusMessage = reason
+            println("YamSync: Соединение разорвано: $reason")
+        }
+    }
+
     private fun startBackgroundSyncPolling() {
         pollingJob?.cancel()
+        consecutivePollFailures = 0
         pollingJob = scope.launch(Dispatchers.Main) {
             while (isActive && isConnected) {
-                delay(5000)
+                delay(4000)
                 if (!isConnected) break
                 if (!isDownloadingFiles) {
                     refreshManifestAndDiffSilently()
@@ -144,6 +172,7 @@ class YamSyncManager(
     private fun stopBackgroundSyncPolling() {
         pollingJob?.cancel()
         pollingJob = null
+        consecutivePollFailures = 0
     }
 
     private fun refreshManifestAndDiffSilently() {
@@ -162,6 +191,7 @@ class YamSyncManager(
             }
             remoteRes.fold(
                 onSuccess = { remoteMan ->
+                    consecutivePollFailures = 0
                     remoteManifestCache = remoteMan
                     applyDiffs(localMan, remoteMan)
                 },
@@ -171,10 +201,17 @@ class YamSyncManager(
                     }
                     getRes.fold(
                         onSuccess = { remoteMan ->
+                            consecutivePollFailures = 0
                             remoteManifestCache = remoteMan
                             applyDiffs(localMan, remoteMan)
                         },
-                        onFailure = { /* keep silent */ }
+                        onFailure = { err ->
+                            consecutivePollFailures++
+                            println("YamSync: Сбой фонового опроса ($consecutivePollFailures/2): ${err.message}")
+                            if (consecutivePollFailures >= 2) {
+                                handleRemotePeerDisconnected("Связь с устройством потеряна")
+                            }
+                        }
                     )
                 }
             )
@@ -425,6 +462,7 @@ class YamSyncManager(
                         platform = clientDevice.platform
                     )
                     activePairInfo = pairInfo
+                    consecutivePollFailures = 0
                     saveKnownDevice(pairInfo)
                     startBackgroundSyncPolling()
                     connectionState = YamSyncConnectionState.Connected(clientDevice, pairInfo)
@@ -437,11 +475,17 @@ class YamSyncManager(
                     }
                 }
             },
-            onManifestReceived = { remoteMan -> handleRemoteManifest(remoteMan) }
+            onManifestReceived = { remoteMan -> handleRemoteManifest(remoteMan) },
+            onClientDisconnected = {
+                scope.launch(Dispatchers.Main) {
+                    handleRemotePeerDisconnected("Клиент отключился")
+                }
+            }
         )
 
         val assignedPort = server.start()
         activeServer = server
+        isHostingMode = true
 
         val pairInfo = YamSyncPairInfo(
             ip = ip,
@@ -450,15 +494,19 @@ class YamSyncManager(
             name = getDeviceName(),
             platform = getPlatform().name
         )
-        activePairInfo = pairInfo
+        hostPairInfo = pairInfo
 
         val qrMatrix = QrCodeGenerator.encode(pairInfo.toUri(), QrCodeGenerator.EccLevel.M)
+        hostQrMatrix = qrMatrix
         connectionState = YamSyncConnectionState.Hosting(pairInfo, qrMatrix)
         statusMessage = "Ожидание подключения партнёра..."
     }
 
     /** Остановить сервер и режим раздачи */
     fun stopHosting() {
+        isHostingMode = false
+        hostPairInfo = null
+        hostQrMatrix = null
         stopBackgroundSyncPolling()
         activeServer?.stop()
         activeServer = null
@@ -480,6 +528,7 @@ class YamSyncManager(
     /** Подключиться к удаленному устройству */
     fun connectToPairInfo(pairInfo: YamSyncPairInfo) {
         stopHosting()
+        isHostingMode = false
         errorMessage = null
         activePairInfo = pairInfo
         connectionState = YamSyncConnectionState.Connecting("Подключение к ${pairInfo.name} (${pairInfo.ip})...")
@@ -503,7 +552,12 @@ class YamSyncManager(
                 resolveFilePath = { fileName, checksum -> resolveFilePathInternal(fileName, checksum) },
                 onMergeReceived = { payload -> applyRemoteMergedPlaylists(payload.playlists) },
                 onClientConnected = { },
-                onManifestReceived = { remoteMan -> handleRemoteManifest(remoteMan) }
+                onManifestReceived = { remoteMan -> handleRemoteManifest(remoteMan) },
+                onClientDisconnected = {
+                    scope.launch(Dispatchers.Main) {
+                        handleRemotePeerDisconnected("Сервер разорвал соединение")
+                    }
+                }
             )
             val assignedPort = clientServer.start()
             activeServer = clientServer
@@ -516,6 +570,7 @@ class YamSyncManager(
 
             pairRes.fold(
                 onSuccess = { remoteDev ->
+                    consecutivePollFailures = 0
                     saveKnownDevice(pairInfo.copy(name = remoteDev.name, platform = remoteDev.platform))
                     startBackgroundSyncPolling()
                     connectionState = YamSyncConnectionState.Connected(remoteDev, pairInfo)
@@ -534,16 +589,16 @@ class YamSyncManager(
 
     /** Разорвать текущее соединение */
     fun disconnect() {
-        stopBackgroundSyncPolling()
-        stopHosting()
-        activePairInfo = null
-        remoteManifestCache = null
-        playlistDiffs.clear()
-        missingFiles.clear()
-        selectedFiles.clear()
-        fileTransfers.clear()
-        connectionState = YamSyncConnectionState.Disconnected
-        statusMessage = null
+        val pair = activePairInfo
+        val token = pair?.token ?: hostPairInfo?.token
+        if (pair != null && token != null) {
+            scope.launch(DispatcherIO) {
+                try {
+                    client.notifyDisconnect(pair.ip, pair.port, token)
+                } catch (_: Exception) {}
+            }
+        }
+        handleRemotePeerDisconnected("Связь разорвана")
     }
 
     /** Запросить свежий манифест с удаленного устройства и пересчитать diff */

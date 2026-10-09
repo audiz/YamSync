@@ -10,6 +10,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 
 /**
@@ -170,5 +171,16 @@ class YamSyncClient {
         if (!response.status.isSuccess()) {
             error("Merge push rejected: HTTP ${response.status}")
         }
+    }
+
+    /** Уведомить удаленное устройство о разрыве соединения */
+    suspend fun notifyDisconnect(ip: String, port: Int, token: String): Result<Unit> = runCatching {
+        if (port <= 0 || ip.isBlank()) return@runCatching
+        withTimeout(1500) {
+            httpClient.post("http://$ip:$port/yamsync/v1/disconnect") {
+                header("X-YamSync-Token", token)
+            }
+        }
+        Unit
     }
 }

@@ -25,7 +25,8 @@ actual class YamSyncServer actual constructor(
     private val resolveFilePath: (fileName: String, checksum: String) -> String?,
     private val onMergeReceived: (YamSyncMergePayload) -> Unit,
     private val onClientConnected: (YamSyncDevice) -> Unit,
-    private val onManifestReceived: ((YamSyncManifest) -> Unit)?
+    private val onManifestReceived: ((YamSyncManifest) -> Unit)?,
+    private val onClientDisconnected: (() -> Unit)?
 ) {
     private var serverSocket: ServerSocket? = null
     private var activePort: Int = 0
@@ -218,6 +219,12 @@ actual class YamSyncServer actual constructor(
                         val err = """{"error":"${t.message}"}""".encodeToByteArray()
                         sendResponse(output, 400, "Bad Request", mapOf("Content-Type" to "application/json"), err)
                     }
+                }
+
+                "/yamsync/v1/disconnect" -> {
+                    onClientDisconnected?.invoke()
+                    val ok = """{"status":"disconnected"}""".encodeToByteArray()
+                    sendResponse(output, 200, "OK", mapOf("Content-Type" to "application/json"), ok)
                 }
 
                 else -> {
