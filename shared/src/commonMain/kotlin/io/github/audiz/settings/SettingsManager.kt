@@ -70,6 +70,10 @@ class SettingsManager(
     var musicStoragePath by mutableStateOf(loadMusicStoragePath() ?: getDefaultMusicDir())
         private set
 
+    // 🐕 Детектор зависаний UI (Watchdog)
+    var isUiWatchdogEnabled by mutableStateOf(loadAppConfig(AppConfigKeys.UI_WATCHDOG_ENABLED) == "true")
+        private set
+
     init {
         val savedSession = loadSavedSessionToken()
         if (!savedSession.isNullOrBlank()) {
@@ -82,6 +86,9 @@ class SettingsManager(
                 saveSessionToken(defaultToken)
                 currentAccessToken = defaultToken
             }
+        }
+        if (isUiWatchdogEnabled) {
+            io.github.audiz.debug.UiWatchdog.start()
         }
     }
 
@@ -133,5 +140,15 @@ class SettingsManager(
 
     fun exchangeTokenForSession(tokenOrUrl: String, onComplete: ((Boolean) -> Unit)? = null) {
         saveNewToken(tokenOrUrl, onComplete)
+    }
+
+    fun toggleUiWatchdog(enabled: Boolean) {
+        isUiWatchdogEnabled = enabled
+        saveAppConfig(AppConfigKeys.UI_WATCHDOG_ENABLED, enabled.toString())
+        if (enabled) {
+            io.github.audiz.debug.UiWatchdog.start()
+        } else {
+            io.github.audiz.debug.UiWatchdog.stop()
+        }
     }
 }

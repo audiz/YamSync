@@ -622,6 +622,7 @@ fun App() {
                     storageStatusMessage = searchViewModel.storageStatusMessage,
                     uiMode = searchViewModel.uiMode,
                     crossfadeSeconds = searchViewModel.playerCrossfadeSeconds,
+                    isUiWatchdogActive = searchViewModel.isUiWatchdogActive,
                 ),
                 actions = SettingsActions(
                     onClose = { settingsExpanded = false },
@@ -645,7 +646,8 @@ fun App() {
                         showLogsDialog = true
                     },
                     onSaveUiMode = { searchViewModel.saveUiMode(it) },
-                    onSaveCrossfade = { searchViewModel.changeCrossfade(it) }
+                    onSaveCrossfade = { searchViewModel.changeCrossfade(it) },
+                    onToggleUiWatchdog = { searchViewModel.toggleUiWatchdog(it) }
                 )
             )
 

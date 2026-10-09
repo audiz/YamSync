@@ -22,6 +22,7 @@ object AppConfigKeys {
     const val RECENT_THEMATIC_WAVES = "recent_thematic_waves"
     const val CUSTOM_LOCAL_SOURCES = "custom_local_sources"
     const val LAST_PLAYBACK_SESSION = "last_playback_session"
+    const val UI_WATCHDOG_ENABLED = "ui_watchdog_enabled"
 
     fun eqBand(index: Int): String = "eq_band_$index"
 }

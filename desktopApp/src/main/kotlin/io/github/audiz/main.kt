@@ -14,7 +14,12 @@ import kotlin.system.exitProcess
 private const val IPC_PORT = 48293
 
 fun main(args: Array<String>) {
-    val initialLink = args.firstOrNull()
+    val initialLink = args.firstOrNull { it != "--watchdog" }
+
+    if (args.contains("--watchdog") || System.getProperty("yamsync.watchdog") == "true") {
+        saveAppConfig(AppConfigKeys.UI_WATCHDOG_ENABLED, "true")
+        io.github.audiz.debug.UiWatchdog.start()
+    }
 
     // 1. Попытка переслать ссылку уже запущенному экземпляру YamSync
     try {

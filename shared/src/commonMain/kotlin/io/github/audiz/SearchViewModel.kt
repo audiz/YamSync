@@ -231,6 +231,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     val isRecordToDiskActive: Boolean get() = downloadManager.isRecordToDiskActive
     fun toggleRecordToDisk(active: Boolean = !isRecordToDiskActive) = downloadManager.toggleRecordToDisk(active)
 
+    // 🐕 Детектор зависаний UI (Watchdog)
+    val isUiWatchdogActive: Boolean get() = settingsManager.isUiWatchdogEnabled
+    fun toggleUiWatchdog(active: Boolean = !isUiWatchdogActive) = settingsManager.toggleUiWatchdog(active)
+
     /** Проверяет, сохранен ли текущий воспроизводимый трек в библиотеке на диске */
     val isCurrentTrackSavedToDisk: Boolean get() = downloadManager.isCurrentTrackSavedToDisk
 

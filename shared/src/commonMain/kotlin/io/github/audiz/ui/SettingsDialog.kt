@@ -59,6 +59,7 @@ data class SettingsState(
     val storageStatusMessage: String? = null,
     val uiMode: String = "auto",
     val crossfadeSeconds: Int = 3,
+    val isUiWatchdogActive: Boolean = false,
 )
 
 /**
@@ -80,6 +81,7 @@ data class SettingsActions(
     val onOpenLogs: (() -> Unit)? = null,
     val onSaveUiMode: (String) -> Unit = {},
     val onSaveCrossfade: (Int) -> Unit = {},
+    val onToggleUiWatchdog: (Boolean) -> Unit = {},
 )
 
 /**
@@ -845,6 +847,37 @@ fun SettingsDialog(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("Открыть журнал логов", maxLines = 1)
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                        Text(
+                                            text = "Детектор лагов UI (Watchdog)",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Записывать в лог стек вызовов потоков при зависаниях интерфейса (>100мс)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = state.isUiWatchdogActive,
+                                        onCheckedChange = actions.onToggleUiWatchdog,
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    )
                                 }
                             }
 
