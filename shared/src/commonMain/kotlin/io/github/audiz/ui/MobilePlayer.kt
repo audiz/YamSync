@@ -806,24 +806,6 @@ fun MobileFullPlayerSheet(
                         bottomPlayerPadding = 0.dp
                     )
                 } else {
-                    // Плейлист / очередь воспроизведения на мобильных устройствах (44 dp)
-                    if (actions.onOpenQueue != null) {
-                        IconButton(
-                            onClick = {
-                                actions.onOpenQueue.invoke()
-                                onDismiss()
-                            },
-                            modifier = Modifier.size(44.dp).pointerHoverIcon(PointerIcon.Hand)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                                contentDescription = "Очередь воспроизведения",
-                                tint = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
                     // Дизлайк / удаление на мобильных устройствах (44 dp)
                     DislikeButton(
                         isDisliked = state.isDisliked,
@@ -844,15 +826,31 @@ fun MobileFullPlayerSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Слева: Качество битрейта (капсула) + на ПК в режиме мобильного корзинка справа от битрейта
+                // Слева: Качество битрейта (капсула) + [Плейлист / Очередь] справа от битрейта
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (state.bitrate != null && state.bitrate > 0) {
                         QualityChip(bitrateKbps = state.bitrate, size = 32.dp)
-                    } else if (!isDesktop) {
-                        Spacer(modifier = Modifier.width(32.dp))
+                    }
+
+                    // [Плейлист / Очередь] справа от иконки битрейта
+                    if (actions.onOpenQueue != null) {
+                        IconButton(
+                            onClick = {
+                                actions.onOpenQueue.invoke()
+                                onDismiss()
+                            },
+                            modifier = Modifier.size(36.dp).pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = "Очередь воспроизведения",
+                                tint = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
                     if (isDesktop) {
@@ -862,22 +860,6 @@ fun MobileFullPlayerSheet(
                             size = 36.dp,
                             onClick = { actions.onToggleDislike?.invoke() }
                         )
-                        if (actions.onOpenQueue != null) {
-                            IconButton(
-                                onClick = {
-                                    actions.onOpenQueue.invoke()
-                                    onDismiss()
-                                },
-                                modifier = Modifier.size(36.dp).pointerHoverIcon(PointerIcon.Hand)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                                    contentDescription = "Очередь воспроизведения",
-                                    tint = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
                     }
                 }
 

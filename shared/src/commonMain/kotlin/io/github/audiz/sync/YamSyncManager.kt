@@ -166,7 +166,7 @@ class YamSyncManager(
         consecutivePollFailures = 0
         pollingJob = scope.launch(Dispatchers.Main) {
             while (isActive && isConnected) {
-                delay(4000)
+                delay(12000)
                 if (!isConnected) break
                 if (!isDownloadingFiles) {
                     refreshManifestAndDiffSilently()
@@ -183,39 +183,57 @@ class YamSyncManager(
 
     private fun refreshManifestAndDiffSilently() {
         val pair = activePairInfo ?: return
-        scope.launch(Dispatchers.Main) {
-            val localMan = buildLocalManifest()
+        scope.launch(DispatcherIO) {
+            val localMan = localManifestCache ?: buildLocalManifest().also { localManifestCache = it }
             if (pair.port <= 0) {
                 val cached = remoteManifestCache
                 if (cached != null) {
-                    applyDiffs(localMan, cached)
+                    withContext(Dispatchers.Main) {
+                        applyDiffs(localMan, cached)
+                    }
                 }
                 return@launch
             }
-            val remoteRes = withContext(DispatcherIO) {
-                client.exchangeManifests(pair.ip, pair.port, pair.token, localMan)
-            }
+            val remoteRes = client.exchangeManifests(pair.ip, pair.port, pair.token, localMan)
             remoteRes.fold(
                 onSuccess = { remoteMan ->
                     consecutivePollFailures = 0
-                    remoteManifestCache = remoteMan
-                    applyDiffs(localMan, remoteMan)
+                    val oldRemote = remoteManifestCache
+                    val hasChanged = oldRemote == null ||
+                        oldRemote.playlists.size != remoteMan.playlists.size ||
+                        oldRemote.availableFiles.size != remoteMan.availableFiles.size ||
+                        oldRemote != remoteMan
+                    if (hasChanged) {
+                        remoteManifestCache = remoteMan
+                        withContext(Dispatchers.Main) {
+                            applyDiffs(localMan, remoteMan)
+                        }
+                    }
                 },
                 onFailure = {
-                    val getRes = withContext(DispatcherIO) {
-                        client.fetchManifest(pair.ip, pair.port, pair.token)
-                    }
+                    val getRes = client.fetchManifest(pair.ip, pair.port, pair.token)
                     getRes.fold(
                         onSuccess = { remoteMan ->
                             consecutivePollFailures = 0
-                            remoteManifestCache = remoteMan
-                            applyDiffs(localMan, remoteMan)
+                            val oldRemote = remoteManifestCache
+                            val hasChanged = oldRemote == null ||
+                                oldRemote.playlists.size != remoteMan.playlists.size ||
+                                oldRemote.availableFiles.size != remoteMan.availableFiles.size ||
+                                oldRemote != remoteMan
+                            if (hasChanged) {
+                                remoteManifestCache = remoteMan
+                                withContext(Dispatchers.Main) {
+                                    applyDiffs(localMan, remoteMan)
+                                }
+                            }
                         },
                         onFailure = { err ->
                             consecutivePollFailures++
                             println("YamSync: Сбой фонового опроса ($consecutivePollFailures/2): ${err.message}")
                             if (consecutivePollFailures >= 2) {
-                                handleRemotePeerDisconnected("Связь с устройством потеряна")
+                                withContext(Dispatchers.Main) {
+                                    handleRemotePeerDisconnected("Связь с устройством потеряна")
+                                }
                             }
                         }
                     )

@@ -1218,7 +1218,7 @@ private fun QrCodeCanvas(
         shadowElevation = 2.dp,
         modifier = modifier
     ) {
-        Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize().padding(14.dp)) {
             val count = matrix.size
             if (count == 0) return@Canvas
             val cellSize = size.width / count
@@ -1226,11 +1226,10 @@ private fun QrCodeCanvas(
             for (r in 0 until count) {
                 for (c in 0 until count) {
                     if (matrix[r][c]) {
-                        drawRoundRect(
+                        drawRect(
                             color = Color.Black,
                             topLeft = Offset(c * cellSize, r * cellSize),
-                            size = Size(cellSize, cellSize),
-                            cornerRadius = CornerRadius(cellSize * 0.2f, cellSize * 0.2f)
+                            size = Size(cellSize + 0.5f, cellSize + 0.5f)
                         )
                     }
                 }

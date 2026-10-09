@@ -792,8 +792,10 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     private let callback: QrScanCallback
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var currentDevice: AVCaptureDevice?
     private var hasScanned = false
     private var torchBtn: UIButton?
+    private let metadataQueue = DispatchQueue(label: "io.github.audiz.yamsync.qrscanner.queue", qos: .userInteractive)
 
     init(callback: QrScanCallback) {
         self.callback = callback
@@ -809,6 +811,7 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
         view.backgroundColor = .black
         setupCamera()
         setupUI()
+        setupGestures()
     }
 
     override func viewDidLayoutSubviews() {
@@ -821,9 +824,37 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     }
 
     private func setupCamera() {
-        guard let device = AVCaptureDevice.default(for: .video) else {
-            showErrorAlert(message: "Камера не поддерживается на данном устройстве")
+        let device: AVCaptureDevice
+        if let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+            device = backCamera
+        } else if let fallback = AVCaptureDevice.default(for: .video) {
+            device = fallback
+        } else {
+            showErrorAlert(message: "Камера не найдена на данном устройстве")
             return
+        }
+        self.currentDevice = device
+
+        // Настройка фокусировки, экспозиции и зума
+        do {
+            try device.lockForConfiguration()
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+            if device.isAutoFocusRangeRestrictionSupported {
+                device.autoFocusRangeRestriction = .none
+            }
+            // Лёгкий зум 1.25x облегчает считывание с экрана монитора с нормального расстояния
+            let targetZoom: CGFloat = 1.25
+            if device.videoZoomFactor < targetZoom && device.activeFormat.videoMaxZoomFactor >= targetZoom {
+                device.videoZoomFactor = targetZoom
+            }
+            device.unlockForConfiguration()
+        } catch {
+            print("QrScanner: не удалось заблокировать конфигурацию камеры: \(error.localizedDescription)")
         }
 
         let input: AVCaptureDeviceInput
@@ -835,6 +866,12 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
         }
 
         let session = AVCaptureSession()
+        if session.canSetSessionPreset(.hd1920x1080) {
+            session.sessionPreset = .hd1920x1080
+        } else if session.canSetSessionPreset(.high) {
+            session.sessionPreset = .high
+        }
+
         if session.canAddInput(input) {
             session.addInput(input)
         } else {
@@ -845,7 +882,7 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
         let metadataOutput = AVCaptureMetadataOutput()
         if session.canAddOutput(metadataOutput) {
             session.addOutput(metadataOutput)
-            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            metadataOutput.setMetadataObjectsDelegate(self, queue: metadataQueue)
             metadataOutput.metadataObjectTypes = [.qr]
         } else {
             showErrorAlert(message: "Не удалось настроить распознавание QR-кодов")
@@ -864,8 +901,46 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
         }
     }
 
+    private func setupGestures() {
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        view.addGestureRecognizer(pinch)
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTapToFocus(_:)))
+        view.addGestureRecognizer(tap)
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        guard let device = currentDevice else { return }
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            let maxZoom = min(device.activeFormat.videoMaxZoomFactor, 4.0)
+            let newScale = min(max(device.videoZoomFactor * gesture.scale, 1.0), maxZoom)
+            device.videoZoomFactor = newScale
+            gesture.scale = 1.0
+        } catch {}
+    }
+
+    @objc private func handleTapToFocus(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: view)
+        guard let preview = previewLayer, let device = currentDevice else { return }
+        let devicePoint = preview.captureDevicePointConverted(fromLayerPoint: point)
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            if device.isFocusPointOfInterestSupported && device.isFocusModeSupported(.autoFocus) {
+                device.focusPointOfInterest = devicePoint
+                device.focusMode = .autoFocus
+            }
+            if device.isExposurePointOfInterestSupported && device.isExposureModeSupported(.autoExpose) {
+                device.exposurePointOfInterest = devicePoint
+                device.exposureMode = .autoExpose
+            }
+        } catch {}
+    }
+
     private func setupUI() {
-        let boxSize: CGFloat = min(view.bounds.width, view.bounds.height) * 0.65
+        let boxSize: CGFloat = min(view.bounds.width, view.bounds.height) * 0.68
 
         // Зеленая рамка прицела
         let box = UIView()
@@ -890,7 +965,7 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
         view.addSubview(closeBtn)
 
         // Кнопка фонарика (фонарик доступен только при наличии torch)
-        if let device = AVCaptureDevice.default(for: .video), device.hasTorch {
+        if let device = currentDevice, device.hasTorch {
             let torch = UIButton(type: .system)
             torch.translatesAutoresizingMaskIntoConstraints = false
             torch.setTitle("🔦 Фонарик", for: .normal)
@@ -945,7 +1020,7 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     }
 
     @objc private func toggleTorch() {
-        guard let device = AVCaptureDevice.default(for: .video), device.hasTorch else { return }
+        guard let device = currentDevice, device.hasTorch else { return }
         do {
             try device.lockForConfiguration()
             if device.torchMode == .on {
@@ -961,7 +1036,7 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
 
     private func stopAndDismiss(scannedCode: String?) {
         captureSession?.stopRunning()
-        if let device = AVCaptureDevice.default(for: .video), device.hasTorch && device.torchMode == .on {
+        if let device = currentDevice, device.hasTorch && device.torchMode == .on {
             try? device.lockForConfiguration()
             device.torchMode = .off
             device.unlockForConfiguration()
@@ -982,18 +1057,24 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     }
 
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        guard !hasScanned,
-              let metadataObj = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-              metadataObj.type == .qr,
-              let stringVal = metadataObj.stringValue,
-              !stringVal.isEmpty else { return }
+        guard !hasScanned else { return }
 
-        hasScanned = true
+        for obj in metadataObjects {
+            guard let readable = obj as? AVMetadataMachineReadableCodeObject,
+                  readable.type == .qr,
+                  let code = readable.stringValue,
+                  !code.isEmpty else {
+                continue
+            }
 
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
-
-        stopAndDismiss(scannedCode: stringVal)
+            hasScanned = true
+            DispatchQueue.main.async { [weak self] in
+                let feedback = UINotificationFeedbackGenerator()
+                feedback.notificationOccurred(.success)
+                self?.stopAndDismiss(scannedCode: code)
+            }
+            break
+        }
     }
 }
 
