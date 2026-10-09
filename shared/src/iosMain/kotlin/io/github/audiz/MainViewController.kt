@@ -48,3 +48,8 @@ fun registerEqualizerListener(listener: IosEqualizerListener) {
     IosEqualizerBridge.register(listener)
 }
 
+fun registerQrScannerProvider(provider: IosQrScannerProvider) {
+    IosQrScannerRegistry.register(provider)
+}
+
+

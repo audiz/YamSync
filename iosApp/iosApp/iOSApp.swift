@@ -732,12 +732,278 @@ class SwiftAudioTapAttacher: NSObject, IosAudioTapAttacher {
     }
 }
 
+// =========================================================================
+// MARK: - 📷 Нативный сканер QR-кодов YamSync (AVFoundation)
+// =========================================================================
+
+class SwiftQrScannerProvider: NSObject, IosQrScannerProvider {
+    func launchQrScanner(callback: QrScanCallback) {
+        DispatchQueue.main.async {
+            guard let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) ?? UIApplication.shared.windows.first,
+                  let rootVC = window.rootViewController else {
+                return
+            }
+
+            var topVC = rootVC
+            while let presented = topVC.presentedViewController, !presented.isBeingDismissed {
+                topVC = presented
+            }
+
+            let status = AVCaptureDevice.authorizationStatus(for: .video)
+            switch status {
+            case .authorized:
+                let scannerVC = QrScannerViewController(callback: callback)
+                scannerVC.modalPresentationStyle = .fullScreen
+                topVC.present(scannerVC, animated: true, completion: nil)
+
+            case .notDetermined:
+                AVCaptureDevice.requestAccess(for: .video) { granted in
+                    DispatchQueue.main.async {
+                        if granted {
+                            let scannerVC = QrScannerViewController(callback: callback)
+                            scannerVC.modalPresentationStyle = .fullScreen
+                            topVC.present(scannerVC, animated: true, completion: nil)
+                        }
+                    }
+                }
+
+            case .denied, .restricted:
+                let alert = UIAlertController(
+                    title: "Доступ к камере отключен",
+                    message: "Чтобы сканировать QR-коды для синхронизации, разрешите приложению доступ к камере в Настройках iPhone.",
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: "Настройки", style: .default) { _ in
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                    }
+                })
+                alert.addAction(UIAlertAction(title: "Отмена", style: .cancel, handler: nil))
+                topVC.present(alert, animated: true, completion: nil)
+
+            @unknown default:
+                break
+            }
+        }
+    }
+}
+
+class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+    private let callback: QrScanCallback
+    private var captureSession: AVCaptureSession?
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var hasScanned = false
+    private var torchBtn: UIButton?
+
+    init(callback: QrScanCallback) {
+        self.callback = callback
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        setupCamera()
+        setupUI()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer?.frame = view.bounds
+    }
+
+    override var prefersStatusBarHidden: Bool {
+        return true
+    }
+
+    private func setupCamera() {
+        guard let device = AVCaptureDevice.default(for: .video) else {
+            showErrorAlert(message: "Камера не поддерживается на данном устройстве")
+            return
+        }
+
+        let input: AVCaptureDeviceInput
+        do {
+            input = try AVCaptureDeviceInput(device: device)
+        } catch {
+            showErrorAlert(message: "Не удалось подключиться к камере: \(error.localizedDescription)")
+            return
+        }
+
+        let session = AVCaptureSession()
+        if session.canAddInput(input) {
+            session.addInput(input)
+        } else {
+            showErrorAlert(message: "Не удалось инициализировать вход камеры")
+            return
+        }
+
+        let metadataOutput = AVCaptureMetadataOutput()
+        if session.canAddOutput(metadataOutput) {
+            session.addOutput(metadataOutput)
+            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            metadataOutput.metadataObjectTypes = [.qr]
+        } else {
+            showErrorAlert(message: "Не удалось настроить распознавание QR-кодов")
+            return
+        }
+
+        let preview = AVCaptureVideoPreviewLayer(session: session)
+        preview.frame = view.layer.bounds
+        preview.videoGravity = .resizeAspectFill
+        view.layer.addSublayer(preview)
+        self.previewLayer = preview
+        self.captureSession = session
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            session.startRunning()
+        }
+    }
+
+    private func setupUI() {
+        let boxSize: CGFloat = min(view.bounds.width, view.bounds.height) * 0.65
+
+        // Зеленая рамка прицела
+        let box = UIView()
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.layer.borderColor = UIColor.systemGreen.cgColor
+        box.layer.borderWidth = 3
+        box.layer.cornerRadius = 20
+        box.backgroundColor = .clear
+        box.isUserInteractionEnabled = false
+        view.addSubview(box)
+
+        // Кнопка закрытия ("✕ Закрыть")
+        let closeBtn = UIButton(type: .system)
+        closeBtn.translatesAutoresizingMaskIntoConstraints = false
+        closeBtn.setTitle("✕ Закрыть", for: .normal)
+        closeBtn.setTitleColor(.white, for: .normal)
+        closeBtn.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        closeBtn.backgroundColor = UIColor.black.withAlphaComponent(0.65)
+        closeBtn.layer.cornerRadius = 18
+        closeBtn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        closeBtn.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
+        view.addSubview(closeBtn)
+
+        // Кнопка фонарика (фонарик доступен только при наличии torch)
+        if let device = AVCaptureDevice.default(for: .video), device.hasTorch {
+            let torch = UIButton(type: .system)
+            torch.translatesAutoresizingMaskIntoConstraints = false
+            torch.setTitle("🔦 Фонарик", for: .normal)
+            torch.setTitleColor(.white, for: .normal)
+            torch.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+            torch.backgroundColor = UIColor.black.withAlphaComponent(0.65)
+            torch.layer.cornerRadius = 18
+            torch.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+            torch.addTarget(self, action: #selector(toggleTorch), for: .touchUpInside)
+            view.addSubview(torch)
+            self.torchBtn = torch
+
+            NSLayoutConstraint.activate([
+                torch.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+                torch.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+                torch.heightAnchor.constraint(equalToConstant: 36)
+            ])
+        }
+
+        // Подсказка пользователю
+        let hintLabel = UILabel()
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        hintLabel.text = "Наведите камеру на QR-код YamSync"
+        hintLabel.textColor = .white
+        hintLabel.textAlignment = .center
+        hintLabel.font = UIFont.systemFont(ofSize: 15, weight: .medium)
+        hintLabel.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        hintLabel.layer.cornerRadius = 10
+        hintLabel.layer.masksToBounds = true
+        view.addSubview(hintLabel)
+
+        NSLayoutConstraint.activate([
+            box.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            box.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            box.widthAnchor.constraint(equalToConstant: boxSize),
+            box.heightAnchor.constraint(equalToConstant: boxSize),
+
+            closeBtn.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            closeBtn.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            closeBtn.heightAnchor.constraint(equalToConstant: 36),
+
+            hintLabel.bottomAnchor.constraint(equalTo: box.topAnchor, constant: -24),
+            hintLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            hintLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 20),
+            hintLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -20),
+            hintLabel.heightAnchor.constraint(equalToConstant: 38)
+        ])
+    }
+
+    @objc private func handleClose() {
+        stopAndDismiss(scannedCode: nil)
+    }
+
+    @objc private func toggleTorch() {
+        guard let device = AVCaptureDevice.default(for: .video), device.hasTorch else { return }
+        do {
+            try device.lockForConfiguration()
+            if device.torchMode == .on {
+                device.torchMode = .off
+                torchBtn?.setTitleColor(.white, for: .normal)
+            } else {
+                try device.setTorchModeOn(level: 1.0)
+                torchBtn?.setTitleColor(.systemYellow, for: .normal)
+            }
+            device.unlockForConfiguration()
+        } catch {}
+    }
+
+    private func stopAndDismiss(scannedCode: String?) {
+        captureSession?.stopRunning()
+        if let device = AVCaptureDevice.default(for: .video), device.hasTorch && device.torchMode == .on {
+            try? device.lockForConfiguration()
+            device.torchMode = .off
+            device.unlockForConfiguration()
+        }
+        dismiss(animated: true) { [weak self] in
+            if let code = scannedCode {
+                self?.callback.onScanned(code: code)
+            }
+        }
+    }
+
+    private func showErrorAlert(message: String) {
+        let alert = UIAlertController(title: "Ошибка камеры", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.stopAndDismiss(scannedCode: nil)
+        })
+        present(alert, animated: true)
+    }
+
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard !hasScanned,
+              let metadataObj = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              metadataObj.type == .qr,
+              let stringVal = metadataObj.stringValue,
+              !stringVal.isEmpty else { return }
+
+        hasScanned = true
+
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+
+        stopAndDismiss(scannedCode: stringVal)
+    }
+}
+
 @main
 struct iOSApp: App {
     init() {
         MainViewControllerKt.registerIosTrackSigner(provider: SwiftTrackSignerProvider())
         MainViewControllerKt.registerAudioTapAttacher(attacher: SwiftAudioTapAttacher())
         MainViewControllerKt.registerEqualizerListener(listener: SwiftEqualizerListener())
+        MainViewControllerKt.registerQrScannerProvider(provider: SwiftQrScannerProvider())
     }
 
     var body: some Scene {
@@ -749,3 +1015,4 @@ struct iOSApp: App {
         }
     }
 }
+

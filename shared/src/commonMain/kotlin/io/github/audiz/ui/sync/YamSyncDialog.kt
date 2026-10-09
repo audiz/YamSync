@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import io.github.audiz.isPlatformQrScannerSupported
+import io.github.audiz.launchPlatformQrScanner
 import io.github.audiz.models.*
 import io.github.audiz.sync.YamSyncConnectionState
 import io.github.audiz.sync.YamSyncKnownDevice
@@ -471,6 +473,24 @@ private fun YamSyncPairingTab(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (isPlatformQrScannerSupported) {
+                    FilledTonalButton(
+                        onClick = {
+                            launchPlatformQrScanner { scanned ->
+                                inputUri = scanned.trim()
+                                syncManager.connectToPeer(inputUri)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(46.dp)
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Сканировать QR-код камерой", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
                 OutlinedTextField(
                     value = inputUri,
                     onValueChange = { inputUri = it },
@@ -479,13 +499,29 @@ private fun YamSyncPairingTab(
                     singleLine = false,
                     maxLines = 3,
                     trailingIcon = {
-                        IconButton(onClick = {
-                            val clipText = clipboardManager.getText()?.text
-                            if (!clipText.isNullOrBlank()) {
-                                inputUri = clipText.trim()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isPlatformQrScannerSupported) {
+                                IconButton(onClick = {
+                                    launchPlatformQrScanner { scanned ->
+                                        inputUri = scanned.trim()
+                                        syncManager.connectToPeer(inputUri)
+                                    }
+                                }) {
+                                    Icon(
+                                        Icons.Default.QrCodeScanner,
+                                        contentDescription = "Сканировать QR-код камерой",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
-                        }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Вставить из буфера", tint = MaterialTheme.colorScheme.primary)
+                            IconButton(onClick = {
+                                val clipText = clipboardManager.getText()?.text
+                                if (!clipText.isNullOrBlank()) {
+                                    inputUri = clipText.trim()
+                                }
+                            }) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = "Вставить из буфера", tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -541,7 +577,7 @@ private fun YamSyncPairingTab(
                         )
                         Text(
                             text = "1. На втором устройстве откройте вкладку «Показать QR-код» и нажмите «Раздать».\n" +
-                                   "2. Со смартфона: наведите обычную камеру на QR-код на экране другого устройства и нажмите на появившуюся ссылку YamSync (или скопируйте её).\n" +
+                                   "2. Со смартфона: нажмите «Сканировать QR-код камерой» выше или наведите штатную камеру iOS на экран другого устройства.\n" +
                                    "3. Либо скопируйте ссылку на раздающем устройстве и вставьте её сюда кнопкой «Вставить из буфера».",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

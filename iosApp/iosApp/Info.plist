@@ -98,5 +98,8 @@
     </dict>
     <key>NSLocalNetworkUsageDescription</key>
     <string>YamSync использует локальную сеть для быстрой передачи плейлистов и треков между вашими устройствами.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>YamSync использует камеру для быстрого сканирования QR-кода синхронизации с другими устройствами.</string>
 </dict>
 </plist>
+
