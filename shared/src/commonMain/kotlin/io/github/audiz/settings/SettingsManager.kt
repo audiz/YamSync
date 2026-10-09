@@ -10,6 +10,7 @@ import io.github.audiz.getDefaultMusicDir
 import io.github.audiz.getPlatform
 import io.github.audiz.loadAppConfig
 import io.github.audiz.loadMusicStoragePath
+import io.github.audiz.localFileExists
 import io.github.audiz.loadSavedSessionToken
 import io.github.audiz.saveAppConfig
 import io.github.audiz.saveMusicStoragePath
@@ -67,7 +68,9 @@ class SettingsManager(
         }
 
     // 📂 Путь хранения музыки (настраиваемый)
-    var musicStoragePath by mutableStateOf(loadMusicStoragePath() ?: getDefaultMusicDir())
+    var musicStoragePath by mutableStateOf(
+        loadMusicStoragePath()?.takeIf { it.isNotBlank() && localFileExists(it) } ?: getDefaultMusicDir()
+    )
         private set
 
     // 🐕 Детектор зависаний UI (Watchdog)

@@ -95,3 +95,8 @@ android {
         }
     }
 }
+
+tasks.withType<Test> {
+    systemProperty("java.util.prefs.userRoot", "${layout.buildDirectory.get().asFile.absolutePath}/test-prefs")
+}
+

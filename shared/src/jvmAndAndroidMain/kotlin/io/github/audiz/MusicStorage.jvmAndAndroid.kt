@@ -145,7 +145,7 @@ actual fun resolveLocalPath(path: String): String {
     val parentName = normalized.substringBeforeLast('/', "").substringAfterLast('/').takeIf { it.isNotBlank() }
     val baseName = fileName.substringBeforeLast('.')
 
-    val baseMusic = loadMusicStoragePath() ?: getDefaultMusicDir()
+    val baseMusic = loadMusicStoragePath()?.takeIf { File(it).exists() } ?: getDefaultMusicDir()
     val baseDir = File(baseMusic)
     if (!baseDir.exists()) return rawFile.absolutePath
 
@@ -590,7 +590,7 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
                     file = fallbackFile
                 } else {
                     if (cachedScanned == null) {
-                        val baseMusic = loadMusicStoragePath() ?: getDefaultMusicDir()
+                        val baseMusic = loadMusicStoragePath()?.takeIf { File(it).exists() } ?: getDefaultMusicDir()
                         cachedScanned = scanDownloadedTracks(baseMusic)
                     }
                     val matched = cachedScanned.firstOrNull {

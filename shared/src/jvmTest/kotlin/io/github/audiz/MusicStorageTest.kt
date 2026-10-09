@@ -433,6 +433,7 @@ class MusicStorageTest {
 
     @Test
     fun testResolveLocalPathCrossPlatformAndFast() {
+        val originalStoragePath = loadMusicStoragePath()
         val tempDir = File.createTempFile("music_resolve_test", "").apply {
             delete()
             mkdirs()
@@ -461,12 +462,21 @@ class MusicStorageTest {
             assertTrue(duration < 200, "Resolution of non-existent file should take < 200ms, took $duration ms")
             assertEquals(File(nonExistent).absolutePath, resolvedNonExistent)
         } finally {
+            if (originalStoragePath != null) {
+                saveMusicStoragePath(originalStoragePath)
+            } else {
+                try {
+                    java.util.prefs.Preferences.userRoot().node("MusicDownloader").remove("music_storage_path")
+                    java.util.prefs.Preferences.userRoot().node("MusicDownloader").flush()
+                } catch (_: Throwable) {}
+            }
             tempDir.deleteRecursively()
         }
     }
 
     @Test
     fun testLoadLocalPlaylistsStrictDeduplication() {
+        val originalStoragePath = loadMusicStoragePath()
         val tempDir = File.createTempFile("music_dedup_test", "").apply {
             delete()
             mkdirs()
@@ -498,6 +508,14 @@ class MusicStorageTest {
             assertEquals(1, loaded[0].trackPaths.size, "Duplicate entries across platforms must be deduplicated to 1 track")
             assertEquals(songFile.absolutePath, loaded[0].trackPaths[0])
         } finally {
+            if (originalStoragePath != null) {
+                saveMusicStoragePath(originalStoragePath)
+            } else {
+                try {
+                    java.util.prefs.Preferences.userRoot().node("MusicDownloader").remove("music_storage_path")
+                    java.util.prefs.Preferences.userRoot().node("MusicDownloader").flush()
+                } catch (_: Throwable) {}
+            }
             tempDir.deleteRecursively()
         }
     }
