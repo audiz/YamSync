@@ -113,8 +113,8 @@ fun main(args: Array<String>) {
     }
 
     // 5. Запуск оконного Compose UI с сохранением и восстановлением размера окна
-    val minWidth = 520.dp
-    val minHeight = 500.dp
+    val minWidth = 50.dp
+    val minHeight = 50.dp
     val defaultWidth = 1100.dp
     val defaultHeight = 780.dp
 
