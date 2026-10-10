@@ -36,22 +36,41 @@ class YamSyncTest {
     @Test
     fun testQrCodeGeneratorProducesValidMatrix() {
         val uri = "yamsync://pair?ip=192.168.1.45&port=43594&token=d8f9a2e1&name=Pixel+8&platform=Android"
-        val matrix = QrCodeGenerator.encode(uri, QrCodeGenerator.EccLevel.M)
+        for (ecc in listOf(QrCodeGenerator.EccLevel.L, QrCodeGenerator.EccLevel.M, QrCodeGenerator.EccLevel.Q, QrCodeGenerator.EccLevel.H)) {
+            val matrix = QrCodeGenerator.encode(uri, ecc)
+            assertTrue(matrix.isNotEmpty())
+            val size = matrix.size
 
-        assertTrue(matrix.isNotEmpty())
-        val size = matrix.size
-        // Проверка квадратности
-        for (row in matrix) {
-            assertEquals(size, row.size)
+            // Верхний левый маркер (Finder Pattern) должен иметь черный центр (3x3)
+            assertTrue(matrix[3][3])
+            assertTrue(matrix[0][0])
+            assertTrue(matrix[0][6])
+            assertTrue(matrix[6][0])
+
+            // Декодируем эталонным декодером ZXing для 100% подтверждения соответствия стандарту ISO/IEC 18004
+            val scale = 8
+            val quietZone = 4 * scale
+            val imgSize = size * scale + quietZone * 2
+            val img = java.awt.image.BufferedImage(imgSize, imgSize, java.awt.image.BufferedImage.TYPE_BYTE_BINARY)
+            val g = img.createGraphics()
+            g.color = java.awt.Color.WHITE
+            g.fillRect(0, 0, imgSize, imgSize)
+            g.color = java.awt.Color.BLACK
+
+            for (r in 0 until size) {
+                for (c in 0 until size) {
+                    if (matrix[r][c]) {
+                        g.fillRect(quietZone + c * scale, quietZone + r * scale, scale, scale)
+                    }
+                }
+            }
+            g.dispose()
+
+            val source = com.google.zxing.client.j2se.BufferedImageLuminanceSource(img)
+            val bitmap = com.google.zxing.BinaryBitmap(com.google.zxing.common.HybridBinarizer(source))
+            val result = com.google.zxing.qrcode.QRCodeReader().decode(bitmap)
+            assertEquals(uri, result.text)
         }
-        // Размер QR должен быть 21 + 4*(V-1)
-        assertTrue(size >= 21)
-
-        // Верхний левый маркер (Finder Pattern) должен иметь черный центр (3x3)
-        assertTrue(matrix[3][3])
-        assertTrue(matrix[0][0])
-        assertTrue(matrix[0][6])
-        assertTrue(matrix[6][0])
     }
 
     @Test
@@ -366,6 +385,91 @@ class YamSyncTest {
             baseDir.deleteRecursively()
             customDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun testHttpPairUrlAndParsing() {
+        val original = YamSyncPairInfo(
+            ip = "192.168.1.105",
+            port = 43594,
+            token = "secret123",
+            name = "MacBook Pro",
+            platform = "Desktop"
+        )
+
+        val httpUrl = original.toHttpUrl()
+        assertTrue(httpUrl.startsWith("http://192.168.1.105:43594/pair?"))
+        assertTrue(httpUrl.contains("token=secret123"))
+
+        val parsedFromHttp = YamSyncPairInfo.parse(httpUrl)
+        assertNotNull(parsedFromHttp)
+        assertEquals(original.ip, parsedFromHttp.ip)
+        assertEquals(original.port, parsedFromHttp.port)
+        assertEquals(original.token, parsedFromHttp.token)
+        assertEquals(original.name, parsedFromHttp.name)
+        assertEquals(original.platform, parsedFromHttp.platform)
+    }
+
+    @Test
+    fun testFuzzyTrackMatchingSlugDifferences() {
+        val clean1 = YamSyncTrack(
+            fileName = "Keep Shelly In Athens — Nobody.mp3",
+            artist = "Keep Shelly In Athens",
+            title = "Nobody"
+        )
+        val slug1 = YamSyncTrack(
+            fileName = "Keep-Shelly-In-Athens---Nobody.mp3",
+            artist = "Keep Shelly In Athens",
+            title = "Keep-Shelly-In-Athens---Nobody.mp3"
+        )
+        assertTrue(YamSyncDiffEngine.areTracksMatching(clean1, slug1), "Slug with '---' must match clean artist and title")
+
+        val clean2 = YamSyncTrack(
+            fileName = "Natasha Bedingfield — Pocketful of Sunshine.mp3",
+            artist = "Natasha Bedingfield",
+            title = "Pocketful of Sunshine"
+        )
+        val slug2 = YamSyncTrack(
+            fileName = "Pocketful-of-Sunshine.mp3",
+            artist = "Unknown Artist",
+            title = "Pocketful-of-Sunshine"
+        )
+        assertTrue(YamSyncDiffEngine.areTracksMatching(clean2, slug2), "Hyphenated title must match full artist and title")
+    }
+
+    @Test
+    fun testPlaylistDiffIdenticalWithSlugDifferences() {
+        val localTracks = listOf(
+            YamSyncTrack("Keep Shelly In Athens — Nobody.mp3", "Keep Shelly In Athens", "Nobody"),
+            YamSyncTrack("Natasha Bedingfield — Pocketful of Sunshine.mp3", "Natasha Bedingfield", "Pocketful of Sunshine"),
+            YamSyncTrack("Track3.mp3", "Artist 3", "Song 3"),
+            YamSyncTrack("Track4.mp3", "Artist 4", "Song 4")
+        )
+        val remoteTracks = listOf(
+            YamSyncTrack("Keep-Shelly-In-Athens---Nobody.mp3", "Keep Shelly In Athens", "Keep-Shelly-In-Athens---Nobody.mp3"),
+            YamSyncTrack("Pocketful-of-Sunshine.mp3", "Unknown Artist", "Pocketful-of-Sunshine"),
+            YamSyncTrack("Track3.mp3", "Artist 3", "Song 3"),
+            YamSyncTrack("Track4.mp3", "Artist 4", "Song 4")
+        )
+
+        val localManifest = YamSyncManifest(
+            device = YamSyncDevice("d1", "PC", "Desktop"),
+            playlists = listOf(YamSyncPlaylist("pl1", "В дорогу", tracks = localTracks))
+        )
+        val remoteManifest = YamSyncManifest(
+            device = YamSyncDevice("d2", "Phone", "iOS"),
+            playlists = listOf(YamSyncPlaylist("pl1", "В дорогу", tracks = remoteTracks))
+        )
+
+        val diffs = YamSyncDiffEngine.calculateDiff(localManifest, remoteManifest)
+        assertEquals(1, diffs.size)
+        val diff = diffs[0]
+
+        // Плейлист должен быть признан ИДЕНТИЧНЫМ, без ложных "+2 / -2" расхождений!
+        assertEquals(YamSyncDiffState.IDENTICAL, diff.state)
+        assertEquals(0, diff.localOnlyTracks.size)
+        assertEquals(0, diff.remoteOnlyTracks.size)
+        assertEquals(4, diff.commonTracks.size)
     }
 }
 

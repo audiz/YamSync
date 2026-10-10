@@ -13,43 +13,78 @@ data class YamSyncPairInfo(
     val name: String,
     val platform: String
 ) {
-    /** Сформировать URI для QR-кода */
+    /** Сформировать URI со схемой приложения */
     fun toUri(): String {
         val encodedName = encodeUrlParam(name)
         val encodedPlatform = encodeUrlParam(platform)
         return "yamsync://pair?ip=$ip&port=$port&token=$token&name=$encodedName&platform=$encodedPlatform"
     }
 
-    companion object {
-        /** Разобрать URI из отсканированного QR-кода или вставленного текста */
-        fun parse(uriString: String): YamSyncPairInfo? {
-            val trimmed = uriString.trim()
-            if (!trimmed.startsWith("yamsync://pair")) return null
-            val query = trimmed.substringAfter("?", "")
-            if (query.isBlank()) return null
+    /** Сформировать стандартный HTTP URL для распознавания системной камерой iOS/Android */
+    fun toHttpUrl(): String {
+        val encodedName = encodeUrlParam(name)
+        val encodedPlatform = encodeUrlParam(platform)
+        return "http://$ip:$port/pair?token=$token&name=$encodedName&platform=$encodedPlatform"
+    }
 
-            val params = query.split("&").mapNotNull { part ->
+    companion object {
+        /** Разобрать URI из отсканированного QR-кода, HTTP-ссылки или вставленного текста */
+        fun parse(uriString: String): YamSyncPairInfo? {
+            val trimmed = uriString.trim().trim('"', '\'', '`')
+            if (trimmed.isBlank()) return null
+
+            // 1. Формат стандартной веб-ссылки: http://<ip>:<port>/pair?token=... или https://...
+            if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                val afterScheme = trimmed.substringAfter("://")
+                val hostPort = afterScheme.substringBefore("/").substringBefore("?")
+                val ip = hostPort.substringBefore(":").trim()
+                if (ip.isBlank()) return null
+                val port = hostPort.substringAfter(":", "").toIntOrNull() ?: 43594
+                val query = afterScheme.substringAfter("?", "")
+                val params = parseQueryParams(query)
+                val token = params["token"] ?: params["t"] ?: return null
+                val name = params["name"] ?: params["n"] ?: "Remote Device"
+                val platform = params["platform"] ?: params["p"] ?: "Desktop"
+                return YamSyncPairInfo(ip = ip, port = port, token = token, name = name, platform = platform)
+            }
+
+            // 2. Формат глубокой схемы приложения: yamsync://pair?ip=...&port=...&token=...
+            if (trimmed.startsWith("yamsync://", ignoreCase = true)) {
+                val query = trimmed.substringAfter("?", "")
+                val params = parseQueryParams(query)
+                val ip = params["ip"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+                val port = params["port"]?.toIntOrNull() ?: 43594
+                val token = params["token"] ?: params["t"] ?: return null
+                val name = params["name"] ?: params["n"] ?: "Remote Device"
+                val platform = params["platform"] ?: params["p"] ?: "Mobile"
+                return YamSyncPairInfo(ip = ip, port = port, token = token, name = name, platform = platform)
+            }
+
+            // 3. Сырая строка параметров без схемы: ip=...&token=...
+            if (trimmed.contains("token=") || trimmed.contains("ip=")) {
+                val query = trimmed.substringAfter("?", trimmed)
+                val params = parseQueryParams(query)
+                val ip = params["ip"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+                val port = params["port"]?.toIntOrNull() ?: 43594
+                val token = params["token"] ?: params["t"] ?: return null
+                val name = params["name"] ?: params["n"] ?: "Remote Device"
+                val platform = params["platform"] ?: params["p"] ?: "Mobile"
+                return YamSyncPairInfo(ip = ip, port = port, token = token, name = name, platform = platform)
+            }
+
+            return null
+        }
+
+        private fun parseQueryParams(query: String): Map<String, String> {
+            if (query.isBlank()) return emptyMap()
+            return query.split("&").mapNotNull { part ->
                 val eq = part.indexOf('=')
                 if (eq > 0) {
-                    val k = part.substring(0, eq)
-                    val v = part.substring(eq + 1)
+                    val k = part.substring(0, eq).trim().lowercase()
+                    val v = part.substring(eq + 1).trim()
                     k to decodeUrlParam(v)
                 } else null
             }.toMap()
-
-            val ip = params["ip"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-            val port = params["port"]?.toIntOrNull() ?: 43594
-            val token = params["token"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-            val name = params["name"]?.trim()?.ifBlank { "Remote Device" } ?: "Remote Device"
-            val platform = params["platform"]?.trim()?.ifBlank { "Mobile" } ?: "Mobile"
-
-            return YamSyncPairInfo(
-                ip = ip,
-                port = port,
-                token = token,
-                name = name,
-                platform = platform
-            )
         }
     }
 }

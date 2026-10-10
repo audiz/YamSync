@@ -17,7 +17,8 @@ object DeepLinkHandler {
     fun handleUrl(url: String?) {
         if (url.isNullOrBlank()) return
         val clean = url.trim()
-        if (clean.startsWith("yamsync://pair")) {
+        if (clean.startsWith("yamsync://pair", ignoreCase = true) ||
+            (clean.contains("/pair") && (clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true)))) {
             _pendingYamSyncUri.value = clean
             return
         }

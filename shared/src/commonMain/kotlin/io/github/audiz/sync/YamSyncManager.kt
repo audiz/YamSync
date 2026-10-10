@@ -255,6 +255,50 @@ class YamSyncManager(
     val connectedDevice: YamSyncDevice?
         get() = (connectionState as? YamSyncConnectionState.Connected)?.peer
 
+    private fun parseArtistAndTitleFromFileName(fileName: String): Pair<String, String> {
+        val rawName = fileName.substringBeforeLast('.')
+        val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+        for (delim in delimiters) {
+            if (rawName.contains(delim)) {
+                val parts = rawName.split(delim, limit = 2)
+                val artist = parts[0].trim()
+                val title = parts[1].trim()
+                if (artist.isNotBlank() && title.isNotBlank()) {
+                    return artist to title
+                }
+            }
+        }
+
+        val slugDelimiters = listOf("---", "--")
+        for (delim in slugDelimiters) {
+            if (rawName.contains(delim)) {
+                val parts = rawName.split(delim, limit = 2)
+                val artist = parts[0].replace('-', ' ').replace('_', ' ').trim()
+                val title = parts[1].replace('-', ' ').replace('_', ' ').trim()
+                if (artist.isNotBlank() && title.isNotBlank()) {
+                    return artist to title
+                }
+            }
+        }
+
+        if (rawName.count { it == '-' } == 1) {
+            val parts = rawName.split('-', limit = 2)
+            val artist = parts[0].trim()
+            val title = parts[1].trim()
+            if (artist.length >= 2 && title.length >= 2) {
+                return artist to title
+            }
+        }
+
+        val cleanTitle = if (rawName.contains('-') && !rawName.contains(' ')) {
+            rawName.replace('-', ' ').trim()
+        } else {
+            rawName.trim()
+        }
+
+        return "Unknown Artist" to cleanTitle.ifBlank { "Track" }
+    }
+
     /** Сформировать актуальный манифест локальной медиатеки */
     fun buildLocalManifest(): YamSyncManifest {
         val basePath = getMusicStoragePath()
@@ -321,18 +365,7 @@ class YamSyncManager(
                     else -> resolveLocalPath(clean).takeIf { localFileExists(it) }
                 }
                 if (existing != null) {
-                    val rawName = fn.substringBeforeLast('.')
-                    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
-                    var artist = "Unknown Artist"
-                    var title = rawName
-                    for (delim in delimiters) {
-                        if (rawName.contains(delim)) {
-                            val parts = rawName.split(delim, limit = 2)
-                            artist = parts[0].trim()
-                            title = parts[1].trim()
-                            break
-                        }
-                    }
+                    val (artist, title) = parseArtistAndTitleFromFileName(fn)
                     val syncTrack = YamSyncTrack(
                         fileName = fn,
                         artist = artist,
@@ -407,20 +440,10 @@ class YamSyncManager(
                 val cleanFileName = sanitizeKeepSpaces(fileName)
                 availableFiles.firstOrNull {
                     it.fileName.equals(fileName, ignoreCase = true) ||
-                    it.fileName.equals(cleanFileName, ignoreCase = true)
+                    it.fileName.equals(cleanFileName, ignoreCase = true) ||
+                    YamSyncDiffEngine.areTracksMatching(it, YamSyncTrack(fileName = fileName, artist = "", title = ""))
                 } ?: run {
-                    val rawName = fileName.substringBeforeLast('.')
-                    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
-                    var artist = "Unknown Artist"
-                    var title = rawName
-                    for (delim in delimiters) {
-                        if (rawName.contains(delim)) {
-                            val parts = rawName.split(delim, limit = 2)
-                            artist = parts[0].trim()
-                            title = parts[1].trim()
-                            break
-                        }
-                    }
+                    val (artist, title) = parseArtistAndTitleFromFileName(fileName)
                     YamSyncTrack(
                         fileName = fileName,
                         artist = artist,
@@ -549,10 +572,16 @@ class YamSyncManager(
             it.fileName.equals(fileName, ignoreCase = true) ||
             it.fileName.equals(cleanFn, ignoreCase = true) ||
             (checksum.isNotBlank() && it.checksum.equals(checksum, ignoreCase = true)) ||
-            (checksum.isNotBlank() && it.matchKey.equals(checksum, ignoreCase = true))
+            (checksum.isNotBlank() && it.matchKey.equals(checksum, ignoreCase = true)) ||
+            YamSyncDiffEngine.areTracksMatching(
+                it,
+                YamSyncTrack(fileName = fileName, artist = "", title = "", checksum = checksum)
+            )
         }
         if (cachedTrack != null) {
             verify(cachedTrack.fileName)?.let { return it }
+            val directCached = localFilePathsByMatchKey[cachedTrack.matchKey] ?: localFilePathsByMatchKey[cachedTrack.fileName.lowercase()]
+            verify(directCached)?.let { return it }
 
             val cleanArt = sanitizeDirName(cachedTrack.artist.ifBlank { "Unknown Artist" })
             val fn = sanitizeKeepSpaces(cachedTrack.fileName)
@@ -576,7 +605,11 @@ class YamSyncManager(
         val byName = downloaded.firstOrNull {
             val p = it.realId ?: it.id.removePrefix("local:")
             val fn = p.substringAfterLast('/').substringAfterLast('\\')
-            fn.equals(fileName, ignoreCase = true) || fn.equals(cleanFn, ignoreCase = true)
+            fn.equals(fileName, ignoreCase = true) || fn.equals(cleanFn, ignoreCase = true) ||
+            YamSyncDiffEngine.areTracksMatching(
+                YamSyncTrack(fileName = fn, artist = it.artists.firstOrNull()?.name ?: "", title = it.title),
+                YamSyncTrack(fileName = fileName, artist = "", title = "", checksum = checksum)
+            )
         }
         if (byName != null) {
             val p = byName.realId ?: byName.id.removePrefix("local:")
@@ -669,7 +702,7 @@ class YamSyncManager(
         )
         hostPairInfo = pairInfo
 
-        val qrMatrix = QrCodeGenerator.encode(pairInfo.toUri(), QrCodeGenerator.EccLevel.M)
+        val qrMatrix = QrCodeGenerator.encode(pairInfo.toHttpUrl(), QrCodeGenerator.EccLevel.L)
         hostQrMatrix = qrMatrix
         connectionState = YamSyncConnectionState.Hosting(pairInfo, qrMatrix)
         statusMessage = "Ожидание подключения партнёра..."

@@ -866,8 +866,8 @@ class QrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
         }
 
         let session = AVCaptureSession()
-        if session.canSetSessionPreset(.hd1920x1080) {
-            session.sessionPreset = .hd1920x1080
+        if session.canSetSessionPreset(.hd1280x720) {
+            session.sessionPreset = .hd1280x720
         } else if session.canSetSessionPreset(.high) {
             session.sessionPreset = .high
         }

@@ -121,6 +121,44 @@ actual class YamSyncServer actual constructor(
                 return
             }
 
+            // Веб-эндпоинт для перехода из системной камеры iOS/Android (Safari / Chrome)
+            if (path == "/pair" || path == "/pair/") {
+                val encodedName = URLDecoder.decode(localDevice.name, "UTF-8")
+                val encodedPlatform = URLDecoder.decode(localDevice.platform, "UTF-8")
+                val pairUri = "yamsync://pair?ip=${localDevice.ip}&port=$activePort&token=$token&name=${java.net.URLEncoder.encode(encodedName, "UTF-8")}&platform=${java.net.URLEncoder.encode(encodedPlatform, "UTF-8")}"
+                val html = """
+                    <!DOCTYPE html>
+                    <html lang="ru">
+                    <head>
+                        <meta charset="utf-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1">
+                        <title>YamSync Подключение</title>
+                        <meta http-equiv="refresh" content="0; url=$pairUri">
+                        <style>
+                            body { background: #121212; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 48px 24px; margin: 0; }
+                            .card { background: #1e1e1e; border-radius: 18px; padding: 32px 24px; max-width: 360px; margin: 0 auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+                            h2 { margin-top: 0; font-size: 24px; color: #FFCC00; }
+                            p { font-size: 15px; color: #cccccc; line-height: 1.5; }
+                            .btn { display: inline-block; background: #FFCC00; color: #000000; font-weight: bold; padding: 14px 28px; border-radius: 12px; text-decoration: none; margin-top: 24px; font-size: 16px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="card">
+                            <h2>⚡ YamSync</h2>
+                            <p>Подключение к <b>${localDevice.name}</b></p>
+                            <p>Перенаправление в приложение YamSync...</p>
+                            <a class="btn" href="$pairUri">Открыть в приложении</a>
+                        </div>
+                        <script>
+                            window.location.href = "$pairUri";
+                        </script>
+                    </body>
+                    </html>
+                """.trimIndent().toByteArray(Charsets.UTF_8)
+                sendResponse(output, 200, "OK", mapOf("Content-Type" to "text/html; charset=utf-8"), html)
+                return
+            }
+
             val clientToken = headers["x-yamsync-token"] ?: queryParams["token"]
 
             // Валидация токена для закрытых эндпоинтов
