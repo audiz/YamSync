@@ -365,16 +365,16 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
 }
 
 @OptIn(BetaInteropApi::class)
-actual fun savePlaylistTracksCache(basePath: String, playlistTitle: String, tracks: List<FullTrackInfo>) {
-    if (basePath.isBlank() || tracks.isEmpty()) return
+actual fun savePlaylistTracksCache(basePath: String, cacheKey: String, tracks: List<FullTrackInfo>) {
+    if (basePath.isBlank() || tracks.isEmpty() || cacheKey.isBlank()) return
     try {
         val cacheDir = "$basePath/playlists_cache"
         val fileManager = NSFileManager.defaultManager
         if (!fileManager.fileExistsAtPath(cacheDir)) {
             fileManager.createDirectoryAtPath(cacheDir, withIntermediateDirectories = true, attributes = null, error = null)
         }
-        val cleanTitle = sanitizeDirName(playlistTitle)
-        val filePath = "$cacheDir/$cleanTitle.json"
+        val cleanKey = sanitizeDirName(cacheKey)
+        val filePath = "$cacheDir/$cleanKey.json"
         val jsonStr = playlistJson.encodeToString(
             kotlinx.serialization.builtins.ListSerializer(FullTrackInfo.serializer()),
             tracks
@@ -387,11 +387,11 @@ actual fun savePlaylistTracksCache(basePath: String, playlistTitle: String, trac
 }
 
 @OptIn(BetaInteropApi::class)
-actual fun loadPlaylistTracksCache(basePath: String, playlistTitle: String): List<FullTrackInfo> {
-    if (basePath.isBlank()) return emptyList()
+actual fun loadPlaylistTracksCache(basePath: String, cacheKey: String): List<FullTrackInfo> {
+    if (basePath.isBlank() || cacheKey.isBlank()) return emptyList()
     try {
-        val cleanTitle = sanitizeDirName(playlistTitle)
-        val filePath = "$basePath/playlists_cache/$cleanTitle.json"
+        val cleanKey = sanitizeDirName(cacheKey)
+        val filePath = "$basePath/playlists_cache/$cleanKey.json"
         val fileManager = NSFileManager.defaultManager
         if (!fileManager.fileExistsAtPath(filePath)) return emptyList()
         val nsStr = NSString.stringWithContentsOfFile(filePath, encoding = NSUTF8StringEncoding, error = null) ?: return emptyList()

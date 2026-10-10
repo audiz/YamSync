@@ -390,12 +390,12 @@ private fun extractAudioDuration(file: File): Long {
     return io.github.audiz.util.AudioHeaderParser.extractAudioDuration(file)
 }
 
-/** Сохранить список треков плейлиста в локальный кеш на диске: {basePath}/playlists_cache/{playlistTitle}.json */
-actual fun savePlaylistTracksCache(basePath: String, playlistTitle: String, tracks: List<FullTrackInfo>) {
-    if (basePath.isBlank() || tracks.isEmpty()) return
+/** Сохранить список треков плейлиста в локальный кеш на диске: {basePath}/playlists_cache/{cacheKey}.json */
+actual fun savePlaylistTracksCache(basePath: String, cacheKey: String, tracks: List<FullTrackInfo>) {
+    if (basePath.isBlank() || tracks.isEmpty() || cacheKey.isBlank()) return
     try {
         val cacheDir = getPlaylistCacheDir(basePath)
-        val file = File(cacheDir, "${sanitizePlaylistFileName(playlistTitle)}.json")
+        val file = File(cacheDir, "${sanitizePlaylistFileName(cacheKey)}.json")
         val jsonStr = playlistJson.encodeToString(
             ListSerializer(FullTrackInfo.serializer()),
             tracks
@@ -403,26 +403,26 @@ actual fun savePlaylistTracksCache(basePath: String, playlistTitle: String, trac
         file.writeText(jsonStr)
         println("MusicStorage: Кеш плейлиста сохранен (${tracks.size} треков): ${file.absolutePath}")
     } catch (e: Exception) {
-        println("MusicStorage: Ошибка сохранения кеша плейлиста '$playlistTitle': ${e.message}")
+        println("MusicStorage: Ошибка сохранения кеша плейлиста '$cacheKey': ${e.message}")
     }
 }
 
 /** Загрузить список треков плейлиста из локального кеша на диске */
-actual fun loadPlaylistTracksCache(basePath: String, playlistTitle: String): List<FullTrackInfo> {
-    if (basePath.isBlank()) return emptyList()
+actual fun loadPlaylistTracksCache(basePath: String, cacheKey: String): List<FullTrackInfo> {
+    if (basePath.isBlank() || cacheKey.isBlank()) return emptyList()
     try {
         val cacheDir = File(basePath, "playlists_cache")
-        val file = File(cacheDir, "${sanitizePlaylistFileName(playlistTitle)}.json")
+        val file = File(cacheDir, "${sanitizePlaylistFileName(cacheKey)}.json")
         if (!file.exists() || file.length() == 0L) return emptyList()
         val jsonStr = file.readText()
         val list = playlistJson.decodeFromString(
             ListSerializer(FullTrackInfo.serializer()),
             jsonStr
         )
-        println("MusicStorage: Загружен кеш плейлиста '$playlistTitle' (${list.size} треков)")
+        println("MusicStorage: Загружен кеш плейлиста '$cacheKey' (${list.size} треков)")
         return list
     } catch (e: Exception) {
-        println("MusicStorage: Ошибка чтения кеша плейлиста '$playlistTitle': ${e.message}")
+        println("MusicStorage: Ошибка чтения кеша плейлиста '$cacheKey': ${e.message}")
         return emptyList()
     }
 }

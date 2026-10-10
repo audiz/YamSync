@@ -84,7 +84,15 @@ data class YandexPlaylistTrackItem(
 data class ArtistInfo(
     val id: String,
     val name: String,
-    val likesCount: Int? = null
+    val likesCount: Int? = null,
+    val genres: List<String> = emptyList(),
+    val counts: ArtistCounts? = null
+)
+
+@Serializable
+data class ArtistCounts(
+    val tracks: Int? = null,
+    val directAlbums: Int? = null
 )
 
 @Serializable

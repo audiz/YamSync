@@ -950,6 +950,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     fun loadArtistTracks(artistId: String, artistName: String? = null, restoreTrackId: String? = null) {
         val title = if (!artistName.isNullOrBlank()) "Треки: $artistName" else "Треки исполнителя"
+        val cacheKey = "artist_$artistId"
         playbackSessionManager.recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.ARTIST,
@@ -959,7 +960,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        startPagination(title = title, restoreTrackId = restoreTrackId) {
+        startPagination(title = title, cacheKey = cacheKey, restoreTrackId = restoreTrackId) {
             withContext(DispatcherIO) {
                 repository.getTrackIds(artistId).result
             }
@@ -972,6 +973,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun loadPlaylist(playlist: PlaylistInfo, restoreTrackId: String? = null) {
         val title = playlist.title.ifBlank { "Плейлист" }
         val isUserPlaylist = userPlaylists.any { it.kind == playlist.kind }
+        val kind = playlist.kind
+        val uuid = playlist.playlistUuid
+        val cacheKey = when {
+            kind != null && kind > 0L && playlist.uid > 0L -> "playlist_${playlist.uid}_${kind}"
+            !uuid.isNullOrBlank() -> "playlist_$uuid"
+            else -> "playlist_${playlist.title}"
+        }
         playbackSessionManager.recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_USER_PLAYLIST,
@@ -982,11 +990,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        val kind = playlist.kind
-        val uuid = playlist.playlistUuid
         if (kind != null && kind > 0L && playlist.uid > 0L) {
             startPagination(
                 title = title,
+                cacheKey = cacheKey,
                 userPlaylist = if (isUserPlaylist) playlist else null,
                 restoreTrackId = restoreTrackId,
                 fetchIdsAndTracksBlock = {
@@ -998,6 +1005,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         } else if (!uuid.isNullOrBlank()) {
             startPagination(
                 title = title,
+                cacheKey = cacheKey,
                 userPlaylist = if (isUserPlaylist) playlist else null,
                 restoreTrackId = restoreTrackId,
                 fetchIdsAndTracksBlock = {
@@ -1015,6 +1023,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             val fallbackKind = kind ?: 0L
             startPagination(
                 title = title,
+                cacheKey = cacheKey,
                 userPlaylist = if (isUserPlaylist) playlist else null,
                 restoreTrackId = restoreTrackId,
                 fetchIdsAndTracksBlock = {
@@ -1031,8 +1040,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      */
     fun loadAlbumTracks(albumId: Long, albumTitle: String, restoreTrackId: String? = null) {
         val title = if (albumTitle.isNotBlank()) "Альбом: $albumTitle" else "Альбом"
+        val cacheKey = "album_$albumId"
         startPagination(
             title = title,
+            cacheKey = cacheKey,
             restoreTrackId = restoreTrackId,
             origin = if (searchResult != null) TracksListOrigin.SEARCH else TracksListOrigin.HOME,
             fetchIdsAndTracksBlock = {
@@ -1045,6 +1056,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null, restoreTrackId: String? = null) {
         val title = if (!playlistTitle.isNullOrBlank()) playlistTitle else "Треки плейлиста"
+        val cacheKey = "playlist_${uid}_${kind}"
         playbackSessionManager.recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_USER_PLAYLIST,
@@ -1056,6 +1068,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         )
         startPagination(
             title = title,
+            cacheKey = cacheKey,
             restoreTrackId = restoreTrackId,
             fetchIdsAndTracksBlock = {
                 withContext(DispatcherIO) {
@@ -1071,6 +1084,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      */
     fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null, restoreTrackId: String? = null) {
         val title = playlistTitle ?: "Плейлист"
+        val cacheKey = "playlist_$uuid"
         playbackSessionManager.recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_UUID,
@@ -1081,6 +1095,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         )
         startPagination(
             title = title,
+            cacheKey = cacheKey,
             restoreTrackId = restoreTrackId,
             fetchIdsAndTracksBlock = {
                 withContext(DispatcherIO) {
@@ -1103,6 +1118,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         )
         startPagination(
             title = "Мне нравится",
+            cacheKey = "likes",
             restoreTrackId = restoreTrackId,
             fetchIdsAndTracksBlock = {
                 withContext(DispatcherIO) {
@@ -1124,7 +1140,11 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        startPagination(title = "История прослушиваний", restoreTrackId = restoreTrackId) {
+        startPagination(
+            title = "История прослушиваний",
+            cacheKey = "history",
+            restoreTrackId = restoreTrackId
+        ) {
             withContext(DispatcherIO) {
                 repository.getHistoryTrackIds()
             }
@@ -1681,9 +1701,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
                 // 🔥 Сохраняем обновленный список в локальный кеш плейлиста
                 val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
-                if (!isDownloadedTracksScreen && cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
+                val resolvedCacheKey = currentCacheKey ?: cleanTitle
+                if (!isDownloadedTracksScreen && resolvedCacheKey.isNotBlank() && resolvedCacheKey != "Поиск" && resolvedCacheKey != "Результаты поиска") {
                     withContext(DispatcherIO) {
-                        savePlaylistTracksCache(musicStoragePath, cleanTitle, loadedTracks.toList())
+                        savePlaylistTracksCache(musicStoragePath, resolvedCacheKey, loadedTracks.toList())
                     }
                 }
                 canLoadMore = currentOffset < allTrackIds.size
@@ -1697,6 +1718,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         }
     }
 
+    private var currentCacheKey: String? = null
     private var paginationJob: Job? = null
 
     /**
@@ -1707,6 +1729,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         userPlaylist: PlaylistInfo? = null,
         restoreTrackId: String? = null,
         origin: TracksListOrigin? = null,
+        cacheKey: String? = null,
         fetchIdsAndTracksBlock: (suspend () -> Pair<List<String>, List<FullTrackInfo>>)? = null,
         fetchIdsBlock: (suspend () -> List<String>)? = null
     ) {
@@ -1716,6 +1739,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         tracksListOrigin = origin ?: if (searchResult != null) TracksListOrigin.SEARCH else TracksListOrigin.HOME
         currentOpenUserPlaylist = userPlaylist
         currentScreenTitle = title
+        val cleanTitle = title.removeSuffix(" [Офлайн-кеш]").trim()
+        val resolvedCacheKey = cacheKey ?: cleanTitle
+        currentCacheKey = resolvedCacheKey
         activeBrowsedFolderSource = null
         activeBrowsedFolderPath = null
         activeQueueSource = null
@@ -1725,17 +1751,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         resetPagination()
         isLoading = true
 
-        val cleanTitle = title.removeSuffix(" [Офлайн-кеш]").trim()
-
         paginationJob = launchSafe {
             errorMessage = null
             yield()
             try {
                 // ⚡ Сначала быстро подгружаем локальный кеш на диске в фоне (DispatcherIO), не блокируя главный UI-поток
-                if (cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
+                if (resolvedCacheKey.isNotBlank() && resolvedCacheKey != "Поиск" && resolvedCacheKey != "Результаты поиска") {
                     val cached = withContext(DispatcherIO) {
                         try {
-                            loadPlaylistTracksCache(musicStoragePath, cleanTitle)
+                            loadPlaylistTracksCache(musicStoragePath, resolvedCacheKey)
                         } catch (_: Throwable) {
                             emptyList()
                         }
@@ -1766,9 +1790,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                         currentOffset = richTracks.size
                         canLoadMore = currentOffset < allTrackIds.size
                         // Сохраняем обновленный кеш на диск в фоне
-                        if (cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
+                        if (resolvedCacheKey.isNotBlank() && resolvedCacheKey != "Поиск" && resolvedCacheKey != "Результаты поиска") {
                             withContext(DispatcherIO) {
-                                savePlaylistTracksCache(musicStoragePath, cleanTitle, loadedTracks.toList())
+                                savePlaylistTracksCache(musicStoragePath, resolvedCacheKey, loadedTracks.toList())
                             }
                         }
                     } else if (allTrackIds.isNotEmpty()) {
@@ -1783,9 +1807,20 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 } else if (fetchIdsBlock != null) {
                     allTrackIds = fetchIdsBlock()
                     if (allTrackIds.isNotEmpty()) {
-                        currentOffset = 0
-                        loadNextPageChunk()
-                        canLoadMore = currentOffset < allTrackIds.size
+                        // 🔥 КРИТИЧНО: При получении авторитетного списка ID от API отфильтровываем любой кеш!
+                        // Никакие чужие треки (из других артистов с тем же именем или устаревшего кеша)
+                        // не должны оставаться в loadedTracks!
+                        val validCached = loadedTracks.filter { it.id in allTrackIds || (it.realId != null && it.realId in allTrackIds) }
+                        loadedTracks.clear()
+                        if (validCached.isNotEmpty()) {
+                            loadedTracks.addAll(validCached)
+                            currentOffset = validCached.size
+                            canLoadMore = currentOffset < allTrackIds.size
+                        } else {
+                            currentOffset = 0
+                            loadNextPageChunk()
+                            canLoadMore = currentOffset < allTrackIds.size
+                        }
                     } else {
                         if (loadedTracks.isEmpty()) {
                             errorMessage = "Треков не найдено."
@@ -1812,7 +1847,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 println("SearchViewModel: Ошибка загрузки плейлиста '$cleanTitle': ${e.message}")
                 if (loadedTracks.isEmpty()) {
                     val fallbackCached = withContext(DispatcherIO) {
-                        loadPlaylistTracksCache(musicStoragePath, cleanTitle)
+                        loadPlaylistTracksCache(musicStoragePath, resolvedCacheKey)
                     }
                     if (fallbackCached.isNotEmpty()) {
                         loadedTracks.clear()
@@ -1844,9 +1879,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 loadNextPageChunk()
             } catch (e: Exception) {
                 val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
+                val resolvedCacheKey = currentCacheKey ?: cleanTitle
                 if (loadedTracks.isEmpty()) {
                     val cached = withContext(DispatcherIO) {
-                        loadPlaylistTracksCache(musicStoragePath, cleanTitle)
+                        loadPlaylistTracksCache(musicStoragePath, resolvedCacheKey)
                     }
                     if (cached.isNotEmpty()) {
                         loadedTracks.clear()

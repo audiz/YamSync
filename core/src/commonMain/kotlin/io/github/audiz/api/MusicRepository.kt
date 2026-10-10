@@ -255,7 +255,18 @@ class MusicRepository {
         // 🔥 Преобразуем bestResults (главный артист, волна по артисту и т.д.) в TypedResult и добавляем в начало выдачи
         val bestTypedResults = parsed.result.bestResults.mapNotNull { parseBestResultItem(it) }
         val allResults = if (bestTypedResults.isNotEmpty()) {
-            (bestTypedResults + parsed.result.results).distinctBy { item ->
+            val enrichedBestResults = bestTypedResults.map { item ->
+                if (item.type == "artist" && item.artist != null) {
+                    val matching = parsed.result.results.firstOrNull { it.type == "artist" && it.artist?.id == item.artist.id }?.artist
+                    if (matching != null) {
+                        val mergedGenres = if (item.artist.genres.isNotEmpty()) item.artist.genres else matching.genres
+                        val mergedCounts = item.artist.counts ?: matching.counts
+                        val mergedLikes = item.artist.likesCount ?: matching.likesCount
+                        item.copy(artist = item.artist.copy(genres = mergedGenres, counts = mergedCounts, likesCount = mergedLikes))
+                    } else item
+                } else item
+            }
+            (enrichedBestResults + parsed.result.results).distinctBy { item ->
                 when (item.type) {
                     "artist" -> "artist:${item.artist?.id}"
                     "track" -> "track:${item.track?.id}"
@@ -282,9 +293,17 @@ class MusicRepository {
                 val id = artistObj["id"]?.jsonPrimitive?.content ?: return null
                 val name = artistObj["name"]?.jsonPrimitive?.content ?: return null
                 val likesCount = wrapper["likesCount"]?.jsonPrimitive?.content?.toIntOrNull()
+                val genres = artistObj["genres"]?.jsonArray?.mapNotNull { it.jsonPrimitive.content } ?: emptyList()
+                val trackCount = artistObj["counts"]?.jsonObject?.get("tracks")?.jsonPrimitive?.content?.toIntOrNull()
                 TypedResult(
                     type = "artist",
-                    artist = ArtistInfo(id = id, name = name, likesCount = likesCount)
+                    artist = ArtistInfo(
+                        id = id,
+                        name = name,
+                        likesCount = likesCount,
+                        genres = genres,
+                        counts = trackCount?.let { ArtistCounts(tracks = it) }
+                    )
                 )
             }
             "best_result_wave" -> {
