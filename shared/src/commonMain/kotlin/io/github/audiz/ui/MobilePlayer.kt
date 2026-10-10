@@ -798,7 +798,7 @@ fun MobileFullPlayerSheet(
                 )
 
                 if (isDesktop) {
-                    // Регулятор громкости на ПК вместо корзинки (44 dp)
+                    // Регулятор громкости на ПК вместо очереди (44 dp)
                     DesktopVolumeControl(
                         volume = state.volume,
                         onVolumeChange = actions.onVolumeChange,
@@ -806,13 +806,23 @@ fun MobileFullPlayerSheet(
                         bottomPlayerPadding = 0.dp
                     )
                 } else {
-                    // Дизлайк / удаление на мобильных устройствах (44 dp)
-                    DislikeButton(
-                        isDisliked = state.isDisliked,
-                        isDownloadedOrLocal = state.isDownloadedOrLocal,
-                        size = 44.dp,
-                        onClick = { actions.onToggleDislike?.invoke() }
-                    )
+                    // Плейлист / очередь воспроизведения справа от кнопки «Следующий» (44 dp)
+                    if (actions.onOpenQueue != null) {
+                        IconButton(
+                            onClick = {
+                                actions.onOpenQueue.invoke()
+                                onDismiss()
+                            },
+                            modifier = Modifier.size(44.dp).pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = "Очередь воспроизведения",
+                                tint = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -826,7 +836,7 @@ fun MobileFullPlayerSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Слева: Качество битрейта (капсула) + [Плейлист / Очередь] справа от битрейта
+                // Слева: Качество битрейта (капсула) + корзинка справа от иконки битрейта
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -835,8 +845,15 @@ fun MobileFullPlayerSheet(
                         QualityChip(bitrateKbps = state.bitrate, size = 32.dp)
                     }
 
-                    // [Плейлист / Очередь] справа от иконки битрейта
-                    if (actions.onOpenQueue != null) {
+                    // Корзинка справа от иконки битрейта
+                    DislikeButton(
+                        isDisliked = state.isDisliked,
+                        isDownloadedOrLocal = state.isDownloadedOrLocal,
+                        size = 36.dp,
+                        onClick = { actions.onToggleDislike?.invoke() }
+                    )
+
+                    if (isDesktop && actions.onOpenQueue != null) {
                         IconButton(
                             onClick = {
                                 actions.onOpenQueue.invoke()
@@ -851,15 +868,6 @@ fun MobileFullPlayerSheet(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                    }
-
-                    if (isDesktop) {
-                        DislikeButton(
-                            isDisliked = state.isDisliked,
-                            isDownloadedOrLocal = state.isDownloadedOrLocal,
-                            size = 36.dp,
-                            onClick = { actions.onToggleDislike?.invoke() }
-                        )
                     }
                 }
 
