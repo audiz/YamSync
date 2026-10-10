@@ -36,6 +36,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 
 enum class TrackPlaySource {
     PLAY,
@@ -1701,6 +1702,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
         paginationJob = launchSafe {
             errorMessage = null
+            yield()
             try {
                 // ⚡ Сначала быстро подгружаем локальный кеш на диске в фоне (DispatcherIO), не блокируя главный UI-поток
                 if (cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {

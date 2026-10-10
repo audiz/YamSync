@@ -30,6 +30,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -107,7 +108,9 @@ class PlaylistManager(
             val storagePath = getMusicStoragePath()
             if (token.isNotBlank()) {
                 try {
-                    val playlists = repository.getPersonalPlaylists()
+                    val playlists = withContext(DispatcherIO) {
+                        repository.getPersonalPlaylists()
+                    }
                     if (playlists.isNotEmpty()) {
                         personalPlaylists.clear()
                         personalPlaylists.addAll(playlists)
@@ -150,7 +153,9 @@ class PlaylistManager(
             val storagePath = getMusicStoragePath()
             if (token.isNotBlank()) {
                 try {
-                    val playlists = repository.getUserPlaylists()
+                    val playlists = withContext(DispatcherIO) {
+                        repository.getUserPlaylists()
+                    }
                     if (playlists.isNotEmpty()) {
                         userPlaylists.clear()
                         userPlaylists.addAll(playlists)
@@ -170,6 +175,7 @@ class PlaylistManager(
                                         withContext(Dispatchers.Main) {
                                             userPlaylistsTrackIds[kind] = cleanIds
                                         }
+                                        delay(250L)
                                     } catch (_: Throwable) {
                                         // Игнорируем сбои отдельных плейлистов
                                     }
@@ -777,8 +783,10 @@ class PlaylistManager(
         if (getAccessToken().isBlank()) return
         launchSafe {
             try {
-                val uuid = repository.getLikesPlaylistUuid()
-                val ids = repository.getPlaylistTrackIdsByUuid(uuid)
+                val ids = withContext(DispatcherIO) {
+                    val uuid = repository.getLikesPlaylistUuid()
+                    repository.getPlaylistTrackIdsByUuid(uuid)
+                }
                 likedTrackIds.addAll(ids)
                 println("PlaylistManager: Синхронизировано ${ids.size} лайкнутых треков")
             } catch (e: Throwable) {

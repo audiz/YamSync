@@ -5,6 +5,7 @@ package io.github.audiz
 import kotlinx.cinterop.*
 import platform.darwin.*
 import platform.posix.*
+import kotlinx.coroutines.IO
 
 class IOSPlatform: Platform {
     override val name: String = "iOS"
@@ -15,7 +16,7 @@ actual fun getPlatform(): Platform = IOSPlatform()
 
 actual fun currentTimeMillis(): Long = io.ktor.util.date.getTimeMillis()
 
-actual val DispatcherIO: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default
+actual val DispatcherIO: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.IO
 
 actual inline fun <R> synchronized(lock: Any, block: () -> R): R = block()
 

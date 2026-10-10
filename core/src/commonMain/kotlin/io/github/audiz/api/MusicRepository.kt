@@ -14,6 +14,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -380,8 +381,6 @@ class MusicRepository {
             applyAuthHeaders()
         }.bodyAsText()
 
-        println("Landing-blocks raw response:\n$rawText")
-
         val json = Json { ignoreUnknownKeys = true }
         val root = json.parseToJsonElement(rawText).jsonObject
         val result = root["result"]?.jsonObject
@@ -432,7 +431,16 @@ class MusicRepository {
                 }
             }
         }
-        return Pair(allIds, richTracks)
+        val rawTrackIds = playlistObj["trackIds"]?.jsonArray
+        val allIdsFromTrackIds = rawTrackIds?.mapNotNull { elem ->
+            when (elem) {
+                is JsonPrimitive -> elem.content.takeIf { it.isNotBlank() }
+                is JsonObject -> elem["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                else -> null
+            }
+        }
+        val finalAllIds = if (!allIdsFromTrackIds.isNullOrEmpty()) allIdsFromTrackIds else allIds
+        return Pair(finalAllIds, richTracks)
     }
 
     /**
@@ -496,7 +504,16 @@ class MusicRepository {
                 }
             }
         }
-        return Pair(allIds, richTracks)
+        val rawTrackIds = playlistObj["trackIds"]?.jsonArray
+        val allIdsFromTrackIds = rawTrackIds?.mapNotNull { elem ->
+            when (elem) {
+                is JsonPrimitive -> elem.content.takeIf { it.isNotBlank() }
+                is JsonObject -> elem["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                else -> null
+            }
+        }
+        val finalAllIds = if (!allIdsFromTrackIds.isNullOrEmpty()) allIdsFromTrackIds else allIds
+        return Pair(finalAllIds, richTracks)
     }
 
     /**
