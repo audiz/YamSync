@@ -1149,7 +1149,13 @@ class MusicRepository {
     suspend fun fetchImageBytes(url: String): ByteArray? {
         return try {
             val cleanUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) "https://$url" else url
-            client.get(cleanUrl).bodyAsBytes()
+            client.get(cleanUrl) {
+                timeout {
+                    requestTimeoutMillis = 6_000
+                    connectTimeoutMillis = 4_000
+                    socketTimeoutMillis = 6_000
+                }
+            }.bodyAsBytes()
         } catch (e: Exception) {
             println("MusicRepository: Ошибка загрузки изображения $url: ${e.message}")
             null

@@ -103,8 +103,7 @@ class LocalTrackResolver(
 
         for (basePath in qualityFolders) {
             val artistFolder = "$basePath/$sanitizedArtist"
-            val resolvedArtistFolder = resolveLocalPath(artistFolder)
-            if (!localFileExists(resolvedArtistFolder)) {
+            if (!localFileExists(artistFolder)) {
                 continue
             }
 
@@ -116,15 +115,33 @@ class LocalTrackResolver(
                 ).distinct()
 
                 for (candidateName in candidateNames) {
-                    val fullPath = "$basePath/$sanitizedArtist/$candidateName"
-                    val resolved = resolveLocalPath(fullPath)
-                    if (localFileExists(resolved)) {
-                        synchronized(cacheLock) { downloadedPathCache[cacheKey] = resolved }
-                        return resolved
+                    val fullPath = "$artistFolder/$candidateName"
+                    if (localFileExists(fullPath)) {
+                        synchronized(cacheLock) { downloadedPathCache[cacheKey] = fullPath }
+                        return fullPath
                     }
                 }
             }
         }
+
+        // Также проверяем плоское размещение в qualityFolders
+        for (basePath in qualityFolders) {
+            for (ext in KNOWN_HQ_EXTENSIONS) {
+                val candidateNames = listOfNotNull(
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist — $cleanTitle.$ext") else null,
+                    if (cleanArtist.isNotEmpty()) sanitizeKeepSpaces("$cleanArtist - $cleanTitle.$ext") else null
+                ).distinct()
+
+                for (candidateName in candidateNames) {
+                    val fullPath = "$basePath/$candidateName"
+                    if (localFileExists(fullPath)) {
+                        synchronized(cacheLock) { downloadedPathCache[cacheKey] = fullPath }
+                        return fullPath
+                    }
+                }
+            }
+        }
+
         synchronized(cacheLock) { downloadedPathCache[cacheKey] = "" }
         return null
     }

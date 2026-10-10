@@ -470,7 +470,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             override suspend fun loadMoreTracks(): Boolean {
                 val nextChunk = allTrackIds.drop(currentOffset).take(pageSize)
                 return if (nextChunk.isNotEmpty()) {
-                    val details = repository.getTracksDetails(nextChunk)
+                    val details = withContext(DispatcherIO) {
+                        repository.getTracksDetails(nextChunk)
+                    }
                     loadedTracks.addAll(details.result)
                     currentOffset += nextChunk.size
                     canLoadMore = currentOffset < allTrackIds.size
@@ -871,7 +873,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             errorMessage = null
             resetPagination()
             try {
-                searchResult = repository.searchInstant(query)
+                searchResult = withContext(DispatcherIO) {
+                    repository.searchInstant(query)
+                }
             } catch (e: Exception) {
                 errorMessage = e.message ?: e.toString()
                 e.printStackTrace()
@@ -955,7 +959,11 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        startPagination(title = title, restoreTrackId = restoreTrackId) { repository.getTrackIds(artistId).result }
+        startPagination(title = title, restoreTrackId = restoreTrackId) {
+            withContext(DispatcherIO) {
+                repository.getTrackIds(artistId).result
+            }
+        }
     }
 
     /**
@@ -1100,7 +1108,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             )
         )
         startPagination(title = "История прослушиваний", restoreTrackId = restoreTrackId) {
-            repository.getHistoryTrackIds()
+            withContext(DispatcherIO) {
+                repository.getHistoryTrackIds()
+            }
         }
     }
 
@@ -2196,7 +2206,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun playTrackByExternalId(trackId: String) {
         launchSafe {
             try {
-                val response = repository.getTracksDetails(listOf(trackId))
+                val response = withContext(DispatcherIO) {
+                    repository.getTracksDetails(listOf(trackId))
+                }
                 val trackInfo = response.result.firstOrNull()
                 if (trackInfo != null) {
                     if (loadedTracks.none { it.id == trackInfo.id }) {

@@ -93,18 +93,14 @@ fun resolveIosLocalPath(path: String): String {
         }
     }
 
-    // 3. Поиск по имени файла и папке артиста в подпапках текущего хранилища (HQ, LQ, корень)
+    // 3. Быстрая O(1) проверка кандидатов в стандартных подпапках (YamSync, HQ, LQ, корень) без сканирования файловой системы
     val fileName = clean.substringAfterLast('/')
     val parentFolder = clean.substringBeforeLast('/').substringAfterLast('/')
     val searchRoots = listOf(
         "$currentMusic/YamSync",
         "$currentMusic/HQ",
         "$currentMusic/LQ",
-        currentMusic,
-        "$currentDocs/YamSync",
-        "$currentDocs/HQ",
-        "$currentDocs/LQ",
-        currentDocs
+        currentMusic
     )
 
     val extensions = listOf(".m4a", ".mp3", ".flac", ".aac", ".wav")
@@ -113,37 +109,23 @@ fun resolveIosLocalPath(path: String): String {
     for (root in searchRoots) {
         if (!fileManager.fileExistsAtPath(root)) continue
 
-        // Сначала пробуем точное имя файла
-        if (parentFolder.isNotBlank()) {
+        // Сначала пробуем точное имя файла в папке артиста
+        if (parentFolder.isNotBlank() && parentFolder != "HQ" && parentFolder != "LQ" && parentFolder != "YamSync") {
             val candidateArtist = "$root/$parentFolder/$fileName"
             if (fileManager.fileExistsAtPath(candidateArtist)) return candidateArtist
         }
         val candidateDirect = "$root/$fileName"
         if (fileManager.fileExistsAtPath(candidateDirect)) return candidateDirect
 
-        // Затем пробуем другие поддерживаемые расширения (если качество/кодек отличались)
+        // Затем пробуем другие поддерживаемые расширения
         for (ext in extensions) {
             val altFileName = "$baseNameWithoutExt$ext"
-            if (parentFolder.isNotBlank()) {
+            if (parentFolder.isNotBlank() && parentFolder != "HQ" && parentFolder != "LQ" && parentFolder != "YamSync") {
                 val candidateArtist = "$root/$parentFolder/$altFileName"
                 if (fileManager.fileExistsAtPath(candidateArtist)) return candidateArtist
             }
             val candidateAlt = "$root/$altFileName"
             if (fileManager.fileExistsAtPath(candidateAlt)) return candidateAlt
-        }
-
-        // Поиск по подпапкам (папкам артистов)
-        val subdirs = fileManager.contentsOfDirectoryAtPath(root, null) as? List<*>
-        if (subdirs != null) {
-            for (subObj in subdirs) {
-                val sub = subObj as? String ?: continue
-                val candidateSub = "$root/$sub/$fileName"
-                if (fileManager.fileExistsAtPath(candidateSub)) return candidateSub
-                for (ext in extensions) {
-                    val candidateSubAlt = "$root/$sub/$baseNameWithoutExt$ext"
-                    if (fileManager.fileExistsAtPath(candidateSubAlt)) return candidateSubAlt
-                }
-            }
         }
     }
 
@@ -256,14 +238,29 @@ actual fun copyFileToDirectPath(sourceFilePath: String, destFilePath: String): S
 actual fun trackFileExists(basePath: String, artist: String, fileName: String): Boolean {
     val cleanArtist = sanitizeDirName(artist.ifBlank { "Unknown Artist" })
     val filePath = "$basePath/$cleanArtist/$fileName"
+    val fileManager = NSFileManager.defaultManager
+    if (fileManager.fileExistsAtPath(filePath)) return true
+    val directPath = "$basePath/$fileName"
+    if (fileManager.fileExistsAtPath(directPath)) return true
     val resolved = resolveIosLocalPath(filePath)
-    return NSFileManager.defaultManager.fileExistsAtPath(resolved)
+    return if (resolved != filePath && resolved.isNotBlank()) {
+        fileManager.fileExistsAtPath(resolved)
+    } else {
+        false
+    }
 }
 
 actual fun localFileExists(filePath: String): Boolean {
     val clean = filePath.trim().removePrefix("local:").removePrefix("file://")
+    if (clean.isBlank()) return false
+    val fileManager = NSFileManager.defaultManager
+    if (fileManager.fileExistsAtPath(clean)) return true
     val resolved = resolveIosLocalPath(clean)
-    return NSFileManager.defaultManager.fileExistsAtPath(resolved)
+    return if (resolved != clean && resolved.isNotBlank()) {
+        fileManager.fileExistsAtPath(resolved)
+    } else {
+        false
+    }
 }
 
 actual fun isDirectory(path: String): Boolean {

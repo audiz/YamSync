@@ -65,15 +65,20 @@ object CoverImageLoader {
         memoryCache[url]?.let { return it }
 
         val repo = repository ?: return null
-        val bytes = repo.fetchImageBytes(url) ?: return null
-        return try {
-            val bitmap = bytes.decodeToImageBitmap()
-            memoryCache[trimmed] = bitmap
-            memoryCache[url] = bitmap
-            bitmap
-        } catch (e: Exception) {
-            println("CoverImageLoader: Ошибка декодирования изображения $url: ${e.message}")
-            null
+        val bytes = withContext(DispatcherIO) {
+            repo.fetchImageBytes(url)
+        } ?: return null
+
+        return withContext(DispatcherIO) {
+            try {
+                val bitmap = bytes.decodeToImageBitmap()
+                memoryCache[trimmed] = bitmap
+                memoryCache[url] = bitmap
+                bitmap
+            } catch (e: Exception) {
+                println("CoverImageLoader: Ошибка декодирования изображения $url: ${e.message}")
+                null
+            }
         }
     }
 }
