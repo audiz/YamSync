@@ -45,6 +45,9 @@ expect fun readTextFile(path: String): String?
 /** Сканировать локальные аудиофайлы и сформировать список треков без сетевых запросов */
 expect fun scanDownloadedTracks(basePath: String): List<io.github.audiz.models.FullTrackInfo>
 
+/** Быстро получить список всех существующих путей к скачанным аудиофайлам (без чтения метаданных и длительности) */
+expect fun scanDownloadedTrackPaths(basePath: String): List<String>
+
 /** Сохранить список треков плейлиста в локальный кеш на диске: {basePath}/playlists_cache/{playlistTitle}.json */
 expect fun savePlaylistTracksCache(basePath: String, playlistTitle: String, tracks: List<io.github.audiz.models.FullTrackInfo>)
 

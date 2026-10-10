@@ -93,42 +93,6 @@ fun resolveIosLocalPath(path: String): String {
         }
     }
 
-    // 3. Быстрая O(1) проверка кандидатов в стандартных подпапках (YamSync, HQ, LQ, корень) без сканирования файловой системы
-    val fileName = clean.substringAfterLast('/')
-    val parentFolder = clean.substringBeforeLast('/').substringAfterLast('/')
-    val searchRoots = listOf(
-        "$currentMusic/YamSync",
-        "$currentMusic/HQ",
-        "$currentMusic/LQ",
-        currentMusic
-    )
-
-    val extensions = listOf(".m4a", ".mp3", ".flac", ".aac", ".wav")
-    val baseNameWithoutExt = fileName.substringBeforeLast('.')
-
-    for (root in searchRoots) {
-        if (!fileManager.fileExistsAtPath(root)) continue
-
-        // Сначала пробуем точное имя файла в папке артиста
-        if (parentFolder.isNotBlank() && parentFolder != "HQ" && parentFolder != "LQ" && parentFolder != "YamSync") {
-            val candidateArtist = "$root/$parentFolder/$fileName"
-            if (fileManager.fileExistsAtPath(candidateArtist)) return candidateArtist
-        }
-        val candidateDirect = "$root/$fileName"
-        if (fileManager.fileExistsAtPath(candidateDirect)) return candidateDirect
-
-        // Затем пробуем другие поддерживаемые расширения
-        for (ext in extensions) {
-            val altFileName = "$baseNameWithoutExt$ext"
-            if (parentFolder.isNotBlank() && parentFolder != "HQ" && parentFolder != "LQ" && parentFolder != "YamSync") {
-                val candidateArtist = "$root/$parentFolder/$altFileName"
-                if (fileManager.fileExistsAtPath(candidateArtist)) return candidateArtist
-            }
-            val candidateAlt = "$root/$altFileName"
-            if (fileManager.fileExistsAtPath(candidateAlt)) return candidateAlt
-        }
-    }
-
     return clean
 }
 
@@ -276,6 +240,25 @@ actual fun readTextFile(path: String): String? {
     } catch (_: Throwable) {
         null
     }
+}
+
+actual fun scanDownloadedTrackPaths(basePath: String): List<String> {
+    val fileManager = NSFileManager.defaultManager
+    if (!fileManager.fileExistsAtPath(basePath)) {
+        return emptyList()
+    }
+    val supportedExtensions = setOf("m4a", "flac", "mp3", "aac", "opus", "wav", "ogg")
+    val result = mutableListOf<String>()
+    try {
+        val subpaths = fileManager.subpathsOfDirectoryAtPath(basePath, error = null) as? List<String> ?: emptyList()
+        for (relPath in subpaths) {
+            val ext = relPath.substringAfterLast('.', "").lowercase()
+            if (ext in supportedExtensions) {
+                result.add("$basePath/$relPath")
+            }
+        }
+    } catch (_: Throwable) {}
+    return result
 }
 
 actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {

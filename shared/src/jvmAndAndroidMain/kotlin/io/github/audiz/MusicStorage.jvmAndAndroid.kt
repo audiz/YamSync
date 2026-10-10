@@ -271,6 +271,20 @@ actual fun readTextFile(path: String): String? {
  * Распознает M4A, FLAC, MP3, AAC, OPUS, WAV, OGG.
  * Определяет исполнителя, название трека, качество (HQ/LQ) и длительность из структуры папок и заголовков файлов.
  */
+actual fun scanDownloadedTrackPaths(basePath: String): List<String> {
+    val rootDir = File(basePath)
+    if (!rootDir.exists() || !rootDir.isDirectory) return emptyList()
+    val supportedExtensions = setOf("m4a", "flac", "mp3", "aac", "opus", "wav", "ogg")
+    return try {
+        rootDir.walkTopDown()
+            .filter { it.isFile && it.extension.lowercase() in supportedExtensions }
+            .map { it.absolutePath.replace('\\', '/') }
+            .toList()
+    } catch (_: Throwable) {
+        emptyList()
+    }
+}
+
 actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
     val rootDir = File(basePath)
     if (!rootDir.exists() || !rootDir.isDirectory) {
