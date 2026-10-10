@@ -6,6 +6,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -280,7 +281,7 @@ fun AddToPlaylistDialog(
                             .heightIn(max = 240.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(viewModel.localPlaylists, key = { it.id }) { playlist ->
+                        itemsIndexed(viewModel.localPlaylists, key = { index, playlist -> "local_${playlist.id}_$index" }) { index, playlist ->
                             val isAlreadyIn = viewModel.isTrackInLocalPlaylist(playlist, track)
 
                             Surface(
@@ -479,7 +480,7 @@ fun AddToPlaylistDialog(
                                 .heightIn(max = 220.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            items(viewModel.userPlaylists, key = { it.kind ?: it.uid }) { playlist ->
+                            itemsIndexed(viewModel.userPlaylists, key = { index, playlist -> "ya_${playlist.kind ?: playlist.uid}_$index" }) { index, playlist ->
                                 val kind = playlist.kind
                                 val cleanTrackId = (track.realId?.ifBlank { null } ?: track.id).removePrefix("local:").substringBefore(":")
                                 val rawTrackId = track.id.removePrefix("local:").substringBefore(":")

@@ -306,6 +306,49 @@ class MusicRepository {
     }
 
     /**
+     * ⚡ Быстрая загрузка плейлиста по UUID с получением полных метаданных треков за один запрос
+     * GET https://api.music.yandex.ru/playlist/{uuid}?richTracks=true
+     */
+    suspend fun getPlaylistWithTracksByUuid(uuid: String): Pair<List<String>, List<FullTrackInfo>> {
+        val rawText: String = client.get("${ApiUrls.PLAYLIST_BY_UUID_URL}/$uuid") {
+            applyAuthHeaders()
+            parameter("resumeStream", false)
+            parameter("richTracks", true)
+        }.bodyAsText()
+
+        val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
+        val root = json.parseToJsonElement(rawText).jsonObject
+        val playlistObj = root["result"]?.jsonObject ?: root
+        val tracksArray = playlistObj["tracks"]?.jsonArray
+            ?: throw Exception("Нет поля 'tracks' в ответе playlist/$uuid. Ключи: ${playlistObj.keys}")
+
+        val allIds = mutableListOf<String>()
+        val richTracks = mutableListOf<FullTrackInfo>()
+
+        for (elem in tracksArray) {
+            val obj = elem.jsonObject
+            val trackElem = obj["track"]
+            val id = obj["id"]?.jsonPrimitive?.content
+                ?: (trackElem as? JsonObject)?.get("id")?.jsonPrimitive?.content
+            if (!id.isNullOrBlank()) {
+                allIds.add(id)
+            }
+            if (trackElem is JsonObject) {
+                try {
+                    val fullTrack = json.decodeFromJsonElement(FullTrackInfo.serializer(), trackElem)
+                    val effectiveId = if (fullTrack.id.isNotBlank()) fullTrack.id else (id ?: "")
+                    if (effectiveId.isNotBlank()) {
+                        richTracks.add(if (fullTrack.id.isBlank()) fullTrack.copy(id = effectiveId) else fullTrack)
+                    }
+                } catch (e: Exception) {
+                    println("MusicRepository: Не удалось распарсить rich-трек: ${e.message}")
+                }
+            }
+        }
+        return Pair(allIds, richTracks)
+    }
+
+    /**
      * 🔥 Шаг 2: Получаем список ID треков из /playlist/{uuid}
      */
     suspend fun getPlaylistTrackIdsByUuid(uuid: String): List<String> {
@@ -314,8 +357,6 @@ class MusicRepository {
             parameter("resumeStream", false)
             parameter("richTracks", false)
         }.bodyAsText()
-
-        println("Playlist by UUID raw response (first 500 chars):\n${rawText.take(500)}")
 
         val json = Json { ignoreUnknownKeys = true }
         val root = json.parseToJsonElement(rawText).jsonObject
@@ -329,6 +370,50 @@ class MusicRepository {
     }
 
     /**
+     * ⚡ Быстрая загрузка плейлиста пользователя с получением полных метаданных треков за один запрос
+     * GET https://api.music.yandex.ru/users/{uid}/playlists/{kind}?richTracks=true
+     */
+    suspend fun getPlaylistWithTracksByUidKind(uid: Long, kind: Long): Pair<List<String>, List<FullTrackInfo>> {
+        val url = "https://api.music.yandex.ru/users/$uid/playlists/$kind"
+        val rawText: String = client.get(url) {
+            applyAuthHeaders()
+            parameter("resumeStream", false)
+            parameter("richTracks", true)
+        }.bodyAsText()
+
+        val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
+        val root = json.parseToJsonElement(rawText).jsonObject
+        val playlistObj = root["result"]?.jsonObject ?: root
+        val tracksArray = playlistObj["tracks"]?.jsonArray
+            ?: throw Exception("Нет поля 'tracks' в ответе $url. Ключи: ${playlistObj.keys}")
+
+        val allIds = mutableListOf<String>()
+        val richTracks = mutableListOf<FullTrackInfo>()
+
+        for (elem in tracksArray) {
+            val obj = elem.jsonObject
+            val trackElem = obj["track"]
+            val id = obj["id"]?.jsonPrimitive?.content
+                ?: (trackElem as? JsonObject)?.get("id")?.jsonPrimitive?.content
+            if (!id.isNullOrBlank()) {
+                allIds.add(id)
+            }
+            if (trackElem is JsonObject) {
+                try {
+                    val fullTrack = json.decodeFromJsonElement(FullTrackInfo.serializer(), trackElem)
+                    val effectiveId = if (fullTrack.id.isNotBlank()) fullTrack.id else (id ?: "")
+                    if (effectiveId.isNotBlank()) {
+                        richTracks.add(if (fullTrack.id.isBlank()) fullTrack.copy(id = effectiveId) else fullTrack)
+                    }
+                } catch (e: Exception) {
+                    println("MusicRepository: Не удалось распарсить rich-трек: ${e.message}")
+                }
+            }
+        }
+        return Pair(allIds, richTracks)
+    }
+
+    /**
      * 🎵 Получаем список ID треков плейлиста по uid владельца и kind
      * GET https://api.music.yandex.ru/users/{uid}/playlists/{kind}
      */
@@ -339,8 +424,6 @@ class MusicRepository {
             parameter("resumeStream", false)
             parameter("richTracks", false)
         }.bodyAsText()
-
-        println("Playlist by uid/kind raw response (first 500 chars):\n${rawText.take(500)}")
 
         val json = Json { ignoreUnknownKeys = true }
         val root = json.parseToJsonElement(rawText).jsonObject

@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -745,7 +746,7 @@ private fun YamSyncPlaylistsTab(
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(syncManager.playlistDiffs, key = { "${it.playlistId}_${it.title}" }) { diff ->
+            itemsIndexed(syncManager.playlistDiffs, key = { index, diff -> "${diff.playlistId}_${diff.title}_$index" }) { index, diff ->
                 PlaylistDiffCard(
                     diff = diff,
                     onResolutionChanged = { res ->
@@ -1095,7 +1096,7 @@ private fun YamSyncFilesTab(syncManager: YamSyncManager) {
             modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(syncManager.missingFiles, key = { it.matchKey }) { track ->
+            itemsIndexed(syncManager.missingFiles, key = { index, track -> "${track.matchKey}_$index" }) { index, track ->
                 val isSelected = syncManager.selectedFiles.contains(track.matchKey)
                 val transfer = syncManager.fileTransfers[track.matchKey]
 

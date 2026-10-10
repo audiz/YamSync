@@ -629,32 +629,37 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      * 🔄 Восстановить последнюю сессию воспроизведения (плейлист или Мою волну)
      */
     private fun restoreLastPlaybackSession() {
-        val session = playbackSessionManager.loadSession()
-        val wasTracksListVisible = loadAppConfig(AppConfigKeys.TRACKS_LIST_VISIBLE) == "true"
-        val savedWaveStyle = waveManager.loadSavedWaveStyle()
+        try {
+            val session = playbackSessionManager.loadSession()
+            val wasTracksListVisible = loadAppConfig(AppConfigKeys.TRACKS_LIST_VISIBLE) == "true"
+            val savedWaveStyle = waveManager.loadSavedWaveStyle()
 
-        if (session == null || session.type == LastPlaybackType.WAVE) {
-            isTracksListVisible = false
-            if (currentAccessToken.isNotBlank()) {
-                val seeds = session?.waveSeeds?.takeIf { it.isNotEmpty() } ?: savedWaveStyle?.seeds ?: emptyList()
-                val title = session?.waveTitle ?: savedWaveStyle?.title
-                if (seeds.isNotEmpty()) {
-                    startThematicWave(title, seeds, autoPlay = false)
-                } else {
-                    loadInitialWave(autoPlay = false)
+            if (session == null || session.type == LastPlaybackType.WAVE) {
+                isTracksListVisible = false
+                if (currentAccessToken.isNotBlank()) {
+                    val seeds = session?.waveSeeds?.takeIf { it.isNotEmpty() } ?: savedWaveStyle?.seeds ?: emptyList()
+                    val title = session?.waveTitle ?: savedWaveStyle?.title
+                    if (seeds.isNotEmpty()) {
+                        startThematicWave(title, seeds, autoPlay = false)
+                    } else {
+                        loadInitialWave(autoPlay = false)
+                    }
                 }
+                return
             }
-            return
-        }
 
-        // Если перед закрытием играл плейлист/диск, но у пользователя сохранен стиль Волны,
-        // фоном инициализируем этот стиль (без автоплея), чтобы на Главном экране чип и карточка Волны
-        // показывали выбранный стиль, а не сбрасывались на «Главное»
-        if (currentAccessToken.isNotBlank() && savedWaveStyle != null && savedWaveStyle.seeds.isNotEmpty()) {
-            startThematicWave(savedWaveStyle.title, savedWaveStyle.seeds, autoPlay = false)
-        }
+            // Если перед закрытием играл плейлист/диск, но у пользователя сохранен стиль Волны,
+            // фоном инициализируем этот стиль (без автоплея), чтобы на Главном экране чип и карточка Волны
+            // показывали выбранный стиль, а не сбрасывались на «Главное»
+            if (currentAccessToken.isNotBlank() && savedWaveStyle != null && savedWaveStyle.seeds.isNotEmpty()) {
+                startThematicWave(savedWaveStyle.title, savedWaveStyle.seeds, autoPlay = false)
+            }
 
-        restorePlaylistSession(session, wasTracksListVisible)
+            restorePlaylistSession(session, wasTracksListVisible)
+        } catch (e: Throwable) {
+            println("SearchViewModel: ⚠️ Ошибка восстановления последней сессии: ${e.message}")
+            isTracksListVisible = false
+        }
     }
 
     fun resumeLastSession(session: LastPlaybackSession) {
@@ -967,17 +972,35 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        startPagination(title = title, userPlaylist = if (isUserPlaylist) playlist else null, restoreTrackId = restoreTrackId) {
-            val uuid = playlist.playlistUuid
-            if (!uuid.isNullOrBlank()) {
-                try {
-                    return@startPagination repository.getPlaylistTrackIdsByUuid(uuid)
-                } catch (e: Throwable) {
-                    println("SearchViewModel: Ошибка загрузки по UUID ($uuid): ${e.message}, пробуем через uid/kind...")
+        val uuid = playlist.playlistUuid
+        if (!uuid.isNullOrBlank()) {
+            startPagination(
+                title = title,
+                userPlaylist = if (isUserPlaylist) playlist else null,
+                restoreTrackId = restoreTrackId,
+                fetchIdsAndTracksBlock = {
+                    withContext(DispatcherIO) {
+                        try {
+                            repository.getPlaylistWithTracksByUuid(uuid)
+                        } catch (e: Throwable) {
+                            val kind = playlist.kind ?: 0L
+                            repository.getPlaylistWithTracksByUidKind(playlist.uid, kind)
+                        }
+                    }
                 }
-            }
+            )
+        } else {
             val kind = playlist.kind ?: 0L
-            repository.getPlaylistTrackIds(playlist.uid, kind)
+            startPagination(
+                title = title,
+                userPlaylist = if (isUserPlaylist) playlist else null,
+                restoreTrackId = restoreTrackId,
+                fetchIdsAndTracksBlock = {
+                    withContext(DispatcherIO) {
+                        repository.getPlaylistWithTracksByUidKind(playlist.uid, kind)
+                    }
+                }
+            )
         }
     }
 
@@ -992,11 +1015,20 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        startPagination(title = title, restoreTrackId = restoreTrackId) { repository.getPlaylistTrackIds(uid, kind) }
+        startPagination(
+            title = title,
+            restoreTrackId = restoreTrackId,
+            fetchIdsAndTracksBlock = {
+                withContext(DispatcherIO) {
+                    repository.getPlaylistWithTracksByUidKind(uid, kind)
+                }
+            }
+        )
     }
 
     /**
-     * 🔥 Загрузка плейлиста по UUID (для персональных плейлистов)
+     * 🔥 Быстрая загрузка плейлиста по UUID (для персональных подборок Яндекса)
+     * С получением всех метаданных за один сетевой запрос и мгновенным кэш-откликом
      */
     fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null, restoreTrackId: String? = null) {
         val title = playlistTitle ?: "Плейлист"
@@ -1008,13 +1040,19 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        startPagination(title = title, restoreTrackId = restoreTrackId) {
-            repository.getPlaylistTrackIdsByUuid(uuid)
-        }
+        startPagination(
+            title = title,
+            restoreTrackId = restoreTrackId,
+            fetchIdsAndTracksBlock = {
+                withContext(DispatcherIO) {
+                    repository.getPlaylistWithTracksByUuid(uuid)
+                }
+            }
+        )
     }
 
     /**
-     * 🔥 Загрузка плейлиста "Мне нравится" (двухэтапный запрос)
+     * 🔥 Загрузка плейлиста "Мне нравится"
      */
     fun loadLikesPlaylist(restoreTrackId: String? = null) {
         playbackSessionManager.recordSession(
@@ -1024,12 +1062,18 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 lastTrackId = restoreTrackId
             )
         )
-        startPagination(title = "Мне нравится", restoreTrackId = restoreTrackId) {
-            val uuid = repository.getLikesPlaylistUuid()
-            val ids = repository.getPlaylistTrackIdsByUuid(uuid)
-            likedTrackIds.addAll(ids)
-            ids
-        }
+        startPagination(
+            title = "Мне нравится",
+            restoreTrackId = restoreTrackId,
+            fetchIdsAndTracksBlock = {
+                withContext(DispatcherIO) {
+                    val uuid = repository.getLikesPlaylistUuid()
+                    val pair = repository.getPlaylistWithTracksByUuid(uuid)
+                    likedTrackIds.addAll(pair.first)
+                    pair
+                }
+            }
+        )
     }
 
     /**
@@ -1576,38 +1620,53 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         )
     }
 
+    private var isChunkLoading = false
+
     /**
      * Загружает один чанк треков (для пагинации)
      */
     private suspend fun loadNextPageChunk(): Boolean {
-        val nextChunk = allTrackIds.drop(currentOffset).take(pageSize)
-        if (nextChunk.isNotEmpty()) {
-            val details = repository.getTracksDetails(nextChunk)
-            loadedTracks.addAll(details.result) // Дописываем новые треки в конец списка
-            currentOffset += nextChunk.size
-
-            // 🔥 Сохраняем обновленный список в локальный кеш плейлиста
-            val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
-            if (!isDownloadedTracksScreen && cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
-                withContext(DispatcherIO) {
-                    savePlaylistTracksCache(musicStoragePath, cleanTitle, loadedTracks.toList())
+        if (isChunkLoading) return false
+        isChunkLoading = true
+        return try {
+            val nextChunk = allTrackIds.drop(currentOffset).take(pageSize)
+            if (nextChunk.isNotEmpty()) {
+                val details = withContext(DispatcherIO) {
+                    repository.getTracksDetails(nextChunk)
                 }
+                // Дедупликация: не добавлять уже присутствующие в loadedTracks треки
+                val existingIds = loadedTracks.map { it.id }.toSet()
+                val uniqueNewTracks = details.result.filter { it.id !in existingIds }
+                loadedTracks.addAll(uniqueNewTracks)
+                currentOffset += nextChunk.size
+
+                // 🔥 Сохраняем обновленный список в локальный кеш плейлиста
+                val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
+                if (!isDownloadedTracksScreen && cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
+                    withContext(DispatcherIO) {
+                        savePlaylistTracksCache(musicStoragePath, cleanTitle, loadedTracks.toList())
+                    }
+                }
+                canLoadMore = currentOffset < allTrackIds.size
+                true
+            } else {
+                canLoadMore = false
+                false
             }
-            canLoadMore = currentOffset < allTrackIds.size
-            return true
+        } finally {
+            isChunkLoading = false
         }
-        canLoadMore = false
-        return false
     }
 
     /**
-     * Инициализирует пагинацию для нового списка ID
+     * Инициализирует пагинацию для нового списка ID или списка с полными метаданными треков
      */
     private fun startPagination(
         title: String = "Загружено треков",
         userPlaylist: PlaylistInfo? = null,
         restoreTrackId: String? = null,
-        fetchIdsBlock: suspend () -> List<String>
+        fetchIdsAndTracksBlock: (suspend () -> Pair<List<String>, List<FullTrackInfo>>)? = null,
+        fetchIdsBlock: (suspend () -> List<String>)? = null
     ) {
         if (isLoading) return
         isDownloadedTracksScreen = false
@@ -1620,56 +1679,106 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         activeQueueSource = null
         activeQueueFolderPath = null
         activeQueueFolderName = title
+
+        val cleanTitle = title.removeSuffix(" [Офлайн-кеш]").trim()
+
+        // ⚡ CACHE-FIRST: Если есть сохранённый кеш этого плейлиста, отображаем его МГНОВЕННО (0 мс)
+        val cached = if (cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
+            try {
+                loadPlaylistTracksCache(musicStoragePath, cleanTitle)
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        } else emptyList()
+
+        if (cached.isNotEmpty()) {
+            loadedTracks.clear()
+            loadedTracks.addAll(cached)
+            allTrackIds = cached.map { it.id }
+            currentOffset = cached.size
+            canLoadMore = false
+            if (restoreTrackId != null) {
+                val target = cached.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: cached.firstOrNull()
+                if (target != null) {
+                    playbackManager.setInitialTrack(target)
+                }
+            }
+        } else {
+            resetPagination()
+        }
+
         launchSafe {
             isLoading = true
             errorMessage = null
-            resetPagination()
-            val cleanTitle = title.removeSuffix(" [Офлайн-кеш]").trim()
             try {
-                allTrackIds = fetchIdsBlock()
-                if (allTrackIds.isNotEmpty()) {
-                    canLoadMore = true
-                    loadNextPageChunk()
-                    if (restoreTrackId != null && loadedTracks.isNotEmpty()) {
-                        val target = loadedTracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId }
-                        if (target != null) {
-                            playbackManager.setInitialTrack(target)
-                        } else {
-                            try {
-                                val detail = repository.getTracksDetails(listOf(restoreTrackId)).result.firstOrNull()
-                                if (detail != null) {
-                                    playbackManager.setInitialTrack(detail)
-                                }
-                            } catch (_: Exception) {}
+                if (fetchIdsAndTracksBlock != null) {
+                    val (ids, richTracks) = fetchIdsAndTracksBlock()
+                    allTrackIds = ids
+                    if (richTracks.isNotEmpty()) {
+                        loadedTracks.clear()
+                        loadedTracks.addAll(richTracks)
+                        currentOffset = richTracks.size
+                        canLoadMore = currentOffset < allTrackIds.size
+                        // Сохраняем обновленный кеш на диск в фоне
+                        if (cleanTitle.isNotBlank() && cleanTitle != "Поиск" && cleanTitle != "Результаты поиска") {
+                            withContext(DispatcherIO) {
+                                savePlaylistTracksCache(musicStoragePath, cleanTitle, loadedTracks.toList())
+                            }
+                        }
+                    } else if (allTrackIds.isNotEmpty()) {
+                        currentOffset = 0
+                        loadNextPageChunk()
+                        canLoadMore = currentOffset < allTrackIds.size
+                    } else {
+                        if (loadedTracks.isEmpty()) {
+                            errorMessage = "Треков не найдено."
                         }
                     }
-                } else {
-                    errorMessage = "Треков не найдено."
+                } else if (fetchIdsBlock != null) {
+                    allTrackIds = fetchIdsBlock()
+                    if (allTrackIds.isNotEmpty()) {
+                        currentOffset = 0
+                        loadNextPageChunk()
+                        canLoadMore = currentOffset < allTrackIds.size
+                    } else {
+                        if (loadedTracks.isEmpty()) {
+                            errorMessage = "Треков не найдено."
+                        }
+                    }
+                }
+
+                if (restoreTrackId != null && loadedTracks.isNotEmpty()) {
+                    val target = loadedTracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId }
+                    if (target != null) {
+                        playbackManager.setInitialTrack(target)
+                    } else {
+                        try {
+                            val detail = withContext(DispatcherIO) {
+                                repository.getTracksDetails(listOf(restoreTrackId)).result.firstOrNull()
+                            }
+                            if (detail != null) {
+                                playbackManager.setInitialTrack(detail)
+                            }
+                        } catch (_: Exception) {}
+                    }
                 }
             } catch (e: Exception) {
-                // Если произошла сетевая ошибка или нет интернета — пробуем загрузить из кеша на диске
-                println("SearchViewModel: Ошибка получения ID для '$cleanTitle', проверяем кеш на диске: ${e.message}")
-                val cached = withContext(DispatcherIO) {
-                    loadPlaylistTracksCache(musicStoragePath, cleanTitle)
-                }
-                if (cached.isNotEmpty()) {
-                    loadedTracks.clear()
-                    loadedTracks.addAll(cached)
-                    allTrackIds = cached.map { it.id }
-                    currentOffset = cached.size
-                    canLoadMore = false
-                    currentScreenTitle = "$cleanTitle [Офлайн-кеш]"
-                    errorMessage = null
-                    println("SearchViewModel: Загружено из кеша для '$cleanTitle' (${cached.size} треков)")
-                    if (restoreTrackId != null) {
-                        val target = cached.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId }
-                            ?: cached.firstOrNull()
-                        if (target != null) {
-                            playbackManager.setInitialTrack(target)
-                        }
+                println("SearchViewModel: Ошибка загрузки плейлиста '$cleanTitle': ${e.message}")
+                if (loadedTracks.isEmpty()) {
+                    val fallbackCached = withContext(DispatcherIO) {
+                        loadPlaylistTracksCache(musicStoragePath, cleanTitle)
                     }
-                } else {
-                    errorMessage = "Не удалось подключиться к интернету и нет сохранённого кеша для '$cleanTitle'"
+                    if (fallbackCached.isNotEmpty()) {
+                        loadedTracks.clear()
+                        loadedTracks.addAll(fallbackCached)
+                        allTrackIds = fallbackCached.map { it.id }
+                        currentOffset = fallbackCached.size
+                        canLoadMore = false
+                        currentScreenTitle = "$cleanTitle [Офлайн-кеш]"
+                        errorMessage = null
+                    } else {
+                        errorMessage = "Не удалось подключиться к интернету и нет сохранённого кеша для '$cleanTitle'"
+                    }
                 }
             } finally {
                 isLoading = false
@@ -1681,7 +1790,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      * Догружает следующую пачку треков (вызывается при скролле)
      */
     fun loadNextPage() {
-        if (!canLoadMore || (isLoading && currentOffset > 0)) return
+        if (!canLoadMore || isLoading || isChunkLoading) return
 
         launchSafe {
             isLoading = true

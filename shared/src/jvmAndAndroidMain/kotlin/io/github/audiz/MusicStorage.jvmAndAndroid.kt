@@ -136,104 +136,122 @@ actual fun resolveLocalPath(path: String): String {
     val clean = path.trim().removePrefix("local:").removePrefix("file://").removePrefix("file:")
     if (clean.isBlank()) return ""
 
-    val rawFile = File(clean)
-    if (rawFile.exists() && rawFile.isFile) return rawFile.absolutePath
+    return try {
+        val rawFile = File(clean)
+        if (rawFile.exists() && rawFile.isFile) return rawFile.absolutePath
 
-    // Нормализуем путь для кроссплатформенности (Windows \ vs Unix /)
-    val normalized = clean.replace('\\', '/')
-    val fileName = normalized.substringAfterLast('/')
-    val parentName = normalized.substringBeforeLast('/', "").substringAfterLast('/').takeIf { it.isNotBlank() }
-    val baseName = fileName.substringBeforeLast('.')
+        // Нормализуем путь для кроссплатформенности (Windows \ vs Unix /)
+        val normalized = clean.replace('\\', '/')
+        val fileName = normalized.substringAfterLast('/')
+        val parentName = normalized.substringBeforeLast('/', "").substringAfterLast('/').takeIf { it.isNotBlank() }
+        val baseName = fileName.substringBeforeLast('.')
 
-    val baseMusic = loadMusicStoragePath()?.takeIf { File(it).exists() } ?: getDefaultMusicDir()
-    val baseDir = File(baseMusic)
-    if (!baseDir.exists()) return rawFile.absolutePath
+        val baseMusic = loadMusicStoragePath()?.takeIf { runCatching { File(it).exists() }.getOrDefault(false) } ?: getDefaultMusicDir()
+        val baseDir = File(baseMusic)
+        if (!baseDir.exists()) return rawFile.absolutePath
 
-    // Кандидаты прямого поиска (директории для O(1) проверок существования файлов)
-    val candidateDirs = mutableListOf<File>()
-    candidateDirs.add(baseDir)
-    candidateDirs.add(File(baseDir, "YamSync"))
-    candidateDirs.add(File(baseDir, "HQ"))
-    candidateDirs.add(File(baseDir, "LQ"))
+        // Кандидаты прямого поиска (директории для O(1) проверок существования файлов)
+        val candidateDirs = mutableListOf<File>()
+        candidateDirs.add(baseDir)
+        candidateDirs.add(File(baseDir, "YamSync"))
+        candidateDirs.add(File(baseDir, "HQ"))
+        candidateDirs.add(File(baseDir, "LQ"))
 
-    if (!parentName.isNullOrBlank() && parentName != "HQ" && parentName != "LQ" && parentName != "YamSync") {
-        candidateDirs.add(File(baseDir, parentName))
-        candidateDirs.add(File(baseDir, "YamSync/$parentName"))
-        candidateDirs.add(File(baseDir, "HQ/$parentName"))
-        candidateDirs.add(File(baseDir, "LQ/$parentName"))
-        val sanitizedParent = sanitizeDirName(parentName)
-        if (sanitizedParent != parentName) {
-            candidateDirs.add(File(baseDir, sanitizedParent))
-            candidateDirs.add(File(baseDir, "YamSync/$sanitizedParent"))
-            candidateDirs.add(File(baseDir, "HQ/$sanitizedParent"))
-            candidateDirs.add(File(baseDir, "LQ/$sanitizedParent"))
-        }
-    }
-
-    // Извлекаем возможного артиста из имени файла вида "Исполнитель — Название.mp3"
-    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
-    for (delim in delimiters) {
-        if (fileName.contains(delim)) {
-            val potentialArtist = fileName.split(delim, limit = 2)[0].trim()
-            if (potentialArtist.isNotBlank() && potentialArtist != parentName) {
-                candidateDirs.add(File(baseDir, potentialArtist))
-                candidateDirs.add(File(baseDir, "YamSync/$potentialArtist"))
-                candidateDirs.add(File(baseDir, "HQ/$potentialArtist"))
-                candidateDirs.add(File(baseDir, "LQ/$potentialArtist"))
-                val sanArtist = sanitizeDirName(potentialArtist)
-                if (sanArtist != potentialArtist) {
-                    candidateDirs.add(File(baseDir, sanArtist))
-                    candidateDirs.add(File(baseDir, "YamSync/$sanArtist"))
-                    candidateDirs.add(File(baseDir, "HQ/$sanArtist"))
-                    candidateDirs.add(File(baseDir, "LQ/$sanArtist"))
-                }
+        if (!parentName.isNullOrBlank() && parentName != "HQ" && parentName != "LQ" && parentName != "YamSync") {
+            candidateDirs.add(File(baseDir, parentName))
+            candidateDirs.add(File(baseDir, "YamSync/$parentName"))
+            candidateDirs.add(File(baseDir, "HQ/$parentName"))
+            candidateDirs.add(File(baseDir, "LQ/$parentName"))
+            val sanitizedParent = sanitizeDirName(parentName)
+            if (sanitizedParent != parentName) {
+                candidateDirs.add(File(baseDir, sanitizedParent))
+                candidateDirs.add(File(baseDir, "YamSync/$sanitizedParent"))
+                candidateDirs.add(File(baseDir, "HQ/$sanitizedParent"))
+                candidateDirs.add(File(baseDir, "LQ/$sanitizedParent"))
             }
-            break
         }
-    }
 
-    val extList = listOf(".m4a", ".mp3", ".flac", ".aac", ".opus", ".wav", ".ogg")
-    val candidateFileNames = mutableListOf<String>()
-    candidateFileNames.add(fileName)
-    for (ext in extList) {
-        candidateFileNames.add("$baseName$ext")
-    }
-
-    // Проверяем каждого кандидата в подготовленных директориях без рекурсивного сканирования
-    for (dir in candidateDirs.distinct()) {
-        if (!dir.exists() || !dir.isDirectory) continue
-        for (name in candidateFileNames.distinct()) {
-            val f = File(dir, name)
-            if (f.exists() && f.isFile) return f.absolutePath
+        // Извлекаем возможного артиста из имени файла вида "Исполнитель — Название.mp3"
+        val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+        for (delim in delimiters) {
+            if (fileName.contains(delim)) {
+                val potentialArtist = fileName.split(delim, limit = 2)[0].trim()
+                if (potentialArtist.isNotBlank() && potentialArtist != parentName) {
+                    candidateDirs.add(File(baseDir, potentialArtist))
+                    candidateDirs.add(File(baseDir, "YamSync/$potentialArtist"))
+                    candidateDirs.add(File(baseDir, "HQ/$potentialArtist"))
+                    candidateDirs.add(File(baseDir, "LQ/$potentialArtist"))
+                    val sanArtist = sanitizeDirName(potentialArtist)
+                    if (sanArtist != potentialArtist) {
+                        candidateDirs.add(File(baseDir, sanArtist))
+                        candidateDirs.add(File(baseDir, "YamSync/$sanArtist"))
+                        candidateDirs.add(File(baseDir, "HQ/$sanArtist"))
+                        candidateDirs.add(File(baseDir, "LQ/$sanArtist"))
+                    }
+                }
+                break
+            }
         }
-    }
 
-    return rawFile.absolutePath
+        val extList = listOf(".m4a", ".mp3", ".flac", ".aac", ".opus", ".wav", ".ogg")
+        val candidateFileNames = mutableListOf<String>()
+        candidateFileNames.add(fileName)
+        for (ext in extList) {
+            candidateFileNames.add("$baseName$ext")
+        }
+
+        // Проверяем каждого кандидата в подготовленных директориях без рекурсивного сканирования
+        for (dir in candidateDirs.distinct()) {
+            if (!dir.exists() || !dir.isDirectory) continue
+            for (name in candidateFileNames.distinct()) {
+                val f = File(dir, name)
+                if (f.exists() && f.isFile) return f.absolutePath
+            }
+        }
+
+        rawFile.absolutePath
+    } catch (_: Throwable) {
+        clean
+    }
 }
 
 /** Проверить, существует ли трек на диске */
 actual fun trackFileExists(basePath: String, artist: String, fileName: String): Boolean {
-    val cleanArtist = sanitizeDirName(artist.ifBlank { "Unknown Artist" })
-    val file = File(File(basePath, cleanArtist), fileName)
-    if (file.exists() && file.isFile) return true
-    val direct = File(basePath, fileName)
-    if (direct.exists() && direct.isFile) return true
-    val resolved = resolveLocalPath(file.absolutePath)
-    return File(resolved).exists()
+    return try {
+        val cleanArtist = sanitizeDirName(artist.ifBlank { "Unknown Artist" })
+        val file = File(File(basePath, cleanArtist), fileName)
+        if (file.exists() && file.isFile) return true
+        val direct = File(basePath, fileName)
+        if (direct.exists() && direct.isFile) return true
+        val resolved = resolveLocalPath(file.absolutePath)
+        if (resolved.isNotBlank()) File(resolved).exists() else false
+    } catch (_: Throwable) {
+        false
+    }
 }
 
 /** Проверить существование файла по прямому пути */
 actual fun localFileExists(filePath: String): Boolean {
-    val file = File(filePath)
-    if (file.exists() && file.isFile) return true
-    return File(resolveLocalPath(filePath)).exists()
+    if (filePath.isBlank()) return false
+    return try {
+        val file = File(filePath)
+        if (file.exists() && file.isFile) return true
+        val resolved = resolveLocalPath(filePath)
+        if (resolved.isNotBlank()) File(resolved).exists() else false
+    } catch (_: Throwable) {
+        false
+    }
 }
 
 /** Проверить, является ли путь существующей директорией */
 actual fun isDirectory(path: String): Boolean {
     if (path.isBlank()) return false
-    val f = File(path)
-    return f.exists() && f.isDirectory
+    return try {
+        val f = File(path)
+        f.exists() && f.isDirectory
+    } catch (_: Throwable) {
+        false
+    }
 }
 
 /** Прочитать содержимое текстового файла (например, плейлиста M3U) */

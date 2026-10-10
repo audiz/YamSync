@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 //import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,7 +34,7 @@ private fun LazyListState.OnBottomReached(buffer: Int = 2, onLoadMore: () -> Uni
             val layoutInfo = layoutInfo
             val totalItemsNumber = layoutInfo.totalItemsCount
             val lastVisibleItemIndex = (layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) + 1
-            totalItemsNumber > 0 && lastVisibleItemIndex >= (totalItemsNumber - buffer)
+            totalItemsNumber > 1 && lastVisibleItemIndex >= (totalItemsNumber - buffer)
         }
     }
     LaunchedEffect(shouldLoadMore.value) {
@@ -156,7 +157,7 @@ fun ArtistTracksList(
                 contentPadding = PaddingValues(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(tracks, key = { it.id }) { track ->
+                itemsIndexed(tracks, key = { index, track -> "${track.id}_$index" }) { index, track ->
                     val artistsString = track.artists.joinToString { it.name }
                     val isCurrentTrackDownloading = isTrackDownloading && downloadingTrackId == track.id
                     val isCurrentTrackActive = (

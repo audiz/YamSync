@@ -107,12 +107,9 @@ fun App() {
 
             var showEqualizerDialog by remember { mutableStateOf(false) }
             var equalizerInitialTab by remember { mutableStateOf(0) }
-            var showPlaylistsDialog by remember {
-                mutableStateOf(loadAppConfig(AppConfigKeys.SHOW_PLAYLISTS_DIALOG) == "true")
-            }
+            var showPlaylistsDialog by remember { mutableStateOf(false) }
             fun updateShowPlaylistsDialog(show: Boolean) {
                 showPlaylistsDialog = show
-                saveAppConfig(AppConfigKeys.SHOW_PLAYLISTS_DIALOG, show.toString())
             }
             var showYamSyncDialog by remember { mutableStateOf(false) }
 

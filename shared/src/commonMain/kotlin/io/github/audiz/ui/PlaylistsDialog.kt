@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -699,7 +700,7 @@ private fun LocalPlaylistsTab(
                 }
             }
         } else {
-            items(viewModel.customMediaSources, key = { "source_${it.id}" }) { source ->
+            itemsIndexed(viewModel.customMediaSources, key = { index, source -> "source_${source.id}_$index" }) { index, source ->
                 CustomSourceCard(
                     source = source,
                     onOpen = { onOpenSource(source) },
@@ -801,7 +802,7 @@ private fun LocalPlaylistsTab(
                 }
             }
         } else {
-            items(viewModel.localPlaylists, key = { "playlist_${it.id}" }) { playlist ->
+            itemsIndexed(viewModel.localPlaylists, key = { index, playlist -> "playlist_${playlist.id}_$index" }) { index, playlist ->
                     Card(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
@@ -815,11 +816,15 @@ private fun LocalPlaylistsTab(
                                 .padding(12.dp)
                         ) {
                             val availableCount = remember(playlist.trackPaths) {
-                                playlist.trackPaths.count { path ->
-                                    localFileExists(resolveLocalPath(path)) || run {
-                                        val fn = path.substringAfterLast('/').substringAfterLast('\\')
-                                        fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
+                                try {
+                                    playlist.trackPaths.count { path ->
+                                        localFileExists(resolveLocalPath(path)) || run {
+                                            val fn = path.substringAfterLast('/').substringAfterLast('\\')
+                                            fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
+                                        }
                                     }
+                                } catch (_: Throwable) {
+                                    0
                                 }
                             }
                             val isFullyAvailable = availableCount == playlist.trackCount
@@ -1024,9 +1029,13 @@ private fun LocalPlaylistsTab(
                                                 .substringAfterLast('\\')
                                                 .substringBeforeLast('.')
                                             val isFileAvailable = remember(trackPath) {
-                                                localFileExists(resolveLocalPath(trackPath)) || run {
-                                                    val fn = trackPath.substringAfterLast('/').substringAfterLast('\\')
-                                                    fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
+                                                try {
+                                                    localFileExists(resolveLocalPath(trackPath)) || run {
+                                                        val fn = trackPath.substringAfterLast('/').substringAfterLast('\\')
+                                                        fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
+                                                    }
+                                                } catch (_: Throwable) {
+                                                    false
                                                 }
                                             }
 
@@ -1479,7 +1488,7 @@ private fun LocalFolderBrowserView(
                         )
                     }
 
-                    items(listing.subfolders, key = { "sub_${it.path}" }) { sub ->
+                    itemsIndexed(listing.subfolders, key = { index, sub -> "sub_${sub.path}_$index" }) { index, sub ->
                         Card(
                             shape = RoundedCornerShape(10.dp),
                             colors = CardDefaults.cardColors(
@@ -1572,7 +1581,7 @@ private fun LocalFolderBrowserView(
                         )
                     }
 
-                    items(listing.tracks, key = { "trk_${it.id}" }) { track ->
+                    itemsIndexed(listing.tracks, key = { index, track -> "trk_${track.id}_$index" }) { index, track ->
                         Card(
                             shape = RoundedCornerShape(10.dp),
                             colors = CardDefaults.cardColors(
@@ -1706,7 +1715,7 @@ private fun YandexUserPlaylistsTab(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(viewModel.userPlaylists) { playlist ->
+        itemsIndexed(viewModel.userPlaylists, key = { index, playlist -> "yandex_pl_${playlist.kind ?: playlist.uid}_$index" }) { index, playlist ->
             val kind = playlist.kind
             val isExpanded = expandedPlaylistKind == kind
 
@@ -1980,8 +1989,8 @@ private fun YandexCuratedTab(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(viewModel.personalPlaylists) { item ->
-            val playlist = item.playlist ?: return@items
+        itemsIndexed(viewModel.personalPlaylists, key = { index, item -> "curated_${item.playlist?.playlistUuid ?: index}_$index" }) { index, item ->
+            val playlist = item.playlist ?: return@itemsIndexed
             val title = playlist.title.ifBlank {
                 when (item.playlistType) {
                     "playlistOfTheDay" -> "Плейлист дня"
