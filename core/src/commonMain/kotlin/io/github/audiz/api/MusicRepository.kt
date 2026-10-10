@@ -208,6 +208,7 @@ class MusicRepository {
 
     private fun HttpRequestBuilder.applyAuthHeaders() {
         header("Accept", "*/*")
+        header("Accept-Encoding", "gzip, deflate")
         header("User-Agent", baseUserAgent)
         header("X-Yandex-Music-Client", clientHeader)
         getAuthHeader()?.let { auth ->

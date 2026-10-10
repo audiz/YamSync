@@ -150,7 +150,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     var isLoadingAllPages by mutableStateOf(false)
         private set
 
-    private val pageSize = 20
+    private val pageSize = 100
     private var currentOffset = 0
 
     // Флаг, показывающий, есть ли еще треки для загрузки
@@ -1080,9 +1080,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             fetchIdsAndTracksBlock = {
                 withContext(DispatcherIO) {
                     val uuid = repository.getLikesPlaylistUuid()
-                    val pair = repository.getPlaylistWithTracksByUuid(uuid)
-                    likedTrackIds.addAll(pair.first)
-                    pair
+                    repository.getPlaylistWithTracksByUuid(uuid)
                 }
             }
         )
@@ -1728,6 +1726,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 if (fetchIdsAndTracksBlock != null) {
                     val (ids, richTracks) = fetchIdsAndTracksBlock()
                     allTrackIds = ids
+                    if (title == "Мне нравится") {
+                        likedTrackIds.addAll(ids)
+                    }
                     if (richTracks.isNotEmpty()) {
                         loadedTracks.clear()
                         loadedTracks.addAll(richTracks)
