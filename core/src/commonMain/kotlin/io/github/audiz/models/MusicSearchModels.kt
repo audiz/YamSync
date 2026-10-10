@@ -1,6 +1,7 @@
 package io.github.audiz.models
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class YandexError(
@@ -19,7 +20,8 @@ data class YandexMusicResponse(
 data class SearchResult(
     val searchRequestId: String = "",
     val text: String = "",
-    val results: List<TypedResult> = emptyList()
+    val results: List<TypedResult> = emptyList(),
+    val bestResults: List<JsonElement> = emptyList()
 )
 
 @Serializable

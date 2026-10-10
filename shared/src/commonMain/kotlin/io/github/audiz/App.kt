@@ -607,7 +607,10 @@ fun App() {
                                         searchViewModel.removeTrackFromYandexPlaylist(currentYandex, track)
                                     }
                                 } else null
-                            } else null
+                            } else null,
+                            onArtistClick = { artistId, artistName ->
+                                searchViewModel.loadArtistTracks(artistId, artistName)
+                            }
                         )
                     }
                     } // closes outer Column

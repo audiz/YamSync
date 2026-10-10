@@ -11,6 +11,7 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
@@ -250,7 +251,83 @@ class MusicRepository {
             throw IllegalStateException("Ничего не найдено по запросу '$query'")
         }
 
-        return parsed
+        // 🔥 Преобразуем bestResults (главный артист, волна по артисту и т.д.) в TypedResult и добавляем в начало выдачи
+        val bestTypedResults = parsed.result.bestResults.mapNotNull { parseBestResultItem(it) }
+        val allResults = if (bestTypedResults.isNotEmpty()) {
+            (bestTypedResults + parsed.result.results).distinctBy { item ->
+                when (item.type) {
+                    "artist" -> "artist:${item.artist?.id}"
+                    "track" -> "track:${item.track?.id}"
+                    "album" -> "album:${item.album?.id}"
+                    "playlist" -> "playlist:${item.playlist?.uid}:${item.playlist?.kind}"
+                    "wave" -> "wave:${item.wave?.title}"
+                    else -> item.toString()
+                }
+            }
+        } else {
+            parsed.result.results
+        }
+        val finalResult = parsed.result.copy(results = allResults)
+        return parsed.copy(result = finalResult)
+    }
+
+    private fun parseBestResultItem(element: JsonElement): TypedResult? {
+        val obj = element as? JsonObject ?: return null
+        val type = obj["type"]?.jsonPrimitive?.content ?: return null
+        return when (type) {
+            "best_result_artist" -> {
+                val wrapper = obj["best_result_artist"]?.jsonObject ?: return null
+                val artistObj = wrapper["artist"]?.jsonObject ?: return null
+                val id = artistObj["id"]?.jsonPrimitive?.content ?: return null
+                val name = artistObj["name"]?.jsonPrimitive?.content ?: return null
+                val likesCount = wrapper["likesCount"]?.jsonPrimitive?.content?.toIntOrNull()
+                TypedResult(
+                    type = "artist",
+                    artist = ArtistInfo(id = id, name = name, likesCount = likesCount)
+                )
+            }
+            "best_result_wave" -> {
+                val wrapper = obj["best_result_wave"]?.jsonObject ?: return null
+                val title = wrapper["title"]?.jsonPrimitive?.content ?: "Моя Волна"
+                val header = wrapper["header"]?.jsonPrimitive?.content ?: "Моя волна по артисту"
+                val seeds = wrapper["seeds"]?.jsonArray?.mapNotNull { it.jsonPrimitive.content } ?: emptyList()
+                val stationId = wrapper["stationId"]?.jsonPrimitive?.content
+                TypedResult(
+                    type = "wave",
+                    wave = WaveSearchResultInfo(
+                        id = WaveSearchResultId(tag = stationId, type = "artist"),
+                        seeds = seeds,
+                        title = title,
+                        header = header
+                    )
+                )
+            }
+            "best_result_track" -> {
+                val wrapper = obj["best_result_track"]?.jsonObject ?: return null
+                val trackObj = wrapper["track"]?.jsonObject ?: return null
+                try {
+                    val track = playlistJson.decodeFromJsonElement(TrackInfo.serializer(), trackObj)
+                    TypedResult(type = "track", track = track)
+                } catch (_: Throwable) { null }
+            }
+            "best_result_album" -> {
+                val wrapper = obj["best_result_album"]?.jsonObject ?: return null
+                val albumObj = wrapper["album"]?.jsonObject ?: return null
+                try {
+                    val album = playlistJson.decodeFromJsonElement(AlbumInfo.serializer(), albumObj)
+                    TypedResult(type = "album", album = album)
+                } catch (_: Throwable) { null }
+            }
+            "best_result_playlist" -> {
+                val wrapper = obj["best_result_playlist"]?.jsonObject ?: return null
+                val playlistObj = wrapper["playlist"]?.jsonObject ?: return null
+                try {
+                    val playlist = playlistJson.decodeFromJsonElement(PlaylistInfo.serializer(), playlistObj)
+                    TypedResult(type = "playlist", playlist = playlist)
+                } catch (_: Throwable) { null }
+            }
+            else -> null
+        }
     }
 
     suspend fun getTrackIds(artistId: String): YandexArtistTrackIdsResponse {

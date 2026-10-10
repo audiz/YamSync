@@ -299,16 +299,24 @@ private fun ResultCard(
                     }
                 }
                 "artist" -> {
+                    val likes = item.artist?.likesCount
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ContentTypeIcon(ContentType.ARTIST, modifier = Modifier.size(18.dp))
                         Text(item.artist?.name ?: "Артист", style = MaterialTheme.typography.titleMedium)
+                        if (likes != null && likes > 0) {
+                            Text("• $likes лайков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                    Text("Нажмите, чтобы открыть все треки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text("Нажмите, чтобы открыть все треки исполнителя", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 "playlist" -> {
+                    val count = item.playlist?.trackCount ?: 0
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ContentTypeIcon(ContentType.PLAYLIST, modifier = Modifier.size(18.dp))
                         Text("Плейлист: ${item.playlist?.title ?: "Без названия"}", style = MaterialTheme.typography.titleMedium)
+                        if (count > 0) {
+                            Text("• $count треков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     Text("Нажмите, чтобы открыть треки плейлиста", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }

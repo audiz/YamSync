@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.*
@@ -71,10 +72,20 @@ fun ArtistTracksList(
     onDeleteTrack: ((trackId: String, trackTitle: String, artistName: String) -> Unit)? = null,
     onAddToPlaylist: ((FullTrackInfo) -> Unit)? = null,
     onRemoveFromPlaylist: ((FullTrackInfo) -> Unit)? = null,
+    onArtistClick: ((artistId: String, artistName: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
     listState.OnBottomReached { if (canLoadMore) onLoadMore() }
+
+    val commonArtist = remember(tracks, title) {
+        if (tracks.isNotEmpty() && !title.startsWith("Треки:")) {
+            val firstArtist = tracks.firstOrNull()?.artists?.firstOrNull()
+            if (firstArtist != null && tracks.all { t -> t.artists.any { it.name.equals(firstArtist.name, ignoreCase = true) } }) {
+                firstArtist
+            } else null
+        } else null
+    }
 
     Column(modifier = modifier) {
         Row(
@@ -130,6 +141,16 @@ fun ArtistTracksList(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (commonArtist != null && onArtistClick != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                TopBarIconButton(
+                    icon = Icons.Filled.Person,
+                    contentDescription = "Все треки: ${commonArtist.name}",
+                    outlined = true,
+                    onClick = { onArtistClick(commonArtist.id.toString(), commonArtist.name) }
                 )
             }
 
