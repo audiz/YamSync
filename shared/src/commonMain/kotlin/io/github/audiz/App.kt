@@ -339,6 +339,9 @@ fun App() {
                 Box(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 16.dp).padding(top = 16.dp)) {
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (!showTracksScreen) {
+                            BackHandler(enabled = searchViewModel.searchResult != null) {
+                                searchViewModel.clearSearch()
+                            }
                             // ==================================================
                             // 👤 ЭКРАН А: ПОИСК И ВЫДАЧА
                             // ==================================================
@@ -529,8 +532,11 @@ fun App() {
                             tracks = searchViewModel.loadedTracks,
                             canLoadMore = searchViewModel.canLoadMore,
                             onLoadMore = { searchViewModel.loadNextPage() },
-                            onHomeClick = if (isBackGoingToFolderBrowser || isBackGoingToMobilePlayer) {
-                                { searchViewModel.closeArtistTracks() }
+                            onHomeClick = if (isBackGoingToFolderBrowser || isBackGoingToMobilePlayer || searchViewModel.tracksListOrigin == TracksListOrigin.SEARCH) {
+                                {
+                                    searchViewModel.clearSearch()
+                                    searchViewModel.closeArtistTracks()
+                                }
                             } else null,
                             onBackClick = {
                                 if (isBackGoingToFolderBrowser) {

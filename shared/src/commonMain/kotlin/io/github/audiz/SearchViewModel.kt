@@ -45,6 +45,7 @@ enum class TrackPlaySource {
 
 enum class TracksListOrigin {
     HOME,
+    SEARCH,
     FOLDER_BROWSER,
     MOBILE_PLAYER
 }
@@ -1677,13 +1678,14 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         title: String = "Загружено треков",
         userPlaylist: PlaylistInfo? = null,
         restoreTrackId: String? = null,
+        origin: TracksListOrigin? = null,
         fetchIdsAndTracksBlock: (suspend () -> Pair<List<String>, List<FullTrackInfo>>)? = null,
         fetchIdsBlock: (suspend () -> List<String>)? = null
     ) {
         paginationJob?.cancel()
         isDownloadedTracksScreen = false
         isTracksListVisible = true
-        tracksListOrigin = TracksListOrigin.HOME
+        tracksListOrigin = origin ?: if (searchResult != null) TracksListOrigin.SEARCH else TracksListOrigin.HOME
         currentOpenUserPlaylist = userPlaylist
         currentScreenTitle = title
         activeBrowsedFolderSource = null
@@ -2099,9 +2101,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun closeArtistTracks() {
         isDownloadedTracksScreen = false
         isTracksListVisible = false
+        val wasSearch = tracksListOrigin == TracksListOrigin.SEARCH
         tracksListOrigin = TracksListOrigin.HOME
         resetBrowsedFolder()
-        if (searchResult != null) {
+        if (!wasSearch && searchResult != null) {
             clearSearch()
         }
     }
