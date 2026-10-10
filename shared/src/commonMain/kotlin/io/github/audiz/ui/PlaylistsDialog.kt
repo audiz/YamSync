@@ -2,6 +2,8 @@ package io.github.audiz.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,10 +31,10 @@ import io.github.audiz.models.CustomMediaSource
 import io.github.audiz.models.LocalSourceType
 import io.github.audiz.models.FolderListing
 import io.github.audiz.models.FolderItem
-import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.isPlatformPickerSupported
-import io.github.audiz.pickDirectory
-import io.github.audiz.pickAudioOrPlaylistFile
+import io.github.audiz.launchDirectoryPicker
+import io.github.audiz.launchAudioOrPlaylistFilePicker
+import io.github.audiz.getPlatformPresetDirectories
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -201,9 +203,8 @@ fun PlaylistsDialog(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Вкладки
-                    ScrollableTabRow(
+                    TabRow(
                         selectedTabIndex = selectedTab,
-                        edgePadding = 4.dp,
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.clip(RoundedCornerShape(12.dp))
                     ) {
@@ -217,6 +218,7 @@ fun PlaylistsDialog(
                                         maxLines = 1,
                                         softWrap = false,
                                         overflow = TextOverflow.Ellipsis,
+                                        fontSize = 12.sp,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
                                     )
@@ -306,16 +308,47 @@ fun PlaylistsDialog(
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
-                    Text("Добавить источник музыки")
+                    Text("Источник музыки", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Укажите абсолютный путь к папке с музыкой, отдельному аудиофайлу (.mp3, .flac, .m4a и др.) или плейлисту (.m3u / .m3u8):",
+                        text = "Укажите папку с музыкой, отдельный файл (.mp3, .flac, .m4a) или плейлист (.m3u / .m3u8):",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    val presets = remember { getPlatformPresetDirectories() }
+                    if (presets.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            presets.forEach { (label, path) ->
+                                Surface(
+                                    onClick = {
+                                        sourcePathInput = path
+                                        val folderName = path.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
+                                        sourceCustomName = if (folderName.isNotBlank()) folderName else label.substringAfter(' ').trim()
+                                        sourceError = null
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (sourcePathInput == path) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (sourcePathInput == path) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     if (isPlatformPickerSupported) {
                         Row(
@@ -324,12 +357,13 @@ fun PlaylistsDialog(
                         ) {
                             OutlinedButton(
                                 onClick = {
-                                    val picked = pickDirectory()
-                                    if (!picked.isNullOrBlank()) {
-                                        sourcePathInput = picked
-                                        val folderName = picked.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
-                                        sourceCustomName = folderName
-                                        sourceError = null
+                                    launchDirectoryPicker { picked ->
+                                        if (!picked.isNullOrBlank()) {
+                                            sourcePathInput = picked
+                                            val folderName = picked.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
+                                            sourceCustomName = folderName
+                                            sourceError = null
+                                        }
                                     }
                                 },
                                 shape = RoundedCornerShape(8.dp),
@@ -343,12 +377,13 @@ fun PlaylistsDialog(
 
                             OutlinedButton(
                                 onClick = {
-                                    val picked = pickAudioOrPlaylistFile()
-                                    if (!picked.isNullOrBlank()) {
-                                        sourcePathInput = picked
-                                        val fileName = picked.substringAfterLast('/').substringAfterLast('\\').substringBeforeLast('.')
-                                        sourceCustomName = fileName
-                                        sourceError = null
+                                    launchAudioOrPlaylistFilePicker { picked ->
+                                        if (!picked.isNullOrBlank()) {
+                                            sourcePathInput = picked
+                                            val fileName = picked.substringAfterLast('/').substringAfterLast('\\').substringBeforeLast('.')
+                                            sourceCustomName = fileName
+                                            sourceError = null
+                                        }
                                     }
                                 },
                                 shape = RoundedCornerShape(8.dp),
@@ -625,6 +660,7 @@ private fun LocalPlaylistsTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -637,7 +673,9 @@ private fun LocalPlaylistsTab(
                     Text(
                         text = "Папки и файлы устройства",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -647,7 +685,9 @@ private fun LocalPlaylistsTab(
                             text = "${viewModel.customMediaSources.size}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -655,11 +695,11 @@ private fun LocalPlaylistsTab(
                     onClick = onAddSourceClick,
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    modifier = Modifier.wrapContentWidth().pointerHoverIcon(PointerIcon.Hand)
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Добавить", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    Text("Добавить", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
             }
         }
@@ -727,6 +767,7 @@ private fun LocalPlaylistsTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -739,7 +780,9 @@ private fun LocalPlaylistsTab(
                     Text(
                         text = "Оффлайн-плейлисты",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -749,7 +792,9 @@ private fun LocalPlaylistsTab(
                             text = "${viewModel.localPlaylists.size}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -757,11 +802,11 @@ private fun LocalPlaylistsTab(
                     onClick = onCreateClick,
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    modifier = Modifier.wrapContentWidth().pointerHoverIcon(PointerIcon.Hand)
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Создать", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    Text("Создать", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
             }
         }

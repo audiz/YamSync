@@ -157,6 +157,28 @@ actual fun pickSaveFile(defaultFileName: String, title: String): String? {
     return rawResult?.let { appendExtensionIfMissing(it, defaultFileName) }
 }
 
+actual fun launchDirectoryPicker(onResult: (String?) -> Unit) {
+    onResult(pickDirectory())
+}
+
+actual fun launchAudioOrPlaylistFilePicker(onResult: (String?) -> Unit) {
+    onResult(pickAudioOrPlaylistFile())
+}
+
+actual fun getPlatformPresetDirectories(): List<Pair<String, String>> {
+    val userHome = System.getProperty("user.home") ?: return emptyList()
+    val list = mutableListOf<Pair<String, String>>()
+    val musicDir = File(userHome, "Music")
+    if (musicDir.exists() && musicDir.isDirectory) {
+        list.add("📁 Папка Музыка" to musicDir.absolutePath)
+    }
+    val downloadsDir = File(userHome, "Downloads")
+    if (downloadsDir.exists() && downloadsDir.isDirectory) {
+        list.add("📥 Папка Загрузки" to downloadsDir.absolutePath)
+    }
+    return list
+}
+
 // ---------------- Linux: Zenity & KDialog ----------------
 
 private fun pickDirectoryZenity(title: String): NativePickerResult {

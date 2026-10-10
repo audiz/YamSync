@@ -77,6 +77,7 @@ fun YamSyncDialog(
                     // 1. Верхний заголовок и статус-сообщения
                     YamSyncDialogHeader(
                         syncManager = syncManager,
+                        isCompact = isCompact,
                         onDismiss = onDismiss
                     )
 
@@ -90,7 +91,7 @@ fun YamSyncDialog(
                         Tab(
                             selected = selectedTabIndex == 0,
                             onClick = { selectedTabIndex = 0 },
-                            text = { Text("Связь", fontSize = 13.sp) },
+                            text = { Text("Связь", fontSize = 12.sp, maxLines = 1, softWrap = false) },
                             icon = { Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp)) }
                         )
                         Tab(
@@ -98,7 +99,12 @@ fun YamSyncDialog(
                             onClick = { selectedTabIndex = 1 },
                             text = {
                                 val count = syncManager.playlistDiffs.count { it.state != YamSyncDiffState.IDENTICAL }
-                                Text(if (count > 0) "Плейлисты ($count)" else "Плейлисты", fontSize = 13.sp)
+                                Text(
+                                    text = if (count > 0) "Плейлисты ($count)" else "Плейлисты",
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             },
                             icon = { Icon(Icons.Default.MergeType, contentDescription = null, modifier = Modifier.size(18.dp)) }
                         )
@@ -107,7 +113,12 @@ fun YamSyncDialog(
                             onClick = { selectedTabIndex = 2 },
                             text = {
                                 val count = syncManager.missingFiles.size
-                                Text(if (count > 0) "Файлы ($count)" else "Файлы", fontSize = 13.sp)
+                                Text(
+                                    text = if (count > 0) "Файлы ($count)" else "Файлы",
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             },
                             icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp)) }
                         )
@@ -144,6 +155,7 @@ private fun sanitizeErrorMessage(err: String): String {
 @Composable
 private fun YamSyncDialogHeader(
     syncManager: YamSyncManager,
+    isCompact: Boolean = false,
     onDismiss: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -173,7 +185,7 @@ private fun YamSyncDialogHeader(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Синхронизация YamSync",
+                        text = if (isCompact) "YamSync P2P" else "Синхронизация YamSync",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -324,20 +336,69 @@ private fun YamSyncPairingTab(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Переключатель [Показать QR] | [Подключиться]
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = subTab == 0,
-                onClick = { subTab = 0 },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth().height(42.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("Показать QR-код", fontSize = 12.sp)
-            }
-            SegmentedButton(
-                selected = subTab == 1,
-                onClick = { subTab = 1 },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-            ) {
-                Text("Подключиться", fontSize = 12.sp)
+                Surface(
+                    onClick = { subTab = 0 },
+                    shape = RoundedCornerShape(9.dp),
+                    color = if (subTab == 0) MaterialTheme.colorScheme.surface else androidx.compose.ui.graphics.Color.Transparent,
+                    shadowElevation = if (subTab == 0) 2.dp else 0.dp,
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCode,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (subTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Показать QR",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (subTab == 0) FontWeight.Bold else FontWeight.Medium,
+                                color = if (subTab == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Surface(
+                    onClick = { subTab = 1 },
+                    shape = RoundedCornerShape(9.dp),
+                    color = if (subTab == 1) MaterialTheme.colorScheme.surface else androidx.compose.ui.graphics.Color.Transparent,
+                    shadowElevation = if (subTab == 1) 2.dp else 0.dp,
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (subTab == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Подключиться",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (subTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                color = if (subTab == 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
         }
 

@@ -10,3 +10,9 @@ expect fun pickDirectory(): String?
 expect fun pickAudioOrPlaylistFile(): String?
 
 expect fun pickSaveFile(defaultFileName: String, title: String = "Сохранить трек"): String?
+
+expect fun launchDirectoryPicker(onResult: (String?) -> Unit)
+
+expect fun launchAudioOrPlaylistFilePicker(onResult: (String?) -> Unit)
+
+expect fun getPlatformPresetDirectories(): List<Pair<String, String>>

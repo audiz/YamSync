@@ -477,6 +477,9 @@ fun App() {
                                     onPlaylistClick = { playlist ->
                                         searchViewModel.loadPlaylist(playlist)
                                     },
+                                    onAlbumClick = { albumId, albumTitle ->
+                                        searchViewModel.loadAlbumTracks(albumId, albumTitle)
+                                    },
                                     isTrackDownloading = searchViewModel.isTrackDownloading,
                                     downloadingTrackId = searchViewModel.downloadingTrackId,
                                     onDownloadTrack = { trackId, trackTitle, artistName ->

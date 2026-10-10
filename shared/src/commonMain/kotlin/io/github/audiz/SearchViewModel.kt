@@ -1026,6 +1026,23 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         }
     }
 
+    /**
+     * 💿 Загрузка треков альбома из поиска
+     */
+    fun loadAlbumTracks(albumId: Long, albumTitle: String, restoreTrackId: String? = null) {
+        val title = if (albumTitle.isNotBlank()) "Альбом: $albumTitle" else "Альбом"
+        startPagination(
+            title = title,
+            restoreTrackId = restoreTrackId,
+            origin = if (searchResult != null) TracksListOrigin.SEARCH else TracksListOrigin.HOME,
+            fetchIdsAndTracksBlock = {
+                withContext(DispatcherIO) {
+                    repository.getAlbumWithTracks(albumId)
+                }
+            }
+        )
+    }
+
     fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null, restoreTrackId: String? = null) {
         val title = if (!playlistTitle.isNullOrBlank()) playlistTitle else "Треки плейлиста"
         playbackSessionManager.recordSession(
@@ -2113,12 +2130,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun closeArtistTracks() {
         isDownloadedTracksScreen = false
         isTracksListVisible = false
-        val wasSearch = tracksListOrigin == TracksListOrigin.SEARCH
         tracksListOrigin = TracksListOrigin.HOME
         resetBrowsedFolder()
-        if (!wasSearch && searchResult != null) {
-            clearSearch()
-        }
     }
 
     /**

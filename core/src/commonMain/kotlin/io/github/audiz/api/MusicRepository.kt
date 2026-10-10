@@ -517,6 +517,56 @@ class MusicRepository {
     }
 
     /**
+     * 💿 Получение треков альбома
+     * GET https://api.music.yandex.ru/albums/{albumId}/with-tracks
+     */
+    suspend fun getAlbumWithTracks(albumId: Long): Pair<List<String>, List<FullTrackInfo>> {
+        val url = "https://api.music.yandex.ru/albums/$albumId/with-tracks"
+        val rawText: String = client.get(url) {
+            applyAuthHeaders()
+        }.bodyAsText()
+
+        val root = playlistJson.parseToJsonElement(rawText).jsonObject
+        val albumObj = root["result"]?.jsonObject ?: root
+        val volumesArray = albumObj["volumes"]?.jsonArray
+        val directTracksArray = albumObj["tracks"]?.jsonArray
+        val allTrackElements = mutableListOf<JsonObject>()
+
+        if (volumesArray != null) {
+            for (v in volumesArray) {
+                (v as? JsonArray)?.forEach { elem ->
+                    (elem as? JsonObject)?.let { allTrackElements.add(it) }
+                }
+            }
+        } else if (directTracksArray != null) {
+            for (elem in directTracksArray) {
+                (elem as? JsonObject)?.let { allTrackElements.add(it) }
+            }
+        }
+
+        val allIds = mutableListOf<String>()
+        val richTracks = mutableListOf<FullTrackInfo>()
+
+        for (obj in allTrackElements) {
+            val trackObj = obj["track"] as? JsonObject ?: obj
+            val id = trackObj["id"]?.jsonPrimitive?.content ?: obj["id"]?.jsonPrimitive?.content
+            if (!id.isNullOrBlank()) {
+                allIds.add(id)
+            }
+            try {
+                val fullTrack = playlistJson.decodeFromJsonElement(FullTrackInfo.serializer(), trackObj)
+                val effectiveId = if (fullTrack.id.isNotBlank()) fullTrack.id else (id ?: "")
+                if (effectiveId.isNotBlank()) {
+                    richTracks.add(if (fullTrack.id.isBlank()) fullTrack.copy(id = effectiveId) else fullTrack)
+                }
+            } catch (e: Exception) {
+                println("MusicRepository: Не удалось распарсить трек альбома: ${e.message}")
+            }
+        }
+        return Pair(allIds, richTracks)
+    }
+
+    /**
      * 🎵 Получаем список ID треков плейлиста по uid владельца и kind
      * GET https://api.music.yandex.ru/users/{uid}/playlists/{kind}
      */

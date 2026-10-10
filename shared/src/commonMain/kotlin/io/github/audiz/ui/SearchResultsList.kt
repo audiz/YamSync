@@ -37,6 +37,7 @@ fun SearchResultsList(
     result: YandexMusicResponse,
     onArtistClick: (String) -> Unit,
     onPlaylistClick: (PlaylistInfo) -> Unit,
+    onAlbumClick: ((albumId: Long, albumTitle: String) -> Unit)? = null,
     isTrackDownloading: Boolean,
     downloadingTrackId: String?,
     onDownloadTrack: (trackId: String, trackTitle: String, artistName: String) -> Unit,
@@ -107,6 +108,12 @@ fun SearchResultsList(
                         dismissKeyboard()
                         onPlaylistClick(it)
                     },
+                    onAlbumClick = onAlbumClick?.let { callback ->
+                        { albumId, albumTitle ->
+                            dismissKeyboard()
+                            callback(albumId, albumTitle)
+                        }
+                    },
                     isTrackDownloading = isTrackDownloading,
                     downloadingTrackId = downloadingTrackId,
                     onDownloadTrack = { trackId, trackTitle, artistName ->
@@ -156,6 +163,7 @@ private fun ResultCard(
     item: TypedResult,
     onArtistClick: (String) -> Unit,
     onPlaylistClick: (PlaylistInfo) -> Unit,
+    onAlbumClick: ((Long, String) -> Unit)? = null,
     isTrackDownloading: Boolean,
     downloadingTrackId: String?,
     onDownloadTrack: (trackId: String, trackTitle: String, artistName: String) -> Unit,
@@ -219,6 +227,7 @@ private fun ResultCard(
 
     val isArtist = item.type == "artist"
     val isPlaylist = item.type == "playlist"
+    val isAlbum = item.type == "album"
     val isWave = item.type == "wave"
 
     Card(
@@ -228,6 +237,7 @@ private fun ResultCard(
                 when {
                     isArtist -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.artist?.id?.let { onArtistClick(it) } }
                     isPlaylist -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.playlist?.let { onPlaylistClick(it) } }
+                    isAlbum -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.album?.let { onAlbumClick?.invoke(it.id, it.title) } }
                     isWave -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.wave?.let { onWaveClick?.invoke(it) } }
                     else -> Modifier
                 }
@@ -237,13 +247,15 @@ private fun ResultCard(
             containerColor = when {
                 isArtist -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
                 isPlaylist -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                isAlbum -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
                 isWave -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                 else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             }
         )
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             when (item.type) {
                 "wave" -> {
@@ -300,31 +312,155 @@ private fun ResultCard(
                 }
                 "artist" -> {
                     val likes = item.artist?.likesCount
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ContentTypeIcon(ContentType.ARTIST, modifier = Modifier.size(18.dp))
-                        Text(item.artist?.name ?: "Артист", style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            ContentTypeIcon(ContentType.ARTIST, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = item.artist?.name ?: "Артист",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                         if (likes != null && likes > 0) {
-                            Text("• $likes лайков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    text = "$likes лайков",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
-                    Text("Нажмите, чтобы открыть все треки исполнителя", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        text = "Нажмите, чтобы открыть все треки исполнителя",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
                 "playlist" -> {
                     val count = item.playlist?.trackCount ?: 0
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ContentTypeIcon(ContentType.PLAYLIST, modifier = Modifier.size(18.dp))
-                        Text("Плейлист: ${item.playlist?.title ?: "Без названия"}", style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            ContentTypeIcon(ContentType.PLAYLIST, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = "Плейлист: ${item.playlist?.title ?: "Без названия"}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                         if (count > 0) {
-                            Text("• $count треков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    text = "$count треков",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
-                    Text("Нажмите, чтобы открыть треки плейлиста", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        text = "Нажмите, чтобы открыть треки плейлиста",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
                 "album" -> {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ContentTypeIcon(ContentType.ALBUM, modifier = Modifier.size(18.dp))
-                        Text(item.album?.title ?: "Альбом", style = MaterialTheme.typography.titleMedium)
+                    val count = item.album?.trackCount ?: 0
+                    val year = item.album?.year
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            ContentTypeIcon(ContentType.ALBUM, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = "Альбом: ${item.album?.title ?: "Без названия"}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (year != null && year > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                ) {
+                                    Text(
+                                        text = "$year",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                            if (count > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                ) {
+                                    Text(
+                                        text = "$count треков",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
                     }
+                    Text(
+                        text = "Нажмите, чтобы открыть треки альбома",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
