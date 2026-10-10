@@ -565,6 +565,7 @@ fun App() {
                             onStopPlayback = { searchViewModel.stopPlayback() },
                             onSeek = { searchViewModel.seekPlayer(it) },
                             totalTracksCount = searchViewModel.totalTracksCount,
+                            isLoading = searchViewModel.isLoading,
                             isLoadingAllPages = searchViewModel.isLoadingAllPages,
                             onLoadAllClick = { searchViewModel.loadAllRemainingPages() },
                             isTrackDownloaded = { artist, title -> searchViewModel.isTrackDownloaded(artist, title) },

@@ -38,8 +38,19 @@ class MusicRepository {
         install(WebSockets) {
             pingIntervalMillis = 20_000
         }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 20_000
+            connectTimeoutMillis = 10_000
+            socketTimeoutMillis = 20_000
+        }
     }
     val ynisonService = YnisonService(client)
+
+    private val playlistJson = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        isLenient = true
+    }
 
     private val clientHeader = "YandexMusicAndroid/24023621"
     private val deviceModels = listOf(
@@ -316,8 +327,7 @@ class MusicRepository {
             parameter("richTracks", true)
         }.bodyAsText()
 
-        val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
-        val root = json.parseToJsonElement(rawText).jsonObject
+        val root = playlistJson.parseToJsonElement(rawText).jsonObject
         val playlistObj = root["result"]?.jsonObject ?: root
         val tracksArray = playlistObj["tracks"]?.jsonArray
             ?: throw Exception("Нет поля 'tracks' в ответе playlist/$uuid. Ключи: ${playlistObj.keys}")
@@ -335,7 +345,7 @@ class MusicRepository {
             }
             if (trackElem is JsonObject) {
                 try {
-                    val fullTrack = json.decodeFromJsonElement(FullTrackInfo.serializer(), trackElem)
+                    val fullTrack = playlistJson.decodeFromJsonElement(FullTrackInfo.serializer(), trackElem)
                     val effectiveId = if (fullTrack.id.isNotBlank()) fullTrack.id else (id ?: "")
                     if (effectiveId.isNotBlank()) {
                         richTracks.add(if (fullTrack.id.isBlank()) fullTrack.copy(id = effectiveId) else fullTrack)
@@ -381,8 +391,7 @@ class MusicRepository {
             parameter("richTracks", true)
         }.bodyAsText()
 
-        val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
-        val root = json.parseToJsonElement(rawText).jsonObject
+        val root = playlistJson.parseToJsonElement(rawText).jsonObject
         val playlistObj = root["result"]?.jsonObject ?: root
         val tracksArray = playlistObj["tracks"]?.jsonArray
             ?: throw Exception("Нет поля 'tracks' в ответе $url. Ключи: ${playlistObj.keys}")
@@ -400,7 +409,7 @@ class MusicRepository {
             }
             if (trackElem is JsonObject) {
                 try {
-                    val fullTrack = json.decodeFromJsonElement(FullTrackInfo.serializer(), trackElem)
+                    val fullTrack = playlistJson.decodeFromJsonElement(FullTrackInfo.serializer(), trackElem)
                     val effectiveId = if (fullTrack.id.isNotBlank()) fullTrack.id else (id ?: "")
                     if (effectiveId.isNotBlank()) {
                         richTracks.add(if (fullTrack.id.isBlank()) fullTrack.copy(id = effectiveId) else fullTrack)
