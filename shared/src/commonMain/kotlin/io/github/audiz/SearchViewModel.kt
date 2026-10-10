@@ -333,6 +333,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             return getTrackPlaylistsCount(track)
         }
 
+    /** 🔄 Версия состояния плейлистов (для реактивного обновления UI при добавлении/удалении треков) */
+    val playlistsVersion: Long get() = playlistManager.playlistsVersion
+
     /** Переключить лайк для текущего воспроизводимого трека */
     fun toggleLikeCurrentTrack() {
         if (isCurrentTrackLocal) return

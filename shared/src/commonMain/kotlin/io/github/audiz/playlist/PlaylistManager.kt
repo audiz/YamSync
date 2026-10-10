@@ -78,7 +78,15 @@ class PlaylistManager(
         private set
     var onLocalPlaylistsChanged: (() -> Unit)? = null
 
+    var playlistsVersion by mutableStateOf(0L)
+        private set
+
+    fun notifyPlaylistsChanged() {
+        playlistsVersion++
+    }
+
     private fun notifyLocalPlaylistsChanged() {
+        notifyPlaylistsChanged()
         onLocalPlaylistsChanged?.invoke()
     }
 
@@ -174,6 +182,7 @@ class PlaylistManager(
                                         val cleanIds = trackIds.map { it.substringBefore(":") }.toSet()
                                         withContext(Dispatchers.Main) {
                                             userPlaylistsTrackIds[kind] = cleanIds
+                                            notifyPlaylistsChanged()
                                         }
                                         delay(250L)
                                     } catch (_: Throwable) {
@@ -218,6 +227,7 @@ class PlaylistManager(
                 }
                 localPlaylists.clear()
                 localPlaylists.addAll(list)
+                notifyPlaylistsChanged()
                 println("PlaylistManager: Загружено локальных плейлистов: ${list.size}")
             } catch (e: Throwable) {
                 println("PlaylistManager: Ошибка загрузки локальных плейлистов: ${e.message}")
@@ -527,8 +537,10 @@ class PlaylistManager(
             val success = repository.addTrackToPlaylist(kind, cleanTrackId, albumId)
             if (success) {
                 onStatusMessage("✅ Добавлено в плейлист Яндекс: ${track.title}")
+                val rawTrackId = track.id.removePrefix("local:").substringBefore(":")
                 val currentIds = userPlaylistsTrackIds[kind] ?: emptySet()
-                userPlaylistsTrackIds[kind] = currentIds + cleanTrackId
+                userPlaylistsTrackIds[kind] = currentIds + cleanTrackId + rawTrackId
+                notifyPlaylistsChanged()
                 val idx = userPlaylists.indexOfFirst { it.kind == kind }
                 if (idx >= 0) {
                     val cur = userPlaylists[idx]
@@ -584,8 +596,10 @@ class PlaylistManager(
             val success = repository.removeTrackFromPlaylist(kind, cleanTrackId)
             if (success) {
                 onStatusMessage("✅ Удалено из плейлиста '${playlist.title}': ${track.title}")
+                val rawTrackId = track.id.removePrefix("local:").substringBefore(":")
                 val currentIds = userPlaylistsTrackIds[kind] ?: emptySet()
-                userPlaylistsTrackIds[kind] = currentIds - cleanTrackId
+                userPlaylistsTrackIds[kind] = currentIds - cleanTrackId - rawTrackId
+                notifyPlaylistsChanged()
                 val idx = userPlaylists.indexOfFirst { it.kind == kind }
                 if (idx >= 0) {
                     val cur = userPlaylists[idx]
@@ -616,6 +630,7 @@ class PlaylistManager(
             val ids = details.tracks.map { it.id.substringBefore(":") }.toSet()
             val current = userPlaylistsTrackIds[kind] ?: emptySet()
             userPlaylistsTrackIds[kind] = current + ids
+            notifyPlaylistsChanged()
         }
         return details
     }

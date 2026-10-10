@@ -153,10 +153,11 @@ fun App() {
             val isCurrentTrackDownloadedOrLocal = searchViewModel.isCurrentTrackLocal || isCurrentTrackDownloaded
 
             val currentTrackKey = searchViewModel.playerTrackId ?: currentWave?.id ?: "$displayArtist::$displayTitle"
-            val isCurrentTrackInPlaylist = remember(currentTrackKey) {
+            val playlistsVersion = searchViewModel.playlistsVersion
+            val isCurrentTrackInPlaylist = remember(currentTrackKey, playlistsVersion) {
                 searchViewModel.isCurrentTrackInPlaylist
             }
-            val currentTrackPlaylistsCount = remember(currentTrackKey) {
+            val currentTrackPlaylistsCount = remember(currentTrackKey, playlistsVersion) {
                 searchViewModel.currentTrackPlaylistsCount
             }
 
@@ -500,6 +501,7 @@ fun App() {
                                     onStopPlayback = { searchViewModel.stopPlayback() },
                                     onSeek = { searchViewModel.seekPlayer(it) },
                                     isTrackDownloaded = { artist, title -> searchViewModel.isTrackDownloaded(artist, title) },
+                                    isTrackInPlaylist = { searchViewModel.isTrackInAnyPlaylist(it) },
                                     onDeleteTrack = { trackId, trackTitle, artistName ->
                                         trackToDelete = TrackDeleteConfirmInfo(trackId, trackTitle, artistName)
                                     },
@@ -578,6 +580,7 @@ fun App() {
                             isLoadingAllPages = searchViewModel.isLoadingAllPages,
                             onLoadAllClick = { searchViewModel.loadAllRemainingPages() },
                             isTrackDownloaded = { artist, title -> searchViewModel.isTrackDownloaded(artist, title) },
+                            isTrackInPlaylist = { searchViewModel.isTrackInAnyPlaylist(it) },
                             title = searchViewModel.currentScreenTitle,
                             onRefresh = if (searchViewModel.isDownloadedTracksScreen) {
                                 {

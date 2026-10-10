@@ -73,6 +73,7 @@ fun ArtistTracksList(
     onAddToPlaylist: ((FullTrackInfo) -> Unit)? = null,
     onRemoveFromPlaylist: ((FullTrackInfo) -> Unit)? = null,
     onArtistClick: ((artistId: String, artistName: String) -> Unit)? = null,
+    isTrackInPlaylist: ((FullTrackInfo) -> Boolean)? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -233,6 +234,7 @@ fun ArtistTracksList(
                         val isDownloaded = track.id.startsWith("local:") ||
                             (rId != null && (rId.startsWith("local:") || rId.startsWith("/") || (rId.length > 2 && rId[1] == ':'))) ||
                             isTrackDownloaded(artistsString, track.title)
+                        val isInPlaylist = isTrackInPlaylist?.invoke(track) ?: false
 
                         TrackItemCard(
                             track = track,
@@ -241,6 +243,7 @@ fun ArtistTracksList(
                                 isActive = isCurrentTrackActive,
                                 isPlaying = isCurrentTrackPlaying,
                                 isDownloaded = isDownloaded,
+                                isInPlaylist = isInPlaylist,
                                 playbackPositionMs = playbackPositionMs,
                                 playbackDurationMs = playbackDurationMs,
                             ),

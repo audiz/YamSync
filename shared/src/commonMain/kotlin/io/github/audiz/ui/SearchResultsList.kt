@@ -52,6 +52,7 @@ fun SearchResultsList(
     onStopPlayback: () -> Unit = {},
     onSeek: (Long) -> Unit = {},
     isTrackDownloaded: (artistName: String, trackTitle: String) -> Boolean = { _, _ -> false },
+    isTrackInPlaylist: ((FullTrackInfo) -> Boolean)? = null,
     onDeleteTrack: ((trackId: String, trackTitle: String, artistName: String) -> Unit)? = null,
     onAddToPlaylist: ((FullTrackInfo) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -133,6 +134,7 @@ fun SearchResultsList(
                     onStopPlayback = onStopPlayback,
                     onSeek = onSeek,
                     isTrackDownloaded = isTrackDownloaded,
+                    isTrackInPlaylist = isTrackInPlaylist,
                     onDeleteTrack = onDeleteTrack,
                     onWaveClick = onWaveClick?.let { callback ->
                         { wave ->
@@ -178,6 +180,7 @@ private fun ResultCard(
     onStopPlayback: () -> Unit = {},
     onSeek: (Long) -> Unit = {},
     isTrackDownloaded: (artistName: String, trackTitle: String) -> Boolean = { _, _ -> false },
+    isTrackInPlaylist: ((FullTrackInfo) -> Boolean)? = null,
     onDeleteTrack: ((trackId: String, trackTitle: String, artistName: String) -> Unit)? = null,
     onAddToPlaylist: ((FullTrackInfo) -> Unit)? = null
 ) {
@@ -197,6 +200,7 @@ private fun ResultCard(
         val isDownloaded = fullTrack.id.startsWith("local:") ||
             (rId != null && (rId.startsWith("local:") || rId.startsWith("/") || (rId.length > 2 && rId[1] == ':'))) ||
             isTrackDownloaded(artistsString, fullTrack.title)
+        val isInPlaylist = isTrackInPlaylist?.invoke(fullTrack) ?: false
 
         TrackItemCard(
             track = fullTrack,
@@ -205,6 +209,7 @@ private fun ResultCard(
                 isActive = isCurrentTrackActive,
                 isPlaying = isCurrentTrackPlaying,
                 isDownloaded = isDownloaded,
+                isInPlaylist = isInPlaylist,
                 playbackPositionMs = playbackPositionMs,
                 playbackDurationMs = playbackDurationMs,
             ),

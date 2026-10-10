@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -28,6 +29,7 @@ data class TrackItemState(
     val isActive: Boolean = false,
     val isPlaying: Boolean = false,
     val isDownloaded: Boolean = false,
+    val isInPlaylist: Boolean = false,
     val playbackPositionMs: Long = 0L,
     val playbackDurationMs: Long = 0L,
 )
@@ -177,12 +179,14 @@ fun TrackItemCard(
                         )
                     }
 
-                    // ➕ Добавить в локальный плейлист
+                    // ➕ Добавить в локальный / облачный плейлист
                     if (actions.onAddToPlaylist != null) {
                         OutlineIconButton(
-                            icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                            contentDescription = "Добавить в плейлист",
+                            icon = if (state.isInPlaylist) Icons.AutoMirrored.Filled.PlaylistAddCheck else Icons.AutoMirrored.Filled.PlaylistAdd,
+                            contentDescription = if (state.isInPlaylist) "В плейлисте" else "Добавить в плейлист",
                             size = 36.dp,
+                            contentColor = if (state.isInPlaylist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            borderColor = if (state.isInPlaylist) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline,
                             onClick = actions.onAddToPlaylist
                         )
                     }
