@@ -175,6 +175,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     // 🌊 Свойства Моей Волны (Делегированы в WaveManager):
     val ynisonWaveSessionId: String? get() = waveManager.ynisonWaveSessionId
     val isFetchingYnison: Boolean get() = waveManager.isFetchingYnison
+    val ynisonHost: String? get() = waveManager.ynisonHost
+    val ynisonError: String? get() = waveManager.ynisonError
     val waveRadioSessionId: String? get() = waveManager.waveRadioSessionId
     val waveBatchId: String? get() = waveManager.waveBatchId
     val waveTracks: androidx.compose.runtime.snapshots.SnapshotStateList<FullTrackInfo> get() = waveManager.waveTracks

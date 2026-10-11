@@ -51,6 +51,10 @@ class WaveManager(
         private set
     var isFetchingYnison by mutableStateOf(false)
         private set
+    var ynisonHost by mutableStateOf<String?>(null)
+        private set
+    var ynisonError by mutableStateOf<String?>(null)
+        private set
 
     // 🌊 Состояния «Моя Волна» (Rotor Radio):
     var waveRadioSessionId by mutableStateOf<String?>(null)
@@ -244,7 +248,9 @@ class WaveManager(
                     null
                 }
                 ynisonWaveSessionId = sid
-                println("WaveManager: Ynison Wave Session ID = $sid")
+                ynisonHost = repository.lastYnisonHost
+                ynisonError = repository.lastYnisonError
+                println("WaveManager: Ynison Wave Session ID = $sid (host: $ynisonHost, error: $ynisonError)")
 
                 var rotorResponse: RotorSessionResponse? = null
                 if (!sid.isNullOrBlank()) {

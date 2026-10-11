@@ -664,6 +664,8 @@ fun App() {
                     authStatusMessage = searchViewModel.authStatusMessage,
                     isFetchingYnison = searchViewModel.isFetchingYnison,
                     ynisonWaveSessionId = searchViewModel.ynisonWaveSessionId,
+                    ynisonHost = searchViewModel.ynisonHost,
+                    ynisonError = searchViewModel.ynisonError,
                     storageStatusMessage = searchViewModel.storageStatusMessage,
                     uiMode = searchViewModel.uiMode,
                     crossfadeSeconds = searchViewModel.playerCrossfadeSeconds,

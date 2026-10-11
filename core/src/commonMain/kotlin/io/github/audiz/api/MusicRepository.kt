@@ -1288,6 +1288,9 @@ class MusicRepository {
         }
     }
 
+    val lastYnisonHost: String? get() = ynisonService.lastYnisonHost
+    val lastYnisonError: String? get() = ynisonService.lastYnisonError
+
     private val rotorHosts = listOf("api.music.yandex.ru", "api.music.yandex.net")
 
     private suspend fun postRotorWithFallback(path: String, payload: String): HttpResponse {

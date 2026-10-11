@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Tune
@@ -56,6 +57,8 @@ data class SettingsState(
     val authStatusMessage: String? = null,
     val isFetchingYnison: Boolean = false,
     val ynisonWaveSessionId: String? = null,
+    val ynisonHost: String? = null,
+    val ynisonError: String? = null,
     val storageStatusMessage: String? = null,
     val uiMode: String = "auto",
     val crossfadeSeconds: Int = 3,
@@ -661,34 +664,68 @@ fun SettingsDialog(
                                     false -> Color(0xFFFFA000)
                                     null -> MaterialTheme.colorScheme.onSurfaceVariant
                                 }
-                                val badgeText = when (state.hasPlusSubscription) {
-                                    true -> "👑 Подписка Яндекс Плюс: Активна"
-                                    false -> "⚠️ Подписка Яндекс Плюс: Не активна (базовый режим)"
-                                    null -> "⏳ Проверка статуса подписки Яндекс Плюс..."
+                                val badgeIcon = when (state.hasPlusSubscription) {
+                                    true -> "👑"
+                                    false -> "⚠️"
+                                    null -> "⏳"
                                 }
-                                Surface(
+                                val badgeTitle = when (state.hasPlusSubscription) {
+                                    true -> "Подписка Яндекс Плюс активна"
+                                    false -> "Подписка Яндекс Плюс не активна"
+                                    null -> "Проверка подписки Яндекс Плюс..."
+                                }
+                                val badgeSubtitle = when (state.hasPlusSubscription) {
+                                    true -> "Доступны персональные рекомендации и все стили Волны"
+                                    false -> "Базовый режим: доступны чарты и стандартная Моя Волна"
+                                    null -> "Запрашиваем статус аккаунта в Яндекс Музыке..."
+                                }
+
+                                Card(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = badgeColor.copy(alpha = 0.12f),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = badgeColor.copy(alpha = 0.12f)
+                                    ),
                                     border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.35f)),
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth().wrapContentHeight()
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Text(
-                                            text = badgeText,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = badgeColor,
-                                            fontWeight = FontWeight.Medium
+                                            text = badgeIcon,
+                                            style = MaterialTheme.typography.titleMedium
                                         )
-                                        TextButton(
-                                            onClick = { actions.onRefreshPlusSubscription() },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                        Column(
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            Text("Обновить", style = MaterialTheme.typography.labelSmall)
+                                            Text(
+                                                text = badgeTitle,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = badgeColor
+                                            )
+                                            Text(
+                                                text = badgeSubtitle,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { actions.onRefreshPlusSubscription() },
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Refresh,
+                                                contentDescription = "Обновить статус подписки",
+                                                tint = badgeColor,
+                                                modifier = Modifier.size(18.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -703,6 +740,14 @@ fun SettingsDialog(
                                 text = "🌊 Ynison WebSocket (Моя Волна)",
                                 style = MaterialTheme.typography.labelLarge
                             )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Служба реального времени для синхронизации очереди и управления устройствами.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
                             FlowRow(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -712,7 +757,7 @@ fun SettingsDialog(
                                     enabled = !state.isFetchingYnison && state.currentAccessToken.isNotBlank(),
                                     modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                                 ) {
-                                    Text(if (state.isFetchingYnison) "⏳ Получение..." else "🔄 Запросить Ynison Session")
+                                    Text(if (state.isFetchingYnison) "⏳ Подключение..." else "🔄 Запросить Ynison Session")
                                 }
 
                                 if (state.ynisonWaveSessionId != null) {
@@ -725,6 +770,60 @@ fun SettingsDialog(
                                         )
                                     }
                                 }
+                            }
+
+                            // ⚠️ Ошибка подключения к Ynison хосту
+                            if (!state.ynisonError.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Card(
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                                    modifier = Modifier.fillMaxWidth().wrapContentHeight()
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text("⚠️", style = MaterialTheme.typography.labelMedium)
+                                            Text(
+                                                text = "Сбой соединения с сервером Ynison",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        SelectionContainer {
+                                            Text(
+                                                text = state.ynisonError,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "🛡️ Активирован резервный режим Rotor (Моя Волна продолжает играть без сбоев)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            } else if (state.ynisonWaveSessionId != null && !state.ynisonHost.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Подключено к хосту: ${state.ynisonHost}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
 
                             Spacer(modifier = Modifier.height(12.dp))
