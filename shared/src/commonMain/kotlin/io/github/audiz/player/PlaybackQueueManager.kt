@@ -69,9 +69,11 @@ class PlaybackQueueManager {
 
     fun recordPlayed(trackId: String) {
         if (trackId.isBlank()) return
-        playbackHistory.add(trackId)
-        if (playbackHistory.size > MAX_HISTORY_SIZE) {
-            playbackHistory.removeAt(0)
+        synchronized(playbackHistory) {
+            playbackHistory.add(trackId)
+            if (playbackHistory.size > MAX_HISTORY_SIZE) {
+                playbackHistory.removeAt(0)
+            }
         }
         recordPlayedInCycle(trackId)
     }
@@ -98,19 +100,24 @@ class PlaybackQueueManager {
     }
 
     fun recordForward(trackId: String) {
-        forwardHistory.add(trackId)
-        if (forwardHistory.size > MAX_HISTORY_SIZE) {
-            forwardHistory.removeAt(0)
+        if (trackId.isBlank()) return
+        synchronized(forwardHistory) {
+            forwardHistory.add(trackId)
+            if (forwardHistory.size > MAX_HISTORY_SIZE) {
+                forwardHistory.removeAt(0)
+            }
         }
     }
 
     fun clearForwardHistory() {
-        forwardHistory.clear()
+        synchronized(forwardHistory) {
+            forwardHistory.clear()
+        }
     }
 
     fun clearAll() {
-        playbackHistory.clear()
-        forwardHistory.clear()
+        synchronized(playbackHistory) { playbackHistory.clear() }
+        synchronized(forwardHistory) { forwardHistory.clear() }
         plannedNextTrack = null
         resetShuffleCycle()
     }
@@ -123,17 +130,19 @@ class PlaybackQueueManager {
         loadedTracks: List<FullTrackInfo>,
         searchTracks: List<FullTrackInfo>
     ): FullTrackInfo? {
-        while (forwardHistory.isNotEmpty()) {
-            val nextId = forwardHistory.removeLast()
-            if (!isSameTrackId(nextId, activeId)) {
-                if (activeId != null) {
-                    recordPlayed(activeId)
-                }
-                val foundLoaded = loadedTracks.firstOrNull { isSameTrack(it, nextId) }
-                if (foundLoaded != null) return foundLoaded
+        synchronized(forwardHistory) {
+            while (forwardHistory.isNotEmpty()) {
+                val nextId = forwardHistory.removeLastOrNull() ?: break
+                if (!isSameTrackId(nextId, activeId)) {
+                    if (activeId != null) {
+                        recordPlayed(activeId)
+                    }
+                    val foundLoaded = loadedTracks.firstOrNull { isSameTrack(it, nextId) }
+                    if (foundLoaded != null) return foundLoaded
 
-                val foundSearch = searchTracks.firstOrNull { isSameTrack(it, nextId) }
-                if (foundSearch != null) return foundSearch
+                    val foundSearch = searchTracks.firstOrNull { isSameTrack(it, nextId) }
+                    if (foundSearch != null) return foundSearch
+                }
             }
         }
         return null
@@ -147,17 +156,19 @@ class PlaybackQueueManager {
         loadedTracks: List<FullTrackInfo>,
         searchTracks: List<FullTrackInfo>
     ): FullTrackInfo? {
-        while (playbackHistory.isNotEmpty()) {
-            val prevId = playbackHistory.removeLast()
-            if (!isSameTrackId(prevId, activeId)) {
-                if (activeId != null) {
-                    recordForward(activeId)
-                }
-                val foundLoaded = loadedTracks.firstOrNull { isSameTrack(it, prevId) }
-                if (foundLoaded != null) return foundLoaded
+        synchronized(playbackHistory) {
+            while (playbackHistory.isNotEmpty()) {
+                val prevId = playbackHistory.removeLastOrNull() ?: break
+                if (!isSameTrackId(prevId, activeId)) {
+                    if (activeId != null) {
+                        recordForward(activeId)
+                    }
+                    val foundLoaded = loadedTracks.firstOrNull { isSameTrack(it, prevId) }
+                    if (foundLoaded != null) return foundLoaded
 
-                val foundSearch = searchTracks.firstOrNull { isSameTrack(it, prevId) }
-                if (foundSearch != null) return foundSearch
+                    val foundSearch = searchTracks.firstOrNull { isSameTrack(it, prevId) }
+                    if (foundSearch != null) return foundSearch
+                }
             }
         }
         return null
@@ -180,9 +191,11 @@ class PlaybackQueueManager {
 
         addIfNew(activeId)
 
-        for (i in playbackHistory.indices.reversed()) {
-            if (recent.size >= limit) break
-            addIfNew(playbackHistory[i])
+        synchronized(playbackHistory) {
+            for (i in playbackHistory.indices.reversed()) {
+                if (recent.size >= limit) break
+                addIfNew(playbackHistory[i])
+            }
         }
 
         return recent

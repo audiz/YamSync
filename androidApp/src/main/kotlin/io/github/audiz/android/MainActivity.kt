@@ -18,6 +18,28 @@ class MainActivity : ComponentActivity() {
         // 🔥 Инициализируем контекст для SharedPreferences (сохранение cookie)
         AppContextHolder.appContext = applicationContext
 
+        // 🛡️ Глобальный перехватчик необработанных исключений для записи краш-логов на диск
+        val originalHandler = Thread.getDefaultUncaughtExceptionHandler()
+        val crashFile = java.io.File(applicationContext.filesDir, "crash_log.txt")
+        if (crashFile.exists()) {
+            try {
+                val prevCrash = crashFile.readText()
+                if (prevCrash.isNotBlank()) {
+                    io.github.audiz.util.AppLogger.e("CrashHandler", "Предыдущее аварийное завершение:\n$prevCrash")
+                }
+            } catch (_: Throwable) {}
+        }
+
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val stackTrace = throwable.stackTraceToString()
+                System.err.println("CRITICAL UNCAUGHT EXCEPTION on thread ${thread.name}: $stackTrace")
+                io.github.audiz.util.AppLogger.e("CrashHandler", "Критическая ошибка на потоке ${thread.name}", throwable)
+                crashFile.writeText("Time: ${java.util.Date()}\nThread: ${thread.name}\n$stackTrace\n")
+            } catch (_: Throwable) {}
+            originalHandler?.uncaughtException(thread, throwable)
+        }
+
         // 🛡️ Безопасная обработка кнопки "Назад" на корневом экране (предотвращает падение Activity на некоторых Android)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {

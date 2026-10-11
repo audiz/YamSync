@@ -605,17 +605,23 @@ actual class AudioPlayer actual constructor() {
         try {
             mediaPlayer?.start()
             fadingMediaPlayer?.start()
-            if (visualizer == null) {
-                mediaPlayer?.audioSessionId?.let { setupVisualizer(it) }
-            } else {
-                visualizer?.enabled = true
-            }
-            if (equalizer == null) {
-                mediaPlayer?.audioSessionId?.let { setupEqualizer(it) }
-            } else {
-                applyEqualizerState(EqualizerEngine.state.value)
-            }
-        } catch (_: Exception) {}
+            try {
+                if (visualizer == null) {
+                    val sessionId = mediaPlayer?.audioSessionId ?: 0
+                    if (sessionId > 0) setupVisualizer(sessionId)
+                } else {
+                    visualizer?.enabled = true
+                }
+            } catch (_: Throwable) {}
+            try {
+                if (equalizer == null) {
+                    val sessionId = mediaPlayer?.audioSessionId ?: 0
+                    if (sessionId > 0) setupEqualizer(sessionId)
+                } else {
+                    applyEqualizerState(EqualizerEngine.state.value)
+                }
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     actual fun stop() {
@@ -687,8 +693,8 @@ actual class AudioPlayer actual constructor() {
 
     actual fun seekTo(positionMs: Long) {
         try {
-            mediaPlayer?.seekTo(positionMs.toInt())
-        } catch (_: Exception) {}
+            mediaPlayer?.seekTo(positionMs.coerceAtLeast(0L).toInt())
+        } catch (_: Throwable) {}
     }
 
     private var currentVolume: Float = 1f

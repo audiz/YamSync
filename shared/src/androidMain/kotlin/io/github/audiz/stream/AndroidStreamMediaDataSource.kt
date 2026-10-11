@@ -5,6 +5,7 @@ import io.github.audiz.api.MusicRepository
 import io.github.audiz.api.decryptAesCtrChunk
 import io.github.audiz.models.TrackStreamMeta
 import kotlinx.coroutines.*
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -60,51 +61,70 @@ class AndroidStreamMediaDataSource(
 
     override fun getSize(): Long {
         if (isClosed.get()) return -1L
-        val m = getOrFetchMeta() ?: return -1L
-        return m.totalSizeBytes
+        return try {
+            val m = getOrFetchMeta() ?: return -1L
+            m.totalSizeBytes
+        } catch (e: IOException) {
+            throw e
+        } catch (t: Throwable) {
+            println("AndroidStreamMediaDataSource: Ошибка getSize: ${t.message}")
+            -1L
+        }
     }
 
-    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
-        if (isClosed.get()) return -1
-        if (size <= 0) return 0
+    override fun readAt(position: Long, buffer: ByteArray?, offset: Int, size: Int): Int {
+        if (isClosed.get() || buffer == null) return -1
+        if (size <= 0 || position < 0L || offset < 0 || offset >= buffer.size) return 0
 
-        val m = getOrFetchMeta() ?: return -1
-        val totalSize = m.totalSizeBytes
-        if (totalSize <= 0L || position >= totalSize) return -1
+        return try {
+            val m = getOrFetchMeta() ?: return -1
+            val totalSize = m.totalSizeBytes
+            if (totalSize <= 0L || position >= totalSize) return -1
 
-        val bytesToRead = minOf(size.toLong(), totalSize - position).toInt()
-        if (bytesToRead <= 0) return 0
+            val bytesToRead = minOf(size.toLong(), totalSize - position).toInt()
+            if (bytesToRead <= 0) return 0
 
-        var totalCopied = 0
-        var currentPos = position
-        var currentOffset = offset
-        var remaining = bytesToRead
+            var totalCopied = 0
+            var currentPos = position
+            var currentOffset = offset
+            var remaining = bytesToRead
 
-        while (remaining > 0 && !isClosed.get()) {
-            val chunkIndex = currentPos / chunkSize
-            val offsetInChunk = (currentPos % chunkSize).toInt()
-            val chunkData = getOrFetchChunk(m, chunkIndex) ?: break
+            while (remaining > 0 && !isClosed.get()) {
+                val chunkIndex = currentPos / chunkSize
+                val offsetInChunk = (currentPos % chunkSize).toInt()
+                val chunkData = getOrFetchChunk(m, chunkIndex) ?: break
 
-            val available = chunkData.size - offsetInChunk
-            if (available <= 0) break
+                val available = chunkData.size - offsetInChunk
+                if (available <= 0) break
 
-            val toCopy = minOf(remaining, available)
-            System.arraycopy(chunkData, offsetInChunk, buffer, currentOffset, toCopy)
+                val maxBufferCanHold = buffer.size - currentOffset
+                if (maxBufferCanHold <= 0) break
 
-            totalCopied += toCopy
-            currentPos += toCopy
-            currentOffset += toCopy
-            remaining -= toCopy
+                val toCopy = minOf(remaining, minOf(available, maxBufferCanHold))
+                if (toCopy <= 0) break
 
-            // Запускаем упреждающую загрузку следующего чанка в фоне
-            val nextChunkIndex = chunkIndex + 1L
-            val nextStart = nextChunkIndex * chunkSize
-            if (nextStart < totalSize && !chunkCache.containsKey(nextChunkIndex) && !prefetchJobs.containsKey(nextChunkIndex)) {
-                prefetchNextChunk(m, nextChunkIndex)
+                System.arraycopy(chunkData, offsetInChunk, buffer, currentOffset, toCopy)
+
+                totalCopied += toCopy
+                currentPos += toCopy
+                currentOffset += toCopy
+                remaining -= toCopy
+
+                // Запускаем упреждающую загрузку следующего чанка в фоне
+                val nextChunkIndex = chunkIndex + 1L
+                val nextStart = nextChunkIndex * chunkSize
+                if (nextStart < totalSize && !chunkCache.containsKey(nextChunkIndex) && !prefetchJobs.containsKey(nextChunkIndex)) {
+                    prefetchNextChunk(m, nextChunkIndex)
+                }
             }
-        }
 
-        return if (totalCopied > 0) totalCopied else -1
+            if (totalCopied > 0) totalCopied else -1
+        } catch (e: IOException) {
+            throw e
+        } catch (t: Throwable) {
+            println("AndroidStreamMediaDataSource: Ошибка readAt (pos=$position, size=$size): ${t.message}")
+            -1
+        }
     }
 
     private fun getOrFetchChunk(m: TrackStreamMeta, chunkIndex: Long): ByteArray? {

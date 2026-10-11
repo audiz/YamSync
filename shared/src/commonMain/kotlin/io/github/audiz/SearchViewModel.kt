@@ -2339,11 +2339,21 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun seekPlayer(positionMs: Long) = playbackManager.seekTo(positionMs)
 
     fun playNextTrack(currentId: String? = playerTrackId, source: TrackPlaySource = TrackPlaySource.NEXT) {
-        playbackManager.playNextTrack(currentId, source)
+        try {
+            playbackManager.playNextTrack(currentId, source)
+        } catch (t: Throwable) {
+            println("SearchViewModel: Ошибка playNextTrack: ${t.message}")
+            t.printStackTrace()
+        }
     }
 
     fun playPrevTrack(currentId: String? = playerTrackId, source: TrackPlaySource = TrackPlaySource.PREV) {
-        playbackManager.playPrevTrack(currentId, source)
+        try {
+            playbackManager.playPrevTrack(currentId, source)
+        } catch (t: Throwable) {
+            println("SearchViewModel: Ошибка playPrevTrack: ${t.message}")
+            t.printStackTrace()
+        }
     }
 
     override fun onCleared() {

@@ -352,14 +352,19 @@ class PlaybackManager(
     }
 
     fun seekTo(position: Long) {
+        val safePos = position.coerceAtLeast(0L)
         lastSeekTimestamp = currentTimeMillis()
         isSeeking = true
         hasTriggeredAutoAdvance = false
-        io.github.audiz.dsp.AudioVisualizer.resetTrackAudibility()
         try {
-            audioPlayer.seekTo(position)
-            positionMs = position
-            systemMediaControls.updatePlaybackState(isPlaying, isPaused, position)
+            io.github.audiz.dsp.AudioVisualizer.resetTrackAudibility()
+        } catch (_: Throwable) {}
+        try {
+            audioPlayer.seekTo(safePos)
+            positionMs = safePos
+            systemMediaControls.updatePlaybackState(isPlaying, isPaused, safePos)
+        } catch (t: Throwable) {
+            println("PlaybackManager: Ошибка seekTo: ${t.message}")
         } finally {
             scope.launch {
                 delay(700)
@@ -1325,96 +1330,102 @@ class PlaybackManager(
      * Переход к предыдущему треку в очереди (или перезапуск текущего, если прошло > 5 сек)
      */
     fun playPrevTrack(currentId: String? = trackId, source: TrackPlaySource = TrackPlaySource.PREV) {
-        val now = currentTimeMillis()
-        val currentPos = if (positionMs > 0L) positionMs else audioPlayer.getCurrentPositionMs()
-        val timeSinceLastPrev = now - lastPrevClickTimestamp
+        try {
+            val now = currentTimeMillis()
+            val currentPos = if (positionMs > 0L) positionMs else audioPlayer.getCurrentPositionMs()
+            val timeSinceLastPrev = now - lastPrevClickTimestamp
 
-        // 🔄 Если трек уже играет больше 5 секунд и это НЕ быстрый повторный клик (прошло > 2 сек):
-        // перематываем текущий трек на начало и запускаем воспроизведение
-        if (trackId != null && currentPos > PREV_RESTART_THRESHOLD_MS && timeSinceLastPrev > PREV_DOUBLE_CLICK_WINDOW_MS) {
-            println("PlaybackManager: ⏮ Трек играет $currentPos мс (> 5 сек) -> перезапуск с начала")
-            lastPrevClickTimestamp = now
-            seekTo(0L)
-            if (isPaused) {
-                audioPlayer.resume()
-                isPaused = false
-                systemMediaControls.updatePlaybackState(isPlaying = true, isPaused = false, 0L)
-                startProgressPolling()
-            } else if (!isPlaying) {
-                togglePlayPause()
+            // 🔄 Если трек уже играет больше 5 секунд и это НЕ быстрый повторный клик (прошло > 2 сек):
+            // перематываем текущий трек на начало и запускаем воспроизведение
+            if (trackId != null && currentPos > PREV_RESTART_THRESHOLD_MS && timeSinceLastPrev > PREV_DOUBLE_CLICK_WINDOW_MS) {
+                println("PlaybackManager: ⏮ Трек играет $currentPos мс (> 5 сек) -> перезапуск с начала")
+                lastPrevClickTimestamp = now
+                seekTo(0L)
+                if (isPaused) {
+                    audioPlayer.resume()
+                    isPaused = false
+                    systemMediaControls.updatePlaybackState(isPlaying = true, isPaused = false, 0L)
+                    startProgressPolling()
+                } else if (!isPlaying) {
+                    togglePlayPause()
+                }
+                return
             }
-            return
-        }
 
-        // Если сработал переход к предыдущему треку — сбрасываем таймер быстрого клика
-        lastPrevClickTimestamp = 0L
+            // Если сработал переход к предыдущему треку — сбрасываем таймер быстрого клика
+            lastPrevClickTimestamp = 0L
 
-        if (source == TrackPlaySource.PREV) {
-            isPrevLoading = true
-            isNextLoading = false
-            isPlayLoading = false
-        }
-        if (waveBridge?.isWaveMode == true) {
-            waveBridge.playPrevWaveTrack()
-            return
-        }
+            if (source == TrackPlaySource.PREV) {
+                isPrevLoading = true
+                isNextLoading = false
+                isPlayLoading = false
+            }
+            if (waveBridge?.isWaveMode == true) {
+                waveBridge.playPrevWaveTrack()
+                return
+            }
 
-        val activeId = currentId ?: trackId
-        val loadedTracks = queueSource.getLoadedTracks()
-        val searchTracks = queueSource.getSearchTracks()
+            val activeId = currentId ?: trackId
+            val loadedTracks = queueSource.getLoadedTracks()
+            val searchTracks = queueSource.getSearchTracks()
 
-        // 1. Реальная история прослушивания
-        val prevFromHistory = queueManager.popPrevFromPlaybackHistory(activeId, loadedTracks, searchTracks)
-        if (prevFromHistory != null) {
-            playTrack(
-                targetTrackId = prevFromHistory.id,
-                targetTrackTitle = prevFromHistory.title,
-                targetArtistName = prevFromHistory.artists.joinToString { it.name },
-                targetAlbumId = prevFromHistory.albums.firstOrNull()?.id,
-                isManualSelection = false,
-                source = source
-            )
-            return
-        }
-
-        // 2. Текущий плейлист (loadedTracks)
-        if (loadedTracks.isNotEmpty()) {
-            if (activeId != null) queueManager.recordForward(activeId)
-            val prevTrack = queueManager.getPrevFromList(activeId, loadedTracks)
-            if (prevTrack != null) {
+            // 1. Реальная история прослушивания
+            val prevFromHistory = queueManager.popPrevFromPlaybackHistory(activeId, loadedTracks, searchTracks)
+            if (prevFromHistory != null) {
                 playTrack(
-                    targetTrackId = prevTrack.id,
-                    targetTrackTitle = prevTrack.title,
-                    targetArtistName = prevTrack.artists.joinToString { it.name },
-                    targetAlbumId = prevTrack.albums.firstOrNull()?.id,
+                    targetTrackId = prevFromHistory.id,
+                    targetTrackTitle = prevFromHistory.title,
+                    targetArtistName = prevFromHistory.artists.joinToString { it.name },
+                    targetAlbumId = prevFromHistory.albums.firstOrNull()?.id,
                     isManualSelection = false,
                     source = source
                 )
                 return
             }
-        }
 
-        // 3. Результаты поиска
-        if (searchTracks.isNotEmpty()) {
-            if (activeId != null) queueManager.recordForward(activeId)
-            val prevTrack = queueManager.getPrevFromList(activeId, searchTracks)
-            if (prevTrack != null) {
-                playTrack(
-                    targetTrackId = prevTrack.id,
-                    targetTrackTitle = prevTrack.title,
-                    targetArtistName = prevTrack.artists.joinToString { it.name },
-                    targetAlbumId = null,
-                    isManualSelection = false,
-                    source = source
-                )
-                return
+            // 2. Текущий плейлист (loadedTracks)
+            if (loadedTracks.isNotEmpty()) {
+                if (activeId != null) queueManager.recordForward(activeId)
+                val prevTrack = queueManager.getPrevFromList(activeId, loadedTracks)
+                if (prevTrack != null) {
+                    playTrack(
+                        targetTrackId = prevTrack.id,
+                        targetTrackTitle = prevTrack.title,
+                        targetArtistName = prevTrack.artists.joinToString { it.name },
+                        targetAlbumId = prevTrack.albums.firstOrNull()?.id,
+                        isManualSelection = false,
+                        source = source
+                    )
+                    return
+                }
             }
-        }
 
-        val waveTracks = waveBridge?.waveTracks ?: emptyList()
-        if (activeId == null && waveTracks.isNotEmpty()) {
-            waveBridge?.playPrevWaveTrack()
-        } else {
+            // 3. Результаты поиска
+            if (searchTracks.isNotEmpty()) {
+                if (activeId != null) queueManager.recordForward(activeId)
+                val prevTrack = queueManager.getPrevFromList(activeId, searchTracks)
+                if (prevTrack != null) {
+                    playTrack(
+                        targetTrackId = prevTrack.id,
+                        targetTrackTitle = prevTrack.title,
+                        targetArtistName = prevTrack.artists.joinToString { it.name },
+                        targetAlbumId = null,
+                        isManualSelection = false,
+                        source = source
+                    )
+                    return
+                }
+            }
+
+            val waveTracks = waveBridge?.waveTracks ?: emptyList()
+            if (activeId == null && waveTracks.isNotEmpty()) {
+                waveBridge?.playPrevWaveTrack()
+            } else {
+                isPrevLoading = false
+            }
+        } catch (t: Throwable) {
+            println("PlaybackManager: Ошибка playPrevTrack: ${t.message}")
+            t.printStackTrace()
             isPrevLoading = false
         }
     }

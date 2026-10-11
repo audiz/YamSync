@@ -519,37 +519,47 @@ class WaveManager(
      * ⏮ Переход к предыдущему треку в Моей волне (до 5 треков назад)
      */
     override fun playPrevWaveTrack() {
-        if (!isWaveMode) {
-            if (waveTracks.isNotEmpty()) {
-                playWaveTrack(waveCurrentIndex, source = TrackPlaySource.PREV)
+        try {
+            if (!isWaveMode) {
+                if (waveTracks.isNotEmpty()) {
+                    playWaveTrack(waveCurrentIndex, source = TrackPlaySource.PREV)
+                }
+                return
             }
-            return
-        }
 
-        if (wavePastTracks.isEmpty()) {
-            println("🌊 Волна: История назад пуста (достигнут лимит 5 треков)")
-            val currentPos = playbackManager?.positionMs ?: 0L
-            if (currentPos > 2000L) {
-                playbackManager?.seekTo(0L)
+            if (wavePastTracks.isEmpty()) {
+                println("🌊 Волна: История назад пуста (достигнут лимит 5 треков)")
+                val currentPos = playbackManager?.positionMs ?: 0L
+                if (currentPos > 2000L) {
+                    playbackManager?.seekTo(0L)
+                }
+                return
             }
-            return
-        }
 
-        playbackManager?.setLoadingFlags(next = false, prev = true, play = false)
+            playbackManager?.setLoadingFlags(next = false, prev = true, play = false)
 
-        val current = currentWaveTrack
-        if (current != null) {
-            waveFutureTracks.removeAll { it.id == current.id }
-            waveFutureTracks.add(0, current)
-            if (waveFutureTracks.size > 5) {
-                waveFutureTracks.removeLast()
+            val current = currentWaveTrack
+            if (current != null) {
+                waveFutureTracks.removeAll { it.id == current.id }
+                waveFutureTracks.add(0, current)
+                while (waveFutureTracks.size > 5) {
+                    waveFutureTracks.removeLastOrNull()
+                }
             }
-        }
 
-        val prevTrack = wavePastTracks.removeLast()
-        waveFutureTracks.removeAll { it.id == prevTrack.id }
-        println("🌊 Волна: Назад к треку [в истории назад: ${wavePastTracks.size}, вперед: ${waveFutureTracks.size}]: ${prevTrack.title}")
-        playWaveTrackDirect(prevTrack, source = TrackPlaySource.PREV)
+            val prevTrack = wavePastTracks.removeLastOrNull() ?: run {
+                println("🌊 Волна: Не удалось извлечь предыдущий трек из истории")
+                playbackManager?.setLoadingFlags(next = false, prev = false, play = false)
+                return
+            }
+            waveFutureTracks.removeAll { it.id == prevTrack.id }
+            println("🌊 Волна: Назад к треку [в истории назад: ${wavePastTracks.size}, вперед: ${waveFutureTracks.size}]: ${prevTrack.title}")
+            playWaveTrackDirect(prevTrack, source = TrackPlaySource.PREV)
+        } catch (t: Throwable) {
+            println("🌊 Волна: Ошибка в playPrevWaveTrack: ${t.message}")
+            t.printStackTrace()
+            playbackManager?.setLoadingFlags(next = false, prev = false, play = false)
+        }
     }
 
     /**
@@ -702,7 +712,7 @@ class WaveManager(
 
                     // Заменяем треки в очереди ПОСЛЕ текущего играющего (waveCurrentIndex)
                     while (waveTracks.size > waveCurrentIndex + 1) {
-                        waveTracks.removeLast()
+                        waveTracks.removeLastOrNull() ?: break
                     }
                     val existingIds = waveTracks.map { it.id }.toSet()
                     val pastIds = wavePastTracks.map { it.id }.toSet()
