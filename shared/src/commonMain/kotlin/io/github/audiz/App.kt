@@ -668,6 +668,7 @@ fun App() {
                     uiMode = searchViewModel.uiMode,
                     crossfadeSeconds = searchViewModel.playerCrossfadeSeconds,
                     isUiWatchdogActive = searchViewModel.isUiWatchdogActive,
+                    hasPlusSubscription = searchViewModel.hasPlusSubscription,
                 ),
                 actions = SettingsActions(
                     onClose = { settingsExpanded = false },
@@ -692,7 +693,8 @@ fun App() {
                     },
                     onSaveUiMode = { searchViewModel.saveUiMode(it) },
                     onSaveCrossfade = { searchViewModel.changeCrossfade(it) },
-                    onToggleUiWatchdog = { searchViewModel.toggleUiWatchdog(it) }
+                    onToggleUiWatchdog = { searchViewModel.toggleUiWatchdog(it) },
+                    onRefreshPlusSubscription = { searchViewModel.refreshPlusSubscription() }
                 )
             )
 

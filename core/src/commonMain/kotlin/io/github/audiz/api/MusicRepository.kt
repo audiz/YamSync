@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.booleanOrNull
 import io.ktor.client.plugins.*
 import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
@@ -1249,6 +1250,27 @@ class MusicRepository {
     }
 
     /**
+     * 👑 Проверить, активна ли подписка Яндекс Плюс у текущего аккаунта
+     */
+    suspend fun getAccountPlusInfo(): Boolean {
+        return try {
+            val response: String = client.get("https://api.music.yandex.net/account/status") {
+                applyAuthHeaders()
+            }.bodyAsText()
+            val json = Json { ignoreUnknownKeys = true }
+            val root = json.parseToJsonElement(response).jsonObject
+            val result = root["result"]?.jsonObject
+            val hasPlus = result?.get("plus")?.jsonObject?.get("hasPlus")?.jsonPrimitive?.booleanOrNull
+                ?: result?.get("account")?.jsonObject?.get("hasPlus")?.jsonPrimitive?.booleanOrNull
+                ?: false
+            hasPlus
+        } catch (e: Exception) {
+            println("MusicRepository: Не удалось проверить статус подписки: ${e.message}")
+            false
+        }
+    }
+
+    /**
      * 🌊 Получить session_id Моей волны через Ynison WebSocket
      */
     suspend fun fetchYnisonWaveSessionId(): String? {
@@ -1266,19 +1288,44 @@ class MusicRepository {
         }
     }
 
+    private val rotorHosts = listOf("api.music.yandex.ru", "api.music.yandex.net")
+
+    private suspend fun postRotorWithFallback(path: String, payload: String): HttpResponse {
+        var lastException: Throwable? = null
+        for (host in rotorHosts) {
+            try {
+                val url = "https://$host$path"
+                val response: HttpResponse = client.post(url) {
+                    applyAuthHeaders()
+                    contentType(ContentType.Application.Json)
+                    setBody(payload)
+                }
+                if (response.status.value !in 500..599) {
+                    return response
+                }
+                println("MusicRepository: $host вернул HTTP ${response.status}, пробуем резервный хост...")
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                lastException = e
+                println("MusicRepository: Ошибка связи с $host: ${e.message}")
+            }
+        }
+        if (lastException != null) throw lastException
+        throw IllegalStateException("Все серверы Яндекс Музыки временно недоступны")
+    }
+
     /**
      * 🔄 Клонировать Rotor-сессию по waveSessionId
      */
     suspend fun cloneRotorSessionRaw(waveSessionId: String): String {
-        val url = "https://api.music.yandex.ru/rotor/session/$waveSessionId/clone"
-        println("MusicRepository: POST $url")
-        val response: HttpResponse = client.post(url) {
-            applyAuthHeaders()
-            contentType(ContentType.Application.Json)
-            setBody("{}")
-        }
+        val safeSid = waveSessionId.encodeURLPathPart()
+        println("MusicRepository: POST /rotor/session/$safeSid/clone")
+        val response = postRotorWithFallback("/rotor/session/$safeSid/clone", "{}")
         val text = response.bodyAsText()
         println("MusicRepository: Ответ clone:\n$text")
+        if (response.status.value !in 200..299) {
+            throw IllegalStateException("Ошибка клонирования сессии Волны (HTTP ${response.status})")
+        }
         return text
     }
 
@@ -1308,17 +1355,24 @@ class MusicRepository {
      * 🌊 Создать Rotor-сессию по списку seeds (например, для жанровой Волны: ["genre:metal"])
      */
     suspend fun createRotorSessionRaw(seeds: List<String>): String {
-        val url = "https://api.music.yandex.ru/rotor/session/new"
-        println("MusicRepository: POST $url with seeds: $seeds")
+        println("MusicRepository: Создание Rotor-сессии with seeds: $seeds")
         val seedsJson = seeds.joinToString(",") { "\"$it\"" }
         val payload = """{"seeds":[$seedsJson],"includeTracksInResponse":true}"""
-        val response: HttpResponse = client.post(url) {
-            applyAuthHeaders()
-            contentType(ContentType.Application.Json)
-            setBody(payload)
-        }
+        val response = postRotorWithFallback("/rotor/session/new", payload)
         val text = response.bodyAsText()
-        println("MusicRepository: Ответ session/new:\n$text")
+        println("MusicRepository: Ответ session/new (HTTP ${response.status}):\n$text")
+        if (response.status.value !in 200..299) {
+            val json = Json { ignoreUnknownKeys = true }
+            val errMsg = try {
+                val root = json.parseToJsonElement(text).jsonObject
+                root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+                    ?: root["result"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+            } catch (_: Exception) { null }
+            if (response.status == HttpStatusCode.Forbidden || response.status == HttpStatusCode.Unauthorized) {
+                throw IllegalStateException(errMsg ?: "Для выбранной волны требуется активная подписка Яндекс Плюс")
+            }
+            throw IllegalStateException(errMsg ?: "Ошибка создания сессии Волны (HTTP ${response.status})")
+        }
         return text
     }
 
@@ -1385,7 +1439,8 @@ class MusicRepository {
         feedbacks: List<RotorFeedbackItem>,
         remainingQueue: List<String> = emptyList()
     ): String {
-        val url = "https://api.music.yandex.ru/rotor/session/$radioSessionId/tracks"
+        val safeSid = radioSessionId.encodeURLPathPart()
+        val path = "/rotor/session/$safeSid/tracks"
         val defaultTime = currentIsoUtcTimestamp()
 
         val feedbacksJson = feedbacks.joinToString(",") { fb ->
@@ -1397,14 +1452,13 @@ class MusicRepository {
         val payload = """{"queue":[$queueJson],"feedbacks":[$feedbacksJson]}"""
 
         val eventTypes = feedbacks.map { it.eventType }
-        println("MusicRepository: POST ${url} ($eventTypes, queue: ${remainingQueue.size} items)")
-        val response: HttpResponse = client.post(url) {
-            applyAuthHeaders()
-            contentType(ContentType.Application.Json)
-            setBody(payload)
-        }
+        println("MusicRepository: POST $path ($eventTypes, queue: ${remainingQueue.size} items)")
+        val response = postRotorWithFallback(path, payload)
         val text = response.bodyAsText()
-        println("MusicRepository: Ответ next tracks ($eventTypes):\n$text")
+        println("MusicRepository: Ответ next tracks ($eventTypes) [HTTP ${response.status}]:\n$text")
+        if (response.status.value !in 200..299) {
+            throw IllegalStateException("Ошибка получения треков Волны (HTTP ${response.status})")
+        }
         return text
     }
 
@@ -1418,19 +1472,17 @@ class MusicRepository {
         trackIdWithAlbum: String,
         timestamp: String = currentIsoUtcTimestamp()
     ): Boolean {
-        val url = "https://api.music.yandex.ru/rotor/session/$radioSessionId/feedback/"
+        val safeSid = radioSessionId.encodeURLPathPart()
+        val path = "/rotor/session/$safeSid/feedback/"
         val payload = """{"event":{"type":"trackStarted","timestamp":"$timestamp","trackId":"$trackIdWithAlbum"},"batchId":"$batchId","from":"web-wave_landing_screen-my_wave-radio-default"}"""
-        println("MusicRepository: POST $url (trackStarted: $trackIdWithAlbum)")
+        println("MusicRepository: POST $path (trackStarted: $trackIdWithAlbum)")
         return try {
-            val response: HttpResponse = client.post(url) {
-                applyAuthHeaders()
-                contentType(ContentType.Application.Json)
-                setBody(payload)
-            }
+            val response = postRotorWithFallback(path, payload)
             val status = response.status.value in 200..299
             println("MusicRepository: trackStarted response status: ${response.status}")
             status
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             println("MusicRepository: Ошибка при отправке trackStarted: ${e.message}")
             false
         }
@@ -1453,20 +1505,17 @@ class MusicRepository {
         changeReason: String = "finish", // "finish" | "skip"
         playId: String = generatePlayUuid()
     ): Boolean {
-        val url = "https://api.music.yandex.ru/plays?clientNow=$endTimestamp"
+        val path = "/plays?clientNow=$endTimestamp"
         val addTracksTime = "${kotlin.random.Random.nextLong(1000000000000000L, 9999999999999999L)}-${kotlin.random.Random.nextInt(1000000000, 2000000000)}"
         val payload = """{"plays":[{"playId":"$playId","from":"web-wave_landing_screen-my_wave-radio-default","totalPlayedSeconds":$totalPlayedSeconds,"endPositionSeconds":$endPositionSeconds,"trackLengthSeconds":$trackLengthSeconds,"timestamp":"$endTimestamp","albumId":"$albumId","context":"radio","contextItem":"user:onyourwave","addTracksToPlayerTime":"$addTracksTime","fromCache":false,"isRestored":false,"audioAuto":"none","audioOutputName":"Динамик","audioOutputType":"Speaker","trackId":"$trackId","radioSessionId":"$radioSessionId","batchId":"$batchId","isFromAutoflow":false,"isFromPumpkin":false,"seek":true,"pause":false,"startTimestamp":"$startTimestamp","maxPlayerStage":"play","isRepeated":false,"changeReason":"$changeReason","isLivePlayableIndex":true}]}"""
-        println("MusicRepository: POST /plays ($changeReason, trackId: $trackId, played: ${totalPlayedSeconds}s)")
+        println("MusicRepository: POST $path ($changeReason, trackId: $trackId, played: ${totalPlayedSeconds}s)")
         return try {
-            val response: HttpResponse = client.post(url) {
-                applyAuthHeaders()
-                contentType(ContentType.Application.Json)
-                setBody(payload)
-            }
+            val response = postRotorWithFallback(path, payload)
             val status = response.status.value in 200..299
             println("MusicRepository: /plays response status: ${response.status}")
             status
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             println("MusicRepository: Ошибка при отправке /plays: ${e.message}")
             false
         }

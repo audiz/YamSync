@@ -44,6 +44,19 @@ class SettingsManager(
     var authStatusMessage by mutableStateOf<String?>(null)
     var storageStatusMessage by mutableStateOf<String?>(null)
 
+    // 👑 Статус подписки Яндекс Плюс: null (проверяется/неизвестно), true (активна), false (не активна)
+    var hasPlusSubscription by mutableStateOf<Boolean?>(null)
+        private set
+
+    suspend fun checkPlusSubscription() {
+        if (currentAccessToken.isBlank()) {
+            hasPlusSubscription = null
+            return
+        }
+        val plus = repository.getAccountPlusInfo()
+        hasPlusSubscription = plus
+    }
+
     // 🎚️ Качество скачивания ("1" = low, "2" = high)
     var selectedQuality by mutableStateOf(loadAppConfig(AppConfigKeys.DOWNLOAD_QUALITY) ?: "1")
         private set

@@ -60,6 +60,7 @@ data class SettingsState(
     val uiMode: String = "auto",
     val crossfadeSeconds: Int = 3,
     val isUiWatchdogActive: Boolean = false,
+    val hasPlusSubscription: Boolean? = null,
 )
 
 /**
@@ -82,6 +83,7 @@ data class SettingsActions(
     val onSaveUiMode: (String) -> Unit = {},
     val onSaveCrossfade: (Int) -> Unit = {},
     val onToggleUiWatchdog: (Boolean) -> Unit = {},
+    val onRefreshPlusSubscription: () -> Unit = {},
 )
 
 /**
@@ -648,6 +650,47 @@ fun SettingsDialog(
                                         color = if (state.authStatusMessage.startsWith("✅")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                         style = MaterialTheme.typography.bodySmall
                                     )
+                                }
+                            }
+
+                            // 👑 Статус подписки Яндекс Плюс
+                            if (state.currentAccessToken.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                val badgeColor = when (state.hasPlusSubscription) {
+                                    true -> Color(0xFF4CAF50)
+                                    false -> Color(0xFFFFA000)
+                                    null -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                                val badgeText = when (state.hasPlusSubscription) {
+                                    true -> "👑 Подписка Яндекс Плюс: Активна"
+                                    false -> "⚠️ Подписка Яндекс Плюс: Не активна (базовый режим)"
+                                    null -> "⏳ Проверка статуса подписки Яндекс Плюс..."
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = badgeColor.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.35f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = badgeText,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = badgeColor,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        TextButton(
+                                            onClick = { actions.onRefreshPlusSubscription() },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                        ) {
+                                            Text("Обновить", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
                                 }
                             }
 

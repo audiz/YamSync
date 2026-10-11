@@ -8,6 +8,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import io.github.audiz.TrackPlaySource
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.api.RotorFeedbackItem
+import io.github.audiz.models.RotorSessionResponse
 import io.github.audiz.api.currentIsoUtcTimestamp
 import io.github.audiz.api.generatePlayUuid
 import io.github.audiz.models.FullTrackInfo
@@ -235,51 +236,69 @@ class WaveManager(
             isWaveLoading = true
             isFetchingYnison = true
             try {
-                val sid = repository.fetchYnisonWaveSessionId()
+                val sid = try {
+                    repository.fetchYnisonWaveSessionId()
+                } catch (e: Throwable) {
+                    if (e is CancellationException) throw e
+                    println("WaveManager: Ошибка получения Ynison сессии: ${e.message}")
+                    null
+                }
                 ynisonWaveSessionId = sid
-                println("WaveManager: Получен Ynison Wave Session ID = $sid")
+                println("WaveManager: Ynison Wave Session ID = $sid")
 
+                var rotorResponse: RotorSessionResponse? = null
                 if (!sid.isNullOrBlank()) {
-                    println("WaveManager: Клонируем сессию Волны: $sid")
-                    val response = repository.cloneRotorSession(sid)
-                    waveRadioSessionId = response.radioSessionId ?: sid
-                    waveBatchId = response.batchId
-                    replenishmentJob?.cancel()
-                    trackStartTimestamps.clear()
-                    trackPlayIds.clear()
-                    waveTracks.clear()
-                    wavePastTracks.clear()
-                    waveFutureTracks.clear()
-                    activeWaveTrack = null
-                    pendingWaveFeedbacks.clear()
-                    waveTrackBatchMap.clear()
-                    val parsedTracks = response.sequence.mapNotNull { it.track }.distinctBy { it.id }
-                    waveTracks.addAll(parsedTracks)
-                    parsedTracks.forEach { t ->
-                        response.batchId?.let { bId -> waveTrackBatchMap[t.id] = bId }
+                    try {
+                        println("WaveManager: Клонируем сессию Волны: $sid")
+                        rotorResponse = repository.cloneRotorSession(sid)
+                    } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
+                        println("WaveManager: Ошибка клонирования Ynison сессии ($sid): ${e.message}, пробуем Rotor fallback...")
                     }
-                    response.sequence.forEach { item ->
-                        val t = item.track
-                        if (item.liked && t != null) {
-                            onTrackLiked?.invoke(t.id)
-                        }
-                    }
-                    waveCurrentIndex = 0
-                    if (waveTracks.isNotEmpty()) {
-                        isWaveMode = true
-                        activeWaveTrack = parsedTracks.firstOrNull()
-                    }
-                    println("WaveManager: Волна инициализирована! Загружено треков: ${waveTracks.size}, batchId: $waveBatchId")
+                }
 
-                    if (autoPlay && waveTracks.isNotEmpty()) {
-                        playWaveTrack(0, source = source)
-                    } else if (autoPlay) {
-                        playbackManager?.resetLoadingFlags()
+                if (rotorResponse == null || rotorResponse.sequence.isEmpty()) {
+                    println("WaveManager: Ynison недоступен или пуст. Запрашиваем Rotor user:onyourwave...")
+                    rotorResponse = repository.createRotorSession(listOf("user:onyourwave"))
+                }
+
+                val response = rotorResponse
+                waveRadioSessionId = response.radioSessionId ?: sid
+                waveBatchId = response.batchId
+                replenishmentJob?.cancel()
+                trackStartTimestamps.clear()
+                trackPlayIds.clear()
+                waveTracks.clear()
+                wavePastTracks.clear()
+                waveFutureTracks.clear()
+                activeWaveTrack = null
+                pendingWaveFeedbacks.clear()
+                waveTrackBatchMap.clear()
+                val parsedTracks = response.sequence.mapNotNull { it.track }.distinctBy { it.id }
+                waveTracks.addAll(parsedTracks)
+                parsedTracks.forEach { t ->
+                    response.batchId?.let { bId -> waveTrackBatchMap[t.id] = bId }
+                }
+                response.sequence.forEach { item ->
+                    val t = item.track
+                    if (item.liked && t != null) {
+                        onTrackLiked?.invoke(t.id)
                     }
+                }
+                waveCurrentIndex = 0
+                if (waveTracks.isNotEmpty()) {
+                    isWaveMode = true
+                    activeWaveTrack = parsedTracks.firstOrNull()
+                }
+                println("WaveManager: Волна инициализирована! Загружено треков: ${waveTracks.size}, batchId: $waveBatchId")
+
+                if (autoPlay && waveTracks.isNotEmpty()) {
+                    playWaveTrack(0, source = source)
                 } else if (autoPlay) {
                     playbackManager?.resetLoadingFlags()
                 }
             } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 println("WaveManager: Ошибка инициализации Волны: ${e.message}")
                 e.printStackTrace()
                 onError?.invoke("Ошибка инициализации Волны: ${e.message}")
@@ -329,12 +348,18 @@ class WaveManager(
             }
         }
 
+        var fallbackToPersonal = false
         scope.launch {
             isWaveLoading = true
             try {
                 println("WaveManager: Запуск тематической Волны '$title', seeds=$seeds")
                 val response = repository.createRotorSession(seeds)
                 val sid = response.radioSessionId
+                val parsedTracks = response.sequence.mapNotNull { it.track }.distinctBy { it.id }
+                if (parsedTracks.isEmpty()) {
+                    throw IllegalStateException("Для волны не найдено доступных треков")
+                }
+
                 waveRadioSessionId = sid
                 waveBatchId = response.batchId
                 replenishmentJob?.cancel()
@@ -347,7 +372,6 @@ class WaveManager(
                 pendingWaveFeedbacks.clear()
                 waveTrackBatchMap.clear()
 
-                val parsedTracks = response.sequence.mapNotNull { it.track }
                 waveTracks.addAll(parsedTracks)
                 parsedTracks.forEach { t ->
                     response.batchId?.let { bId -> waveTrackBatchMap[t.id] = bId }
@@ -359,10 +383,8 @@ class WaveManager(
                     }
                 }
                 waveCurrentIndex = 0
-                if (waveTracks.isNotEmpty()) {
-                    isWaveMode = true
-                    activeWaveTrack = parsedTracks.firstOrNull()
-                }
+                isWaveMode = true
+                activeWaveTrack = parsedTracks.firstOrNull()
                 println("WaveManager: Тематическая Волна запущена! Загружено треков: ${waveTracks.size}, radioSessionId: $waveRadioSessionId, batchId: $waveBatchId")
 
                 if (autoPlay && waveTracks.isNotEmpty()) {
@@ -371,14 +393,19 @@ class WaveManager(
                     playbackManager?.resetLoadingFlags()
                 }
             } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 println("WaveManager: Ошибка запуска тематической Волны: ${e.message}")
                 e.printStackTrace()
-                onError?.invoke("Ошибка запуска Волны: ${e.message}")
-                if (autoPlay) {
-                    playbackManager?.resetLoadingFlags()
-                }
+                val waveName = title?.takeIf { it.isNotBlank() } ?: "выбранная волна"
+                onError?.invoke("Волна «$waveName» недоступна (требуется подписка Плюс). Включаем Мою Волну...")
+                fallbackToPersonal = true
             } finally {
                 isWaveLoading = false
+                if (fallbackToPersonal) {
+                    loadInitialWave(autoPlay = autoPlay, source = source)
+                } else if (autoPlay && waveTracks.isEmpty()) {
+                    playbackManager?.resetLoadingFlags()
+                }
             }
         }
     }

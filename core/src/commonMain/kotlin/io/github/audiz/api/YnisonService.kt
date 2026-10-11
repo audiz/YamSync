@@ -83,7 +83,7 @@ class YnisonService(private val client: HttpClient) {
         var result: RedirectInfo? = null
 
         try {
-            withTimeoutOrNull(15_000L) {
+            withTimeoutOrNull(4_000L) {
                 client.webSocket(
                     urlString = REDIRECTOR_URL,
                     request = {
@@ -115,6 +115,7 @@ class YnisonService(private val client: HttpClient) {
                 }
             }
         } catch (e: Throwable) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             println("YnisonService: Ошибка WebSocket редиректора: ${e.message}")
             e.printStackTrace()
         }
@@ -158,7 +159,7 @@ class YnisonService(private val client: HttpClient) {
         val updateStatePayload = """{"update_full_state":{"player_state":{"player_queue":{"current_playable_index":-1,"entity_id":"","entity_type":"VARIOUS","playable_list":[],"options":{"repeat_mode":"NONE"},"shuffle_optional":null,"entity_context":"BASED_ON_ENTITY_BY_DEFAULT","version":{"device_id":"$deviceId","version":$versionLong,"timestamp_ms":0},"from_optional":"","initial_entity_optional":null,"adding_options_optional":null,"queue":null},"status":{"duration_ms":0,"paused":true,"playback_speed":1,"progress_ms":0,"version":{"device_id":"$deviceId","version":$versionLong,"timestamp_ms":0}},"player_queue_inject_optional":null},"device":{"volume":0.5399999999999998,"capabilities":{"can_be_player":true,"can_be_remote_controller":false,"volume_granularity":20},"info":{"app_name":"Chrome","app_version":"131.0.0.0","title":"Browser Chrome","device_id":"$deviceId","type":"WEB"},"volume_info":{"volume":0.5399999999999998,"version":null},"is_shadow":true},"is_currently_active":false,"sync_state_from_eov_optional":null},"rid":"$rid","player_action_timestamp_ms":0,"activity_interception_type":"DO_NOT_INTERCEPT_BY_DEFAULT"}"""
 
         try {
-            withTimeoutOrNull(20_000L) {
+            withTimeoutOrNull(4_000L) {
                 client.webSocket(
                     urlString = stateUrl,
                     request = {
@@ -228,6 +229,7 @@ class YnisonService(private val client: HttpClient) {
                 }
             }
         } catch (e: Throwable) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             println("YnisonService: Ошибка при работе с PutYnisonState: ${e.message}")
             e.printStackTrace()
         }

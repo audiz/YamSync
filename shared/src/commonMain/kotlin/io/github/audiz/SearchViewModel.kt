@@ -200,6 +200,12 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         get() = settingsManager.storageStatusMessage
         set(value) { settingsManager.storageStatusMessage = value }
 
+    // 👑 Статус подписки Яндекс Плюс:
+    val hasPlusSubscription: Boolean? get() = settingsManager.hasPlusSubscription
+    fun refreshPlusSubscription() {
+        launchSafe { settingsManager.checkPlusSubscription() }
+    }
+
     // 🎚️ Качество скачивания ("1" = low, "2" = high)
     val selectedQuality: String
         get() = settingsManager.selectedQuality
@@ -360,13 +366,14 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     // ⚙️ МЕНЕДЖЕР НАСТРОЕК И ТОКЕНОВ:
-    val settingsManager = SettingsManager(
+    val settingsManager: SettingsManager = SettingsManager(
         repository = repository,
         onTokenUpdated = { _ ->
             playlistManager.syncLikedTrackIds()
             playlistManager.loadPersonalPlaylists()
             playlistManager.loadUserPlaylists()
             loadInitialWave(autoPlay = false)
+            refreshPlusSubscription()
         },
         onStoragePathUpdated = { _ ->
             playlistManager.loadPersonalPlaylists()
@@ -625,6 +632,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             syncLikedTrackIds()
             loadPersonalPlaylists()
             loadUserPlaylists()
+            launchSafe { settingsManager.checkPlusSubscription() }
         } else {
             loadPersonalPlaylists()
             loadUserPlaylists()
