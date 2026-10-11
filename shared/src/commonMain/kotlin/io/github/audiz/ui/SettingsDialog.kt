@@ -25,6 +25,9 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
+import io.github.audiz.isPlatformPickerSupported
+import io.github.audiz.launchDirectoryPicker
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -554,6 +557,24 @@ fun SettingsDialog(
                                 onValueChange = { pathInput = it; pathSaved = false },
                                 label = { Text("Путь") },
                                 singleLine = true,
+                                trailingIcon = if (isPlatformPickerSupported) {
+                                    {
+                                        IconButton(
+                                            onClick = {
+                                                launchDirectoryPicker { picked ->
+                                                    if (!picked.isNullOrBlank()) {
+                                                        pathInput = picked
+                                                        actions.onSaveMusicPath(picked)
+                                                        pathSaved = true
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                        ) {
+                                            Icon(Icons.Filled.FolderOpen, contentDescription = "Выбрать папку")
+                                        }
+                                    }
+                                } else null,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(modifier = Modifier.height(4.dp))
@@ -561,6 +582,24 @@ fun SettingsDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
+                                if (isPlatformPickerSupported) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            launchDirectoryPicker { picked ->
+                                                if (!picked.isNullOrBlank()) {
+                                                    pathInput = picked
+                                                    actions.onSaveMusicPath(picked)
+                                                    pathSaved = true
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("📁 Обзор...")
+                                    }
+                                }
                                 Button(
                                     onClick = {
                                         actions.onSaveMusicPath(pathInput)

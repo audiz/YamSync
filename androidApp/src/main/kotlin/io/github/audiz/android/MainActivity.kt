@@ -1,22 +1,67 @@
 package io.github.audiz.android
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
-import android.content.Intent
+import androidx.activity.result.contract.ActivityResultContracts
+import io.github.audiz.AndroidFilePickerBridge
 import io.github.audiz.App // Импортируем точку входа из вашего модуля :shared
 import io.github.audiz.AppContextHolder
 import io.github.audiz.DeepLinkHandler
 
 class MainActivity : ComponentActivity() {
+
+    private var pendingDirectoryCallback: ((String?) -> Unit)? = null
+    private var pendingFileCallback: ((String?) -> Unit)? = null
+
+    private val openDocumentTreeLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        val path = uri?.let { AndroidFilePickerBridge.resolveTreeUriToPath(applicationContext, it) }
+        pendingDirectoryCallback?.invoke(path)
+        pendingDirectoryCallback = null
+    }
+
+    private val openDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val path = uri?.let { AndroidFilePickerBridge.resolveDocUriToPath(applicationContext, it) }
+        pendingFileCallback?.invoke(path)
+        pendingFileCallback = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 🔥 Инициализируем контекст для SharedPreferences (сохранение cookie)
         AppContextHolder.appContext = applicationContext
+
+        // 📁 Связываем ActivityResult контракты с PlatformFilePicker
+        AndroidFilePickerBridge.directoryPickerLauncher = { callback ->
+            pendingDirectoryCallback = callback
+            try {
+                openDocumentTreeLauncher.launch(null)
+            } catch (t: Throwable) {
+                println("MainActivity: Ошибка launch OpenDocumentTree: ${t.message}")
+                pendingDirectoryCallback = null
+                callback(null)
+            }
+        }
+
+        AndroidFilePickerBridge.filePickerLauncher = { callback ->
+            pendingFileCallback = callback
+            try {
+                openDocumentLauncher.launch(arrayOf("audio/*", "application/ogg", "application/x-mpegurl", "audio/x-scpls"))
+            } catch (t: Throwable) {
+                println("MainActivity: Ошибка launch OpenDocument: ${t.message}")
+                pendingFileCallback = null
+                callback(null)
+            }
+        }
 
         // 🛡️ Глобальный перехватчик необработанных исключений для записи краш-логов на диск
         val originalHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -96,5 +141,11 @@ class MainActivity : ComponentActivity() {
         intent.dataString?.let { url ->
             DeepLinkHandler.handleUrl(url)
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        AndroidFilePickerBridge.directoryPickerLauncher = null
+        AndroidFilePickerBridge.filePickerLauncher = null
     }
 }
