@@ -1325,7 +1325,7 @@ class MusicRepository {
         println("MusicRepository: POST /rotor/session/$safeSid/clone")
         val response = postRotorWithFallback("/rotor/session/$safeSid/clone", "{}")
         val text = response.bodyAsText()
-        println("MusicRepository: Ответ clone:\n$text")
+        println("MusicRepository: Ответ clone (HTTP ${response.status}), длина: ${text.length}")
         if (response.status.value !in 200..299) {
             throw IllegalStateException("Ошибка клонирования сессии Волны (HTTP ${response.status})")
         }
@@ -1363,7 +1363,7 @@ class MusicRepository {
         val payload = """{"seeds":[$seedsJson],"includeTracksInResponse":true}"""
         val response = postRotorWithFallback("/rotor/session/new", payload)
         val text = response.bodyAsText()
-        println("MusicRepository: Ответ session/new (HTTP ${response.status}):\n$text")
+        println("MusicRepository: Ответ session/new (HTTP ${response.status}), длина: ${text.length}")
         if (response.status.value !in 200..299) {
             val json = Json { ignoreUnknownKeys = true }
             val errMsg = try {
@@ -1458,7 +1458,7 @@ class MusicRepository {
         println("MusicRepository: POST $path ($eventTypes, queue: ${remainingQueue.size} items)")
         val response = postRotorWithFallback(path, payload)
         val text = response.bodyAsText()
-        println("MusicRepository: Ответ next tracks ($eventTypes) [HTTP ${response.status}]:\n$text")
+        println("MusicRepository: Ответ next tracks ($eventTypes) [HTTP ${response.status}], длина: ${text.length}")
         if (response.status.value !in 200..299) {
             throw IllegalStateException("Ошибка получения треков Волны (HTTP ${response.status})")
         }
