@@ -758,56 +758,65 @@ fun MobileFullPlayerSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceEvenly
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Перемешать (44 dp)
-                GhostIconButton(
-                    icon = Icons.Filled.Shuffle,
-                    contentDescription = "Случайный порядок",
-                    size = 44.dp,
-                    contentColor = if (state.isShuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    onClick = { actions.onToggleShuffle?.invoke() }
-                )
-
-                // Предыдущий трек (52 dp)
-                OutlineIconButton(
-                    icon = Icons.Filled.SkipPrevious,
-                    contentDescription = "Предыдущий",
-                    size = 52.dp,
-                    isLoading = state.isPrevLoading,
-                    onClick = { actions.onPrev?.invoke() }
-                )
-
-                // Play / Pause гигантская кнопка (68 dp)
-                FilledIconButton(
-                    icon = if (state.isPlaying && !state.isPaused) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (state.isPlaying && !state.isPaused) "Пауза" else "Воспроизведение",
-                    size = 68.dp,
-                    isLoading = state.isPlayLoading,
-                    onClick = actions.onPlayPause
-                )
-
-                // Следующий трек (52 dp)
-                OutlineIconButton(
-                    icon = Icons.Filled.SkipNext,
-                    contentDescription = "Следующий",
-                    size = 52.dp,
-                    isLoading = state.isNextLoading,
-                    onClick = { actions.onNext?.invoke() }
-                )
-
-                if (isDesktop) {
-                    // Регулятор громкости на ПК вместо очереди (44 dp)
-                    DesktopVolumeControl(
-                        volume = state.volume,
-                        onVolumeChange = actions.onVolumeChange,
-                        buttonSize = 44.dp,
-                        bottomPlayerPadding = 0.dp
+                // 1. Левый слот (Перемешать) - симметричен правому слоту
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    GhostIconButton(
+                        icon = Icons.Filled.Shuffle,
+                        contentDescription = "Случайный порядок",
+                        size = 44.dp,
+                        contentColor = if (state.isShuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        onClick = { actions.onToggleShuffle?.invoke() }
                     )
-                } else {
-                    // Плейлист / очередь воспроизведения справа от кнопки «Следующий» (44 dp)
-                    if (actions.onOpenQueue != null) {
+                }
+
+                // 2. ЦЕНТРАЛЬНЫЙ БЛОК: Предыдущий + Play/Pause + Следующий (ВСЕГДА СТРОГО ПО ЦЕНТРУ ЭКРАНА)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlineIconButton(
+                        icon = Icons.Filled.SkipPrevious,
+                        contentDescription = "Предыдущий",
+                        size = 52.dp,
+                        isLoading = state.isPrevLoading,
+                        onClick = { actions.onPrev?.invoke() }
+                    )
+
+                    FilledIconButton(
+                        icon = if (state.isPlaying && !state.isPaused) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (state.isPlaying && !state.isPaused) "Пауза" else "Воспроизведение",
+                        size = 68.dp,
+                        isLoading = state.isPlayLoading,
+                        onClick = actions.onPlayPause
+                    )
+
+                    OutlineIconButton(
+                        icon = Icons.Filled.SkipNext,
+                        contentDescription = "Следующий",
+                        size = 52.dp,
+                        isLoading = state.isNextLoading,
+                        onClick = { actions.onNext?.invoke() }
+                    )
+                }
+
+                // 3. Правый слот (Очередь / плейлист или регулятор громкости на ПК) - сбалансирован с левым слотом
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isDesktop) {
+                        DesktopVolumeControl(
+                            volume = state.volume,
+                            onVolumeChange = actions.onVolumeChange,
+                            buttonSize = 44.dp,
+                            bottomPlayerPadding = 0.dp
+                        )
+                    } else if (actions.onOpenQueue != null) {
                         IconButton(
                             onClick = {
                                 actions.onOpenQueue.invoke()

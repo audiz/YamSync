@@ -38,6 +38,7 @@ import io.github.audiz.models.*
 import io.github.audiz.sync.YamSyncConnectionState
 import io.github.audiz.sync.YamSyncKnownDevice
 import io.github.audiz.sync.YamSyncManager
+import io.github.audiz.ui.BackHandler
 import kotlinx.coroutines.delay
 
 /**
@@ -48,6 +49,7 @@ fun YamSyncDialog(
     syncManager: YamSyncManager,
     onDismiss: () -> Unit
 ) {
+    BackHandler(enabled = true, onBack = onDismiss)
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -490,40 +492,69 @@ private fun YamSyncPairingTab(
                 }
                 is YamSyncConnectionState.Connected -> {
                     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF67C23A), modifier = Modifier.size(56.dp))
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("Устройства успешно соединены!", fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Устройства успешно соединены!",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Партнёр: ${st.peer.name} (${st.peer.platform})",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = { syncManager.disconnect() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                                Text("Разорвать связь")
+                            Button(
+                                onClick = { syncManager.disconnect() },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                shape = RoundedCornerShape(23.dp)
+                            ) {
+                                Text("Разорвать связь", fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                 }
                 else -> {
                     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text("Создать точку синхронизации", fontWeight = FontWeight.Bold)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(52.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "Создать точку синхронизации",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Приложение запустит локальный сервер в вашей сети Wi-Fi и сгенерирует QR-код для подключения",
                                 style = MaterialTheme.typography.bodySmall,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 24.dp)
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = { syncManager.startHosting() }) {
-                                Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Раздать (показать мой QR)")
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Button(
+                                onClick = { syncManager.startHosting() },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(24.dp)
+                            ) {
+                                Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Раздать (показать мой QR)", fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -746,23 +777,27 @@ private fun KnownDeviceCard(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Button(
                     onClick = onConnect,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    modifier = Modifier.height(34.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Связать", fontSize = 12.sp)
+                    Text("Связать", fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
                 IconButton(
                     onClick = onRemove,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Удалить устройство",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

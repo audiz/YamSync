@@ -2190,6 +2190,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         if (isTracksListVisible) {
             isTracksListVisible = false
             tracksListOrigin = TracksListOrigin.HOME
+        } else if (isWaveMode && waveTracks.isNotEmpty()) {
+            openQueueView(TracksListOrigin.HOME)
         } else if (loadedTracks.isNotEmpty()) {
             if (activeQueueFolderName != null && (currentScreenTitle.isBlank() || currentScreenTitle == "Загружено треков")) {
                 currentScreenTitle = activeQueueFolderName ?: "Очередь воспроизведения"
@@ -2203,7 +2205,20 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      * 🎶 Открыть экран очереди воспроизведения
      */
     fun openQueueView(origin: TracksListOrigin = TracksListOrigin.HOME) {
-        if (loadedTracks.isNotEmpty()) {
+        if (isWaveMode && waveTracks.isNotEmpty()) {
+            loadedTracks.clear()
+            loadedTracks.addAll(waveTracks)
+            currentScreenTitle = if (!waveManager.currentWaveTitle.isNullOrBlank()) {
+                "Моя Волна • ${waveManager.currentWaveTitle}"
+            } else {
+                "Очередь Моей Волны"
+            }
+            activeBrowsedFolderSource = null
+            activeBrowsedFolderPath = null
+            currentOpenUserPlaylist = null
+            tracksListOrigin = origin
+            isTracksListVisible = true
+        } else if (loadedTracks.isNotEmpty()) {
             if (activeQueueFolderName != null && (currentScreenTitle.isBlank() || currentScreenTitle == "Загружено треков")) {
                 currentScreenTitle = activeQueueFolderName ?: "Очередь воспроизведения"
             }

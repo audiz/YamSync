@@ -251,7 +251,7 @@ fun App() {
                     equalizerInitialTab = 0
                     showEqualizerDialog = true
                 },
-                onOpenQueue = if (searchViewModel.loadedTracks.isNotEmpty()) {
+                onOpenQueue = if (searchViewModel.loadedTracks.isNotEmpty() || (searchViewModel.isWaveMode && searchViewModel.waveTracks.isNotEmpty())) {
                     {
                         if (isMobileUi) {
                             searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
@@ -565,7 +565,16 @@ fun App() {
                                 searchViewModel.downloadTrack(trackId, trackTitle, artistName)
                             },
                             onPlayTrack = { trackId, trackTitle, artistName ->
-                                searchViewModel.playTrack(trackId, trackTitle, artistName)
+                                if (searchViewModel.isWaveMode) {
+                                    val waveIdx = searchViewModel.waveTracks.indexOfFirst { it.id == trackId }
+                                    if (waveIdx >= 0) {
+                                        searchViewModel.playWaveTrack(waveIdx)
+                                    } else {
+                                        searchViewModel.playTrack(trackId, trackTitle, artistName)
+                                    }
+                                } else {
+                                    searchViewModel.playTrack(trackId, trackTitle, artistName)
+                                }
                             },
                             playingTrackId = searchViewModel.playerTrackId,
                             isPlaying = searchViewModel.playerIsPlaying,

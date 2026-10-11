@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import android.content.Intent
 import io.github.audiz.App // Импортируем точку входа из вашего модуля :shared
@@ -16,6 +17,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 🔥 Инициализируем контекст для SharedPreferences (сохранение cookie)
         AppContextHolder.appContext = applicationContext
+
+        // 🛡️ Безопасная обработка кнопки "Назад" на корневом экране (предотвращает падение Activity на некоторых Android)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                try {
+                    // Безопасно сворачиваем плеер в фон (как в Spotify / Яндекс Музыке),
+                    // сохраняя непрерывное воспроизведение и избегая крэша жизненного цикла Activity
+                    if (!moveTaskToBack(false)) {
+                        finish()
+                    }
+                } catch (e: Throwable) {
+                    println("MainActivity: Ошибка при moveTaskToBack: ${e.message}")
+                    try { finish() } catch (_: Throwable) {}
+                }
+            }
+        })
 
         intent?.dataString?.let { url ->
             DeepLinkHandler.handleUrl(url)
