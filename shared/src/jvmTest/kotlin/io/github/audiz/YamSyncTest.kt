@@ -5,6 +5,10 @@ import io.github.audiz.sync.QrCodeGenerator
 import io.github.audiz.sync.YamSyncDiffEngine
 import io.github.audiz.sync.YamSyncManager
 import io.github.audiz.sync.YamSyncPairInfo
+import io.github.audiz.sync.YamSyncServer
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.test.*
 
 class YamSyncTest {
@@ -470,6 +474,66 @@ class YamSyncTest {
         assertEquals(0, diff.localOnlyTracks.size)
         assertEquals(0, diff.remoteOnlyTracks.size)
         assertEquals(4, diff.commonTracks.size)
+    }
+
+    @Test
+    fun testYamSyncPathTraversalBlocked() {
+        val tempDir = java.nio.file.Files.createTempDirectory("yamsync_test").toFile()
+        try {
+            val musicFile = File(tempDir, "Song.mp3")
+            musicFile.writeText("audio payload")
+
+            val secretFile = File(tempDir.parentFile, "secret.txt")
+            secretFile.writeText("secret data")
+
+            val localDevice = YamSyncDevice("host1", "Host", "Desktop", ip = "127.0.0.1", port = 0)
+            val manifest = YamSyncManifest(
+                device = localDevice,
+                availableFiles = listOf(YamSyncTrack(fileName = "Song.mp3", artist = "Artist", title = "Song", checksum = "chk123"))
+            )
+
+            val server = YamSyncServer(
+                initialPort = 0,
+                token = "test_token",
+                localDevice = localDevice,
+                getManifest = { manifest },
+                resolveFilePath = { fileName, _ ->
+                    if (fileName == "Song.mp3") musicFile.absolutePath else null
+                },
+                onMergeReceived = {},
+                onClientConnected = {},
+                onManifestReceived = null,
+                onClientDisconnected = null
+            )
+            val port = server.start()
+            assertTrue(port > 0, "Server must bind to dynamic port")
+
+            fun getStatus(query: String): Int {
+                val conn = URL("http://127.0.0.1:$port/yamsync/v1/file?$query&token=test_token").openConnection() as HttpURLConnection
+                conn.instanceFollowRedirects = false
+                return try {
+                    conn.responseCode
+                } catch (e: java.io.IOException) {
+                    conn.responseCode
+                } finally {
+                    conn.disconnect()
+                }
+            }
+
+            // Path Traversal с .. должен возвращать 400 Bad Request
+            assertEquals(400, getStatus("name=../../secret.txt"))
+            // Абсолютный путь должен возвращать 400 Bad Request
+            assertEquals(400, getStatus("name=/etc/passwd"))
+            // Файл, отсутствующий в манифесте, не отдаётся (403/404)
+            val missingStatus = getStatus("name=secret.txt")
+            assertTrue(missingStatus == 403 || missingStatus == 404, "Must deny access to file not in manifest")
+            // Легитимный файл из манифеста успешно отдаётся (200 OK)
+            assertEquals(200, getStatus("name=Song.mp3"))
+
+            server.stop()
+        } finally {
+            tempDir.deleteRecursively()
+        }
     }
 }
 

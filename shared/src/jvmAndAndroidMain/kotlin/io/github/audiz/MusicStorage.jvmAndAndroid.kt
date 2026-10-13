@@ -1025,10 +1025,14 @@ actual fun getLocalCoverArtUrl(pathOrUri: String): String? {
     val bytes = io.github.audiz.util.AudioHeaderParser.extractCoverArtBytes(file) ?: return null
     return try {
         val baseDir = getDefaultMusicDir().ifBlank { System.getProperty("java.io.tmpdir") ?: "." }
-        val cacheDir = File(baseDir, ".covers_cache")
+        val cacheDir = File(baseDir, ".covers_cache").canonicalFile
         if (!cacheDir.exists()) cacheDir.mkdirs()
         val hash = (file.absolutePath + file.length() + file.lastModified()).hashCode().toUInt().toString(16)
-        val cachedFile = File(cacheDir, "cover_$hash.jpg")
+        val cachedFile = File(cacheDir, "cover_$hash.jpg").canonicalFile
+        val basePath = cacheDir.canonicalPath.trimEnd(File.separatorChar) + File.separatorChar
+        if (!cachedFile.canonicalPath.startsWith(basePath)) {
+            return null
+        }
         if (!cachedFile.exists() || cachedFile.length() == 0L) {
             cachedFile.writeBytes(bytes)
         }

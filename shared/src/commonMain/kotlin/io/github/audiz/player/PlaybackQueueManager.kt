@@ -7,6 +7,7 @@ import io.github.audiz.AppConfigKeys
 import io.github.audiz.loadAppConfig
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.saveAppConfig
+import io.github.audiz.synchronized
 
 /**
  * 🔀 Менеджер очереди воспроизведения.
@@ -130,7 +131,7 @@ class PlaybackQueueManager {
         loadedTracks: List<FullTrackInfo>,
         searchTracks: List<FullTrackInfo>
     ): FullTrackInfo? {
-        synchronized(forwardHistory) {
+        return synchronized(forwardHistory) {
             while (forwardHistory.isNotEmpty()) {
                 val nextId = forwardHistory.removeLastOrNull() ?: break
                 if (!isSameTrackId(nextId, activeId)) {
@@ -138,14 +139,14 @@ class PlaybackQueueManager {
                         recordPlayed(activeId)
                     }
                     val foundLoaded = loadedTracks.firstOrNull { isSameTrack(it, nextId) }
-                    if (foundLoaded != null) return foundLoaded
+                    if (foundLoaded != null) return@synchronized foundLoaded
 
                     val foundSearch = searchTracks.firstOrNull { isSameTrack(it, nextId) }
-                    if (foundSearch != null) return foundSearch
+                    if (foundSearch != null) return@synchronized foundSearch
                 }
             }
+            null
         }
-        return null
     }
 
     /**
@@ -156,7 +157,7 @@ class PlaybackQueueManager {
         loadedTracks: List<FullTrackInfo>,
         searchTracks: List<FullTrackInfo>
     ): FullTrackInfo? {
-        synchronized(playbackHistory) {
+        return synchronized(playbackHistory) {
             while (playbackHistory.isNotEmpty()) {
                 val prevId = playbackHistory.removeLastOrNull() ?: break
                 if (!isSameTrackId(prevId, activeId)) {
@@ -164,14 +165,14 @@ class PlaybackQueueManager {
                         recordForward(activeId)
                     }
                     val foundLoaded = loadedTracks.firstOrNull { isSameTrack(it, prevId) }
-                    if (foundLoaded != null) return foundLoaded
+                    if (foundLoaded != null) return@synchronized foundLoaded
 
                     val foundSearch = searchTracks.firstOrNull { isSameTrack(it, prevId) }
-                    if (foundSearch != null) return foundSearch
+                    if (foundSearch != null) return@synchronized foundSearch
                 }
             }
+            null
         }
-        return null
     }
 
     /**

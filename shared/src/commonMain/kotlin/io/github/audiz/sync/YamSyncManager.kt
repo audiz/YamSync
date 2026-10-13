@@ -542,8 +542,15 @@ class YamSyncManager(
     }
 
     private fun resolveFilePathInternal(fileName: String, checksum: String): String? {
-        val cleanFn = sanitizeKeepSpaces(fileName).trim()
-        val base = getMusicStoragePath()
+        val rawName = fileName.trim()
+        if (rawName.isBlank() || rawName.contains("..") || rawName.startsWith("/") || rawName.startsWith("\\") || (rawName.length >= 2 && rawName[1] == ':')) {
+            return null
+        }
+        val safeName = rawName.substringAfterLast('/').substringAfterLast('\\').trim()
+        if (safeName.isBlank()) return null
+
+        val cleanFn = sanitizeKeepSpaces(safeName).trim()
+        val base = getMusicStoragePath().trim()
 
         // Helper to test if a candidate path exists on disk and return its resolved path
         fun verify(candidate: String?): String? {
@@ -557,75 +564,78 @@ class YamSyncManager(
 
         // 1. O(1) поиск по сохраненным прямым путям локальной медиатеки
         val direct = localFilePathsByMatchKey[cleanFn.lowercase()]
-            ?: localFilePathsByMatchKey[fileName.trim().lowercase()]
+            ?: localFilePathsByMatchKey[safeName.lowercase()]
             ?: if (checksum.isNotBlank()) localFilePathsByMatchKey[checksum.trim().lowercase()] else null
         verify(direct)?.let { return it }
 
-        // 2. Быстрый поиск через платформенный resolveLocalPath
-        verify(cleanFn)?.let { return it }
-        verify(fileName)?.let { return it }
-        verify("$base/$cleanFn")?.let { return it }
-        verify("$base/$fileName")?.let { return it }
+        // 2. Поиск внутри базовой папки музыки (basePath)
+        if (base.isNotBlank()) {
+            verify("$base/$cleanFn")?.let { return it }
+            verify("$base/$safeName")?.let { return it }
+        }
 
         // 3. Поиск по уже сформированному кэшу доступных файлов манифеста
         val cachedTrack = localManifestCache?.availableFiles?.firstOrNull {
-            it.fileName.equals(fileName, ignoreCase = true) ||
+            it.fileName.equals(safeName, ignoreCase = true) ||
             it.fileName.equals(cleanFn, ignoreCase = true) ||
             (checksum.isNotBlank() && it.checksum.equals(checksum, ignoreCase = true)) ||
             (checksum.isNotBlank() && it.matchKey.equals(checksum, ignoreCase = true)) ||
             YamSyncDiffEngine.areTracksMatching(
                 it,
-                YamSyncTrack(fileName = fileName, artist = "", title = "", checksum = checksum)
+                YamSyncTrack(fileName = safeName, artist = "", title = "", checksum = checksum)
             )
         }
         if (cachedTrack != null) {
-            verify(cachedTrack.fileName)?.let { return it }
             val directCached = localFilePathsByMatchKey[cachedTrack.matchKey] ?: localFilePathsByMatchKey[cachedTrack.fileName.lowercase()]
             verify(directCached)?.let { return it }
 
-            val cleanArt = sanitizeDirName(cachedTrack.artist.ifBlank { "Unknown Artist" })
-            val fn = sanitizeKeepSpaces(cachedTrack.fileName)
-            val candidates = listOf(
-                "$base/YamSync/$cleanArt/$fn",
-                "$base/$cleanArt/$fn",
-                "$base/HQ/$cleanArt/$fn",
-                "$base/LQ/$cleanArt/$fn",
-                "$base/YamSync/$fn",
-                "$base/$fn",
-                "$base/HQ/$fn",
-                "$base/LQ/$fn"
-            )
-            for (cand in candidates) {
-                verify(cand)?.let { return it }
+            if (base.isNotBlank()) {
+                val cleanArt = sanitizeDirName(cachedTrack.artist.ifBlank { "Unknown Artist" })
+                val fn = sanitizeKeepSpaces(cachedTrack.fileName)
+                val candidates = listOf(
+                    "$base/YamSync/$cleanArt/$fn",
+                    "$base/$cleanArt/$fn",
+                    "$base/HQ/$cleanArt/$fn",
+                    "$base/LQ/$cleanArt/$fn",
+                    "$base/YamSync/$fn",
+                    "$base/$fn",
+                    "$base/HQ/$fn",
+                    "$base/LQ/$fn"
+                )
+                for (cand in candidates) {
+                    verify(cand)?.let { return it }
+                }
             }
         }
 
         // 4. Fallback через scanDownloadedTracks
-        val downloaded = scanDownloadedTracks(base)
-        val byName = downloaded.firstOrNull {
-            val p = it.realId ?: it.id.removePrefix("local:")
-            val fn = p.substringAfterLast('/').substringAfterLast('\\')
-            fn.equals(fileName, ignoreCase = true) || fn.equals(cleanFn, ignoreCase = true) ||
-            YamSyncDiffEngine.areTracksMatching(
-                YamSyncTrack(fileName = fn, artist = it.artists.firstOrNull()?.name ?: "", title = it.title),
-                YamSyncTrack(fileName = fileName, artist = "", title = "", checksum = checksum)
-            )
-        }
-        if (byName != null) {
-            val p = byName.realId ?: byName.id.removePrefix("local:")
-            verify(p)?.let { return it }
-        }
-
-        if (checksum.isNotBlank()) {
-            val cleanCheck = checksum.trim().lowercase()
-            val byChecksum = downloaded.firstOrNull {
-                val artist = it.artists.firstOrNull()?.name?.trim()?.lowercase() ?: ""
-                val title = it.title.trim().lowercase()
-                "${artist}_${title}" == cleanCheck
+        if (base.isNotBlank()) {
+            val downloaded = scanDownloadedTracks(base)
+            val byName = downloaded.firstOrNull {
+                val p = it.realId ?: it.id.removePrefix("local:")
+                val fn = p.substringAfterLast('/').substringAfterLast('\\')
+                fn.equals(safeName, ignoreCase = true) || fn.equals(cleanFn, ignoreCase = true) ||
+                YamSyncDiffEngine.areTracksMatching(
+                    YamSyncTrack(fileName = fn, artist = it.artists.firstOrNull()?.name ?: "", title = it.title),
+                    YamSyncTrack(fileName = safeName, artist = "", title = "", checksum = checksum)
+                )
             }
-            if (byChecksum != null) {
-                val p = byChecksum.realId ?: byChecksum.id.removePrefix("local:")
+            if (byName != null) {
+                val p = byName.realId ?: byName.id.removePrefix("local:")
                 verify(p)?.let { return it }
+            }
+
+            if (checksum.isNotBlank()) {
+                val cleanCheck = checksum.trim().lowercase()
+                val byChecksum = downloaded.firstOrNull {
+                    val artist = it.artists.firstOrNull()?.name?.trim()?.lowercase() ?: ""
+                    val title = it.title.trim().lowercase()
+                    "${artist}_${title}" == cleanCheck
+                }
+                if (byChecksum != null) {
+                    val p = byChecksum.realId ?: byChecksum.id.removePrefix("local:")
+                    verify(p)?.let { return it }
+                }
             }
         }
 

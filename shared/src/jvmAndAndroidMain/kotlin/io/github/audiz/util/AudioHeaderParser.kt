@@ -989,7 +989,7 @@ object AudioHeaderParser {
      * Поиск файла обложки в папке альбома (cover.jpg, folder.jpg и т.д.)
      */
     fun findFolderCoverFile(file: File): File? {
-        val parent = file.parentFile ?: return null
+        val parent = file.parentFile?.canonicalFile ?: return null
         if (!parent.exists() || !parent.isDirectory) return null
         val candidates = listOf(
             "cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
@@ -998,9 +998,12 @@ object AudioHeaderParser {
             "album.jpg", "album.jpeg", "album.png", "album.webp",
             "artwork.jpg", "artwork.jpeg", "artwork.png", "artwork.webp"
         )
+        val parentPath = parent.canonicalPath.trimEnd(File.separatorChar) + File.separatorChar
         for (name in candidates) {
-            val f = File(parent, name)
-            if (f.exists() && f.isFile && f.length() > 0L) return f
+            val f = File(parent, name).canonicalFile
+            if (f.canonicalPath.startsWith(parentPath) && f.exists() && f.isFile && f.length() > 0L) {
+                return f
+            }
         }
         val files = parent.listFiles() ?: return null
         for (f in files) {

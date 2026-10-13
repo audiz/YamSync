@@ -195,7 +195,17 @@ actual class YamSyncServer actual constructor(
                 "/yamsync/v1/file" -> {
                     val fileName = queryParams["name"] ?: ""
                     val checksum = queryParams["hash"] ?: ""
-                    val filePath = resolveFilePath(fileName, checksum)
+
+                    // Защита от Path Traversal (CWE-22 / РБПО):
+                    // Отклоняем запросы с относительными переходами, слэшами или пустым именем
+                    if (fileName.isBlank() || fileName.contains("..") || fileName.startsWith("/") || fileName.startsWith("\\") || (fileName.length >= 2 && fileName[1] == ':')) {
+                        val err = """{"error":"Invalid file name"}""".encodeToByteArray()
+                        sendResponse(clientFd, 400, "Bad Request", mapOf("Content-Type" to "application/json"), err)
+                        return
+                    }
+
+                    val safeFileName = fileName.substringAfterLast('/').substringAfterLast('\\')
+                    val filePath = resolveFilePath(safeFileName, checksum)
 
                     if (filePath.isNullOrBlank()) {
                         val err = """{"error":"File not found"}""".encodeToByteArray()
@@ -207,6 +217,22 @@ actual class YamSyncServer actual constructor(
                     if (!fileManager.fileExistsAtPath(filePath)) {
                         val err = """{"error":"File not found on disk"}""".encodeToByteArray()
                         sendResponse(clientFd, 404, "Not Found", mapOf("Content-Type" to "application/json"), err)
+                        return
+                    }
+
+                    // Защита от утечки произвольных файлов: отдавать разрешено только треки из манифеста раздачи
+                    val manifest = getManifest()
+                    val isAllowedFile = manifest.availableFiles.any { track ->
+                        val trackFn = track.fileName.substringAfterLast('/').substringAfterLast('\\')
+                        val actualFn = filePath.substringAfterLast('/')
+                        trackFn.equals(actualFn, ignoreCase = true) ||
+                        trackFn.equals(safeFileName, ignoreCase = true) ||
+                        (checksum.isNotBlank() && track.checksum.equals(checksum, ignoreCase = true))
+                    }
+
+                    if (!isAllowedFile) {
+                        val err = """{"error":"Access denied"}""".encodeToByteArray()
+                        sendResponse(clientFd, 403, "Forbidden", mapOf("Content-Type" to "application/json"), err)
                         return
                     }
 

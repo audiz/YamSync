@@ -222,7 +222,17 @@ actual class YamSyncServer actual constructor(
                 "/yamsync/v1/file" -> {
                     val fileName = queryParams["name"] ?: ""
                     val checksum = queryParams["hash"] ?: ""
-                    val filePath = resolveFilePath(fileName, checksum)
+
+                    // Защита от Path Traversal (CWE-22 / РБПО):
+                    // Отклоняем запросы с относительными переходами, слэшами или пустым именем
+                    if (fileName.isBlank() || fileName.contains("..") || fileName.startsWith("/") || fileName.startsWith("\\") || (fileName.length >= 2 && fileName[1] == ':')) {
+                        val err = """{"error":"Invalid file name"}""".encodeToByteArray()
+                        sendResponse(output, 400, "Bad Request", mapOf("Content-Type" to "application/json"), err)
+                        return
+                    }
+
+                    val safeFileName = File(fileName).name
+                    val filePath = resolveFilePath(safeFileName, checksum)
 
                     if (filePath.isNullOrBlank()) {
                         val err = """{"error":"File not found"}""".encodeToByteArray()
@@ -230,10 +240,25 @@ actual class YamSyncServer actual constructor(
                         return
                     }
 
-                    val file = File(filePath)
+                    val file = File(filePath).canonicalFile
                     if (!file.exists() || !file.isFile) {
                         val err = """{"error":"File not found on disk"}""".encodeToByteArray()
                         sendResponse(output, 404, "Not Found", mapOf("Content-Type" to "application/json"), err)
+                        return
+                    }
+
+                    // Защита от утечки произвольных файлов: отдавать разрешено только треки из манифеста раздачи
+                    val manifest = getManifest()
+                    val isAllowedFile = manifest.availableFiles.any { track ->
+                        val trackFn = track.fileName.substringAfterLast('/').substringAfterLast('\\')
+                        trackFn.equals(file.name, ignoreCase = true) ||
+                        trackFn.equals(safeFileName, ignoreCase = true) ||
+                        (checksum.isNotBlank() && track.checksum.equals(checksum, ignoreCase = true))
+                    }
+
+                    if (!isAllowedFile) {
+                        val err = """{"error":"Access denied"}""".encodeToByteArray()
+                        sendResponse(output, 403, "Forbidden", mapOf("Content-Type" to "application/json"), err)
                         return
                     }
 
@@ -278,7 +303,16 @@ actual class YamSyncServer actual constructor(
     }
 
     private fun streamFile(output: BufferedOutputStream, file: File, rangeHeader: String?) {
-        val fileLen = file.length()
+        val canonicalFile = file.canonicalFile
+        val parentDir = canonicalFile.parentFile?.canonicalFile
+        val parentPath = if (parentDir != null) parentDir.canonicalPath.trimEnd(File.separatorChar) + File.separatorChar else null
+        if (parentPath != null && !canonicalFile.canonicalPath.startsWith(parentPath)) {
+            val err = """{"error":"Access denied"}""".encodeToByteArray()
+            sendResponse(output, 403, "Forbidden", mapOf("Content-Type" to "application/json"), err)
+            return
+        }
+
+        val fileLen = canonicalFile.length()
         var start = 0L
         var end = fileLen - 1L
 
@@ -301,7 +335,7 @@ actual class YamSyncServer actual constructor(
             "Content-Type" to "audio/octet-stream",
             "Content-Length" to contentLen.toString(),
             "Accept-Ranges" to "bytes",
-            "Content-Disposition" to "attachment; filename=\"${file.name}\""
+            "Content-Disposition" to "attachment; filename=\"${canonicalFile.name}\""
         )
         if (isRange) {
             headers["Content-Range"] = "bytes $start-$end/$fileLen"
@@ -319,7 +353,7 @@ actual class YamSyncServer actual constructor(
         output.write(headerBuilder.toString().toByteArray(Charsets.UTF_8))
         output.flush()
 
-        FileInputStream(file).use { fis ->
+        FileInputStream(canonicalFile).use { fis ->
             if (start > 0L) {
                 fis.skip(start)
             }

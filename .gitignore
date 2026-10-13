@@ -28,4 +28,5 @@ hs_err_pid*.log
 # Оставляем правила (.agents/rules/) и навыки (.agents/skills/) в Git,
 # но если агент создает локальные неотслеживаемые конфиги, игнорируем их
 .agents/*.local.*
+.android/
 
