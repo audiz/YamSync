@@ -48,13 +48,21 @@ actual class SystemMediaControls {
         }
     }
 
+    actual fun setCustomActions(
+        onToggleLike: (() -> Unit)?,
+        onDislike: (() -> Unit)?
+    ) {
+        // На десктопе кастомные действия не требуются
+    }
+
     actual fun updateMetadata(
         title: String,
         artist: String,
         album: String,
         durationMs: Long,
         trackId: String?,
-        coverUri: String?
+        coverUri: String?,
+        isLiked: Boolean
     ) {
         if (isLinux) {
             val artUrl = coverUri?.let { io.github.audiz.ui.CoverImageLoader.formatCoverUrl(it, 400) }
@@ -62,6 +70,10 @@ actual class SystemMediaControls {
         } else if (isWindows) {
             windowsControls?.updateMetadata(title, artist, album)
         }
+    }
+
+    actual fun updateLikedState(isLiked: Boolean) {
+        // На десктопе не требуется
     }
 
     actual fun updatePlaybackState(

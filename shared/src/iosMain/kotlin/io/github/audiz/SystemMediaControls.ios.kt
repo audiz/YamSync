@@ -17,6 +17,8 @@ actual class SystemMediaControls {
     private var onNextCallback: (() -> Unit)? = null
     private var onPrevCallback: (() -> Unit)? = null
     private var onSeekCallback: ((Long) -> Unit)? = null
+    private var onToggleLikeCallback: (() -> Unit)? = null
+    private var onDislikeCallback: (() -> Unit)? = null
 
     private var currentPositionMs: Long = 0L
     private var currentCoverUri: String? = null
@@ -101,13 +103,43 @@ actual class SystemMediaControls {
         } catch (_: Throwable) {}
     }
 
+    actual fun setCustomActions(
+        onToggleLike: (() -> Unit)?,
+        onDislike: (() -> Unit)?
+    ) {
+        this.onToggleLikeCallback = onToggleLike
+        this.onDislikeCallback = onDislike
+        try {
+            val commandCenter = MPRemoteCommandCenter.sharedCommandCenter()
+            if (onToggleLike != null) {
+                commandCenter.likeCommand.enabled = true
+                commandCenter.likeCommand.addTargetWithHandler {
+                    platform.darwin.dispatch_async(platform.darwin.dispatch_get_main_queue()) {
+                        try { onToggleLikeCallback?.invoke() } catch (_: Throwable) {}
+                    }
+                    MPRemoteCommandHandlerStatusSuccess
+                }
+            }
+            if (onDislike != null) {
+                commandCenter.dislikeCommand.enabled = true
+                commandCenter.dislikeCommand.addTargetWithHandler {
+                    platform.darwin.dispatch_async(platform.darwin.dispatch_get_main_queue()) {
+                        try { onDislikeCallback?.invoke() } catch (_: Throwable) {}
+                    }
+                    MPRemoteCommandHandlerStatusSuccess
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
     actual fun updateMetadata(
         title: String,
         artist: String,
         album: String,
         durationMs: Long,
         trackId: String?,
-        coverUri: String?
+        coverUri: String?,
+        isLiked: Boolean
     ) {
         try {
             currentCoverUri = coverUri
@@ -136,6 +168,13 @@ actual class SystemMediaControls {
                     }
                 }
             }
+        } catch (_: Throwable) {}
+    }
+
+    actual fun updateLikedState(isLiked: Boolean) {
+        try {
+            val commandCenter = MPRemoteCommandCenter.sharedCommandCenter()
+            commandCenter.likeCommand.active = isLiked
         } catch (_: Throwable) {}
     }
 

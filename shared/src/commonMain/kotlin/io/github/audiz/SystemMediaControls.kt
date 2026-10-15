@@ -14,14 +14,22 @@ expect class SystemMediaControls() {
         onSeek: (Long) -> Unit
     )
 
+    fun setCustomActions(
+        onToggleLike: (() -> Unit)? = null,
+        onDislike: (() -> Unit)? = null
+    )
+
     fun updateMetadata(
         title: String,
         artist: String,
         album: String,
         durationMs: Long,
         trackId: String? = null,
-        coverUri: String? = null
+        coverUri: String? = null,
+        isLiked: Boolean = false
     )
+
+    fun updateLikedState(isLiked: Boolean)
 
     fun updatePlaybackState(
         isPlaying: Boolean,

@@ -22,6 +22,8 @@ object MediaPlaybackBridge {
     var onNext: (() -> Unit)? = null
     var onPrev: (() -> Unit)? = null
     var onSeek: ((Long) -> Unit)? = null
+    var onToggleLike: (() -> Unit)? = null
+    var onDislike: (() -> Unit)? = null
     var sessionToken: MediaSession.Token? = null
 
     var currentTitle: String = ""
@@ -31,6 +33,7 @@ object MediaPlaybackBridge {
     @Volatile var currentPositionMs: Long = 0L
     @Volatile var durationMs: Long = 0L
     var isPlaying: Boolean = false
+    var isLiked: Boolean = false
 }
 
 /**
@@ -50,6 +53,8 @@ class MediaPlaybackService : Service() {
         const val ACTION_PREV = "io.github.audiz.ACTION_PREV"
         const val ACTION_REWIND = "io.github.audiz.ACTION_REWIND"
         const val ACTION_FAST_FORWARD = "io.github.audiz.ACTION_FAST_FORWARD"
+        const val ACTION_TOGGLE_LIKE = "io.github.audiz.ACTION_TOGGLE_LIKE"
+        const val ACTION_DISLIKE = "io.github.audiz.ACTION_DISLIKE"
         const val ACTION_STOP = "io.github.audiz.ACTION_STOP"
         const val ACTION_UPDATE = "io.github.audiz.ACTION_UPDATE"
     }
@@ -71,6 +76,8 @@ class MediaPlaybackService : Service() {
                 val target = MediaPlaybackBridge.currentPositionMs + 15000L
                 MediaPlaybackBridge.onSeek?.invoke(target)
             }
+            ACTION_TOGGLE_LIKE -> MediaPlaybackBridge.onToggleLike?.invoke()
+            ACTION_DISLIKE -> MediaPlaybackBridge.onDislike?.invoke()
             ACTION_STOP -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -85,6 +92,11 @@ class MediaPlaybackService : Service() {
 
         startInForeground()
         return START_STICKY
+    }
+
+    private fun getDrawableResId(name: String, fallback: Int): Int {
+        val id = resources.getIdentifier(name, "drawable", packageName)
+        return if (id != 0) id else fallback
     }
 
     private fun startInForeground() {
@@ -146,14 +158,14 @@ class MediaPlaybackService : Service() {
             Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_PREV },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val rewindIntent = PendingIntent.getService(
-            this, 4,
-            Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_REWIND },
+        val likeIntent = PendingIntent.getService(
+            this, 6,
+            Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_TOGGLE_LIKE },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val forwardIntent = PendingIntent.getService(
-            this, 5,
-            Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_FAST_FORWARD },
+        val dislikeIntent = PendingIntent.getService(
+            this, 7,
+            Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_DISLIKE },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -163,9 +175,9 @@ class MediaPlaybackService : Service() {
 
         val mediaStyle = Notification.MediaStyle().apply {
             MediaPlaybackBridge.sessionToken?.let { setMediaSession(it) }
-            // В компактной шторке отображаются 3 главные кнопки: Предыдущий (0), Play/Pause (2), Следующий (4)
-            // В развернутом виде и на экране заставки доступны все 5 кнопок (+ перемотка ±15 сек и таймлайн)
-            setShowActionsInCompactView(0, 2, 4)
+            // В компактной шторке отображаются 3 главные кнопки: Предыдущий (1), Play/Pause (2), Следующий (3)
+            // В развернутом виде и на экране заставки доступны все 5 кнопок: Лайк (0), Назад (1), Play/Pause (2), Вперед (3), Дизлайк (4)
+            setShowActionsInCompactView(1, 2, 3)
         }
 
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
@@ -180,6 +192,21 @@ class MediaPlaybackService : Service() {
 
         val appIcon = applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.sym_def_app_icon
 
+        // 0: Сердечко (Лайк / В избранное)
+        val likeResName = if (MediaPlaybackBridge.isLiked) "ic_notification_heart_filled" else "ic_notification_heart_outline"
+        val likeFallback = if (MediaPlaybackBridge.isLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
+        val likeResId = getDrawableResId(likeResName, likeFallback)
+        val likeTitle = if (MediaPlaybackBridge.isLiked) "В избранном" else "В избранное"
+
+        val likeAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val icon = android.graphics.drawable.Icon.createWithResource(this, likeResId)
+            Notification.Action.Builder(icon, likeTitle, likeIntent).build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Action.Builder(likeResId, likeTitle, likeIntent).build()
+        }
+
+        // 1: Предыдущий трек
         val prevAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val icon = android.graphics.drawable.Icon.createWithResource("android", android.R.drawable.ic_media_previous)
             Notification.Action.Builder(icon, "Назад", prevIntent).build()
@@ -188,14 +215,7 @@ class MediaPlaybackService : Service() {
             Notification.Action.Builder(android.R.drawable.ic_media_previous, "Назад", prevIntent).build()
         }
 
-        val rewindAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val icon = android.graphics.drawable.Icon.createWithResource("android", android.R.drawable.ic_media_rew)
-            Notification.Action.Builder(icon, "-15 сек", rewindIntent).build()
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Action.Builder(android.R.drawable.ic_media_rew, "-15 сек", rewindIntent).build()
-        }
-
+        // 2: Воспроизведение / Пауза
         val playPauseAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val icon = android.graphics.drawable.Icon.createWithResource("android", playPauseIcon)
             Notification.Action.Builder(icon, playPauseTitle, playPauseIntent).build()
@@ -204,20 +224,25 @@ class MediaPlaybackService : Service() {
             Notification.Action.Builder(playPauseIcon, playPauseTitle, playPauseIntent).build()
         }
 
-        val forwardAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val icon = android.graphics.drawable.Icon.createWithResource("android", android.R.drawable.ic_media_ff)
-            Notification.Action.Builder(icon, "+15 сек", forwardIntent).build()
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Action.Builder(android.R.drawable.ic_media_ff, "+15 сек", forwardIntent).build()
-        }
-
+        // 3: Следующий трек
         val nextAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val icon = android.graphics.drawable.Icon.createWithResource("android", android.R.drawable.ic_media_next)
             Notification.Action.Builder(icon, "Вперед", nextIntent).build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Action.Builder(android.R.drawable.ic_media_next, "Вперед", nextIntent).build()
+        }
+
+        // 4: Дизлайк (Крестик / Не нравится трек)
+        val dislikeResId = getDrawableResId("ic_notification_dislike", android.R.drawable.ic_menu_close_clear_cancel)
+        val dislikeTitle = "Не нравится"
+
+        val dislikeAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val icon = android.graphics.drawable.Icon.createWithResource(this, dislikeResId)
+            Notification.Action.Builder(icon, dislikeTitle, dislikeIntent).build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Action.Builder(dislikeResId, dislikeTitle, dislikeIntent).build()
         }
 
         val artwork = MediaPlaybackBridge.currentArtworkBitmap
@@ -236,11 +261,11 @@ class MediaPlaybackService : Service() {
             .setStyle(mediaStyle)
             .setOngoing(isPlaying)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .addAction(prevAction)       // 0
-            .addAction(rewindAction)     // 1
-            .addAction(playPauseAction)  // 2
-            .addAction(forwardAction)    // 3
-            .addAction(nextAction)       // 4
+            .addAction(likeAction)       // 0: Сердечко (Лайк)
+            .addAction(prevAction)       // 1: Предыдущий трек
+            .addAction(playPauseAction)  // 2: Воспроизведение / Пауза
+            .addAction(nextAction)       // 3: Следующий трек
+            .addAction(dislikeAction)    // 4: Дизлайк (Крестик)
             .build()
     }
 }
@@ -279,6 +304,11 @@ object MediaPlaybackServiceManager {
                 context.startService(intent)
             }
         } catch (_: Exception) {}
+    }
+
+    fun updateLikedState(context: Context, isLiked: Boolean) {
+        MediaPlaybackBridge.isLiked = isLiked
+        updateNotification(context)
     }
 
     fun stop(context: Context) {

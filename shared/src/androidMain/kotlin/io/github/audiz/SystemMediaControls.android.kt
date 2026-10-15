@@ -4,8 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadata
 import android.media.MediaMetadataRetriever
+import android.media.Rating
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.os.Bundle
 import io.github.audiz.ui.CoverImageLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +22,14 @@ actual class SystemMediaControls {
     private var mediaSession: MediaSession? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var currentCoverJob: Job? = null
+
+    actual fun setCustomActions(
+        onToggleLike: (() -> Unit)?,
+        onDislike: (() -> Unit)?
+    ) {
+        MediaPlaybackBridge.onToggleLike = onToggleLike
+        MediaPlaybackBridge.onDislike = onDislike
+    }
 
     actual fun initialize(
         onPlay: () -> Unit,
@@ -39,6 +49,7 @@ actual class SystemMediaControls {
                 MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or
                 MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
             )
+            session.setRatingType(Rating.RATING_HEART)
 
             session.setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
@@ -63,6 +74,15 @@ actual class SystemMediaControls {
                 override fun onRewind() {
                     val target = (MediaPlaybackBridge.currentPositionMs - 15000L).coerceAtLeast(0L)
                     onSeek(target)
+                }
+                override fun onSetRating(rating: Rating?) {
+                    MediaPlaybackBridge.onToggleLike?.invoke()
+                }
+                override fun onCustomAction(action: String?, extras: Bundle?) {
+                    when (action) {
+                        MediaPlaybackService.ACTION_TOGGLE_LIKE -> MediaPlaybackBridge.onToggleLike?.invoke()
+                        MediaPlaybackService.ACTION_DISLIKE -> MediaPlaybackBridge.onDislike?.invoke()
+                    }
                 }
                 override fun onStop() {
                     onPause()
@@ -90,13 +110,15 @@ actual class SystemMediaControls {
         album: String,
         durationMs: Long,
         trackId: String?,
-        coverUri: String?
+        coverUri: String?,
+        isLiked: Boolean
     ) {
         try {
             MediaPlaybackBridge.currentTitle = title
             MediaPlaybackBridge.currentArtist = artist
             MediaPlaybackBridge.currentCoverUri = coverUri
             MediaPlaybackBridge.durationMs = durationMs
+            MediaPlaybackBridge.isLiked = isLiked
 
             val metaBuilder = MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, title)
@@ -104,6 +126,8 @@ actual class SystemMediaControls {
                 .putString(MediaMetadata.METADATA_KEY_ALBUM, album.ifBlank { "YamSync" })
                 .putString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST, artist)
                 .putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
+                .putRating(MediaMetadata.METADATA_KEY_USER_RATING, Rating.newHeartRating(isLiked))
+                .putRating(MediaMetadata.METADATA_KEY_RATING, Rating.newHeartRating(isLiked))
 
             // Если уже есть закэшированная обложка, сразу устанавливаем
             val cachedArtwork = MediaPlaybackBridge.currentArtworkBitmap
@@ -179,6 +203,36 @@ actual class SystemMediaControls {
         null
     }
 
+    actual fun updateLikedState(isLiked: Boolean) {
+        try {
+            MediaPlaybackBridge.isLiked = isLiked
+            val context = AppContextHolder.appContext
+            MediaPlaybackServiceManager.updateLikedState(context, isLiked)
+
+            val metaBuilder = MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, MediaPlaybackBridge.currentTitle)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, MediaPlaybackBridge.currentArtist)
+                .putString(MediaMetadata.METADATA_KEY_ALBUM, "YamSync")
+                .putString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST, MediaPlaybackBridge.currentArtist)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, MediaPlaybackBridge.durationMs)
+                .putRating(MediaMetadata.METADATA_KEY_USER_RATING, Rating.newHeartRating(isLiked))
+                .putRating(MediaMetadata.METADATA_KEY_RATING, Rating.newHeartRating(isLiked))
+
+            val cachedArtwork = MediaPlaybackBridge.currentArtworkBitmap
+            if (cachedArtwork != null && !cachedArtwork.isRecycled) {
+                metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, cachedArtwork)
+                metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ART, cachedArtwork)
+            }
+            mediaSession?.setMetadata(metaBuilder.build())
+
+            updatePlaybackState(
+                isPlaying = MediaPlaybackBridge.isPlaying,
+                isPaused = !MediaPlaybackBridge.isPlaying && MediaPlaybackBridge.currentPositionMs > 0,
+                positionMs = MediaPlaybackBridge.currentPositionMs
+            )
+        } catch (_: Exception) {}
+    }
+
     actual fun updatePlaybackState(
         isPlaying: Boolean,
         isPaused: Boolean,
@@ -190,6 +244,25 @@ actual class SystemMediaControls {
                 isPaused -> PlaybackState.STATE_PAUSED
                 else -> PlaybackState.STATE_STOPPED
             }
+            val context = AppContextHolder.appContext
+            val likeResName = if (MediaPlaybackBridge.isLiked) "ic_notification_heart_filled" else "ic_notification_heart_outline"
+            val likeFallback = if (MediaPlaybackBridge.isLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
+            val likeResId = context.resources.getIdentifier(likeResName, "drawable", context.packageName).takeIf { it != 0 } ?: likeFallback
+
+            val dislikeResId = context.resources.getIdentifier("ic_notification_dislike", "drawable", context.packageName).takeIf { it != 0 } ?: android.R.drawable.ic_menu_close_clear_cancel
+
+            val likeCustomAction = PlaybackState.CustomAction.Builder(
+                MediaPlaybackService.ACTION_TOGGLE_LIKE,
+                if (MediaPlaybackBridge.isLiked) "В избранном" else "В избранное",
+                likeResId
+            ).build()
+
+            val dislikeCustomAction = PlaybackState.CustomAction.Builder(
+                MediaPlaybackService.ACTION_DISLIKE,
+                "Не нравится",
+                dislikeResId
+            ).build()
+
             val playbackState = PlaybackState.Builder()
                 .setActions(
                     PlaybackState.ACTION_PLAY or
@@ -200,8 +273,11 @@ actual class SystemMediaControls {
                     PlaybackState.ACTION_STOP or
                     PlaybackState.ACTION_SEEK_TO or
                     PlaybackState.ACTION_FAST_FORWARD or
-                    PlaybackState.ACTION_REWIND
+                    PlaybackState.ACTION_REWIND or
+                    PlaybackState.ACTION_SET_RATING
                 )
+                .addCustomAction(likeCustomAction)
+                .addCustomAction(dislikeCustomAction)
                 .setState(state, positionMs, if (isPlaying && !isPaused) 1.0f else 0.0f)
                 .build()
             mediaSession?.setPlaybackState(playbackState)
