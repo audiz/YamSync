@@ -13,6 +13,7 @@ import io.github.audiz.localFileExists
 import io.github.audiz.player.LocalTrackResolver
 import io.github.audiz.saveAppConfig
 import io.github.audiz.saveTrackFile
+import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.trackFileExists
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -117,7 +118,7 @@ class DownloadManager(
     val isCurrentTrackSavedToDisk: Boolean
         get() {
             val id = getPlayingTrackId() ?: return false
-            if (id.startsWith("local:")) return true
+            if (isLocalTrackId(id)) return true
             downloadVersion // чтение состояния для реактивной рекомпозиции
             return isTrackDownloaded(getPlayingArtistName(), getPlayingTrackTitle())
         }
@@ -150,7 +151,7 @@ class DownloadManager(
      */
     fun downloadTrack(trackId: String, trackTitle: String, artistName: String) {
         if (isTrackDownloading) return
-        if (trackId.startsWith("local:")) {
+        if (isLocalTrackId(trackId)) {
             onError("✅ Файл уже находится на диске: $trackTitle")
             return
         }
@@ -216,7 +217,7 @@ class DownloadManager(
                 // 1. Локальный путь, если trackId указывает на файл или начинается с "local:"
                 val resolvedPath = when {
                     trackId.startsWith("local:") -> trackId.removePrefix("local:")
-                    trackId.startsWith("/") || trackId.startsWith("~") || (trackId.length > 2 && trackId[1] == ':') -> trackId
+                    isLocalTrackId(trackId) -> trackId
                     localFileExists(trackId) -> trackId
                     else -> {
                         localTrackResolver.findLocalTrackFile(

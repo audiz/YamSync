@@ -117,6 +117,7 @@ class PlaybackManager(
 
     val audioPlayer = AudioPlayer()
     val systemMediaControls = SystemMediaControls()
+    var isTrackLiked: ((String?) -> Boolean)? = null
 
     var isPlaying by mutableStateOf(false)
         private set
@@ -562,7 +563,15 @@ class PlaybackManager(
                     isPlaying = true
                     isPaused = false
                     releasePlaybackWakeLock()
-                    systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, coverUri)
+                    systemMediaControls.updateMetadata(
+                        cleanTitle,
+                        cleanArtist,
+                        "",
+                        durationMs,
+                        targetTrackId,
+                        coverUri,
+                        isLiked = isTrackLiked?.invoke(targetTrackId) == true
+                    )
                     systemMediaControls.updatePlaybackState(true, false, 0L)
                     onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, coverUri, isWave)
                     preloadedAudio = null
@@ -616,7 +625,15 @@ class PlaybackManager(
                     isPrevLoading = false
                     isPlayLoading = false
                     releasePlaybackWakeLock()
-                    systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, coverUri)
+                    systemMediaControls.updateMetadata(
+                        cleanTitle,
+                        cleanArtist,
+                        "",
+                        durationMs,
+                        targetTrackId,
+                        coverUri,
+                        isLiked = isTrackLiked?.invoke(targetTrackId) == true
+                    )
                     systemMediaControls.updatePlaybackState(true, false, 0L)
                     onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, coverUri, isWave)
                     startProgressPolling()
@@ -686,7 +703,15 @@ class PlaybackManager(
                 isPrevLoading = false
                 isPlayLoading = false
                 releasePlaybackWakeLock()
-                systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, coverUri)
+                systemMediaControls.updateMetadata(
+                    cleanTitle,
+                    cleanArtist,
+                    "",
+                    durationMs,
+                    targetTrackId,
+                    coverUri,
+                    isLiked = isTrackLiked?.invoke(targetTrackId) == true
+                )
                 systemMediaControls.updatePlaybackState(true, false, 0L)
                 onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, coverUri, isWave)
                 startProgressPolling()
@@ -818,7 +843,15 @@ class PlaybackManager(
                     isPrevLoading = false
                     isPlayLoading = false
                     releasePlaybackWakeLock()
-                    systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, targetTrackId, resolvedCoverUri)
+                    systemMediaControls.updateMetadata(
+                        cleanTitle,
+                        cleanArtist,
+                        "",
+                        durationMs,
+                        targetTrackId,
+                        resolvedCoverUri,
+                        isLiked = isTrackLiked?.invoke(targetTrackId) == true
+                    )
                     systemMediaControls.updatePlaybackState(true, false, 0L)
                     onTrackStarted?.invoke(targetTrackId, cleanTitle, cleanArtist, resolvedCoverUri, isWave)
                     startProgressPolling()
@@ -921,7 +954,8 @@ class PlaybackManager(
                             album = "",
                             durationMs = durationMs,
                             trackId = trackId,
-                            coverUri = coverUri
+                            coverUri = coverUri,
+                            isLiked = isTrackLiked?.invoke(trackId) == true
                         )
                     }
 
@@ -1097,7 +1131,15 @@ class PlaybackManager(
                 isPrevLoading = false
                 isPlayLoading = false
                 releasePlaybackWakeLock()
-                systemMediaControls.updateMetadata(cleanTitle, cleanArtist, "", durationMs, currentId, coverUri)
+                systemMediaControls.updateMetadata(
+                    cleanTitle,
+                    cleanArtist,
+                    "",
+                    durationMs,
+                    currentId,
+                    coverUri,
+                    isLiked = isTrackLiked?.invoke(currentId) == true
+                )
                 systemMediaControls.updatePlaybackState(true, false, 0L)
                 startProgressPolling()
                 queueManager.plannedNextTrack = calculateNextTrackCandidate()

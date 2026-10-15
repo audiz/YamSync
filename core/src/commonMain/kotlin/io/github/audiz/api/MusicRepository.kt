@@ -111,7 +111,8 @@ class MusicRepository {
 
     /**
      * ❤️ Добавить трек в избранное (лайк)
-     * POST https://api.music.yandex.ru/users/{userId}/likes/tracks/add?track-id={trackIdWithAlbum}
+     * POST https://api.music.yandex.ru/users/{userId}/likes/tracks/add?track-id={cleanKey}
+     * Фолбэк: POST https://api.music.yandex.ru/users/{userId}/likes/tracks/add-multiple (с track-ids)
      */
     suspend fun likeTrack(trackIdWithAlbum: String): Boolean {
         val userId = getUserId()
@@ -119,14 +120,29 @@ class MusicRepository {
             println("MusicRepository: Не удалось поставить лайк: userId неизвестен")
             return false
         }
+        val cleanTrackId = trackIdWithAlbum.removePrefix("local:").substringBefore(":")
+        val albumPart = trackIdWithAlbum.removePrefix("local:").substringAfter(":", "").toLongOrNull()
+        val trackKey = if (albumPart != null && albumPart > 0) "$cleanTrackId:$albumPart" else cleanTrackId
+
         val url = "https://api.music.yandex.ru/users/$userId/likes/tracks/add"
         return try {
             val response: HttpResponse = client.post(url) {
                 applyAuthHeaders()
-                parameter("track-id", trackIdWithAlbum)
+                parameter("track-id", trackKey)
             }
-            println("MusicRepository: Лайк отправлен (POST $url?track-id=$trackIdWithAlbum) -> статус ${response.status}")
-            response.status.value in 200..299
+            if (response.status.value in 200..299) {
+                println("MusicRepository: Лайк отправлен (POST $url?track-id=$trackKey) -> статус ${response.status}")
+                true
+            } else {
+                // Фолбэк на add-multiple со стандартным параметром track-ids
+                val fallbackUrl = "https://api.music.yandex.ru/users/$userId/likes/tracks/add-multiple"
+                val fallbackResponse: HttpResponse = client.post(fallbackUrl) {
+                    applyAuthHeaders()
+                    parameter("track-ids", cleanTrackId)
+                }
+                println("MusicRepository: Фолбэк лайка (POST $fallbackUrl?track-ids=$cleanTrackId) -> статус ${fallbackResponse.status}")
+                fallbackResponse.status.value in 200..299
+            }
         } catch (e: Exception) {
             println("MusicRepository: Ошибка при отправке лайка: ${e.message}")
             false
@@ -134,8 +150,9 @@ class MusicRepository {
     }
 
     /**
-     * 💔 Удалить трек из избранного (дизлайк)
-     * POST https://api.music.yandex.ru/users/{userId}/likes/tracks/{trackIdWithAlbum}/remove
+     * 💔 Удалить трек из избранного
+     * POST https://api.music.yandex.ru/users/{userId}/likes/tracks/remove?track-ids={cleanTrackId}
+     * Фолбэк: POST https://api.music.yandex.ru/users/{userId}/likes/tracks/{cleanTrackId}/remove
      */
     suspend fun unlikeTrack(trackIdWithAlbum: String): Boolean {
         val userId = getUserId()
@@ -143,22 +160,43 @@ class MusicRepository {
             println("MusicRepository: Не удалось снять лайк: userId неизвестен")
             return false
         }
-        val url = "https://api.music.yandex.ru/users/$userId/likes/tracks/$trackIdWithAlbum/remove"
+        val cleanTrackId = trackIdWithAlbum.removePrefix("local:").substringBefore(":")
+        val removeUrl = "https://api.music.yandex.ru/users/$userId/likes/tracks/remove"
         return try {
-            val response: HttpResponse = client.post(url) {
+            val response: HttpResponse = client.post(removeUrl) {
                 applyAuthHeaders()
+                parameter("track-ids", cleanTrackId)
+                parameter("track-id", cleanTrackId)
             }
-            println("MusicRepository: Лайк снят (POST $url) -> статус ${response.status}")
-            response.status.value in 200..299
+            if (response.status.value in 200..299) {
+                println("MusicRepository: Лайк снят (POST $removeUrl?track-ids=$cleanTrackId) -> статус ${response.status}")
+                true
+            } else {
+                // Фолбэк на эндпоинт с чистым ID в пути URL (без двоеточий)
+                val pathUrl = "https://api.music.yandex.ru/users/$userId/likes/tracks/$cleanTrackId/remove"
+                val pathResponse: HttpResponse = client.post(pathUrl) {
+                    applyAuthHeaders()
+                }
+                println("MusicRepository: Фолбэк снятия лайка (POST $pathUrl) -> статус ${pathResponse.status}")
+                pathResponse.status.value in 200..299
+            }
         } catch (e: Exception) {
             println("MusicRepository: Ошибка при снятии лайка: ${e.message}")
-            false
+            try {
+                val pathUrl = "https://api.music.yandex.ru/users/$userId/likes/tracks/$cleanTrackId/remove"
+                val pathResponse: HttpResponse = client.post(pathUrl) {
+                    applyAuthHeaders()
+                }
+                pathResponse.status.value in 200..299
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
     /**
      * 💔 Добавить трек в дизлайки
-     * POST https://api.music.yandex.ru/users/{userId}/dislikes/tracks/add?track-id={trackIdWithAlbum}
+     * POST https://api.music.yandex.ru/users/{userId}/dislikes/tracks/add?track-id={trackKey}
      */
     suspend fun dislikeTrack(trackIdWithAlbum: String): Boolean {
         val userId = getUserId()
@@ -166,14 +204,27 @@ class MusicRepository {
             println("MusicRepository: Не удалось поставить дизлайк: userId неизвестен")
             return false
         }
+        val cleanTrackId = trackIdWithAlbum.removePrefix("local:").substringBefore(":")
+        val albumPart = trackIdWithAlbum.removePrefix("local:").substringAfter(":", "").toLongOrNull()
+        val trackKey = if (albumPart != null && albumPart > 0) "$cleanTrackId:$albumPart" else cleanTrackId
+
         val url = "https://api.music.yandex.ru/users/$userId/dislikes/tracks/add"
         return try {
             val response: HttpResponse = client.post(url) {
                 applyAuthHeaders()
-                parameter("track-id", trackIdWithAlbum)
+                parameter("track-id", trackKey)
             }
-            println("MusicRepository: Дизлайк отправлен (POST $url?track-id=$trackIdWithAlbum) -> статус ${response.status}")
-            response.status.value in 200..299
+            if (response.status.value in 200..299) {
+                println("MusicRepository: Дизлайк отправлен (POST $url?track-id=$trackKey) -> статус ${response.status}")
+                true
+            } else {
+                val fallbackResponse: HttpResponse = client.post(url) {
+                    applyAuthHeaders()
+                    parameter("track-id", cleanTrackId)
+                }
+                println("MusicRepository: Фолбэк дизлайка (POST $url?track-id=$cleanTrackId) -> статус ${fallbackResponse.status}")
+                fallbackResponse.status.value in 200..299
+            }
         } catch (e: Exception) {
             println("MusicRepository: Ошибка при отправке дизлайка: ${e.message}")
             false
@@ -182,7 +233,8 @@ class MusicRepository {
 
     /**
      * 🤍 Снять дизлайк с трека
-     * POST https://api.music.yandex.ru/users/{userId}/dislikes/tracks/{trackIdWithAlbum}/remove
+     * POST https://api.music.yandex.ru/users/{userId}/dislikes/tracks/remove?track-ids={cleanTrackId}
+     * Фолбэк: POST https://api.music.yandex.ru/users/{userId}/dislikes/tracks/{cleanTrackId}/remove
      */
     suspend fun undislikeTrack(trackIdWithAlbum: String): Boolean {
         val userId = getUserId()
@@ -190,16 +242,36 @@ class MusicRepository {
             println("MusicRepository: Не удалось снять дизлайк: userId неизвестен")
             return false
         }
-        val url = "https://api.music.yandex.ru/users/$userId/dislikes/tracks/$trackIdWithAlbum/remove"
+        val cleanTrackId = trackIdWithAlbum.removePrefix("local:").substringBefore(":")
+        val removeUrl = "https://api.music.yandex.ru/users/$userId/dislikes/tracks/remove"
         return try {
-            val response: HttpResponse = client.post(url) {
+            val response: HttpResponse = client.post(removeUrl) {
                 applyAuthHeaders()
+                parameter("track-ids", cleanTrackId)
+                parameter("track-id", cleanTrackId)
             }
-            println("MusicRepository: Дизлайк снят (POST $url) -> статус ${response.status}")
-            response.status.value in 200..299
+            if (response.status.value in 200..299) {
+                println("MusicRepository: Дизлайк снят (POST $removeUrl?track-ids=$cleanTrackId) -> статус ${response.status}")
+                true
+            } else {
+                val pathUrl = "https://api.music.yandex.ru/users/$userId/dislikes/tracks/$cleanTrackId/remove"
+                val pathResponse: HttpResponse = client.post(pathUrl) {
+                    applyAuthHeaders()
+                }
+                println("MusicRepository: Фолбэк снятия дизлайка (POST $pathUrl) -> статус ${pathResponse.status}")
+                pathResponse.status.value in 200..299
+            }
         } catch (e: Exception) {
             println("MusicRepository: Ошибка при снятии дизлайка: ${e.message}")
-            false
+            try {
+                val pathUrl = "https://api.music.yandex.ru/users/$userId/dislikes/tracks/$cleanTrackId/remove"
+                val pathResponse: HttpResponse = client.post(pathUrl) {
+                    applyAuthHeaders()
+                }
+                pathResponse.status.value in 200..299
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 

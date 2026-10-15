@@ -31,6 +31,7 @@ import io.github.audiz.models.TypedResult
 import io.github.audiz.models.WaveSearchResultInfo
 import io.github.audiz.models.PlaylistInfo
 import io.github.audiz.models.FullTrackInfo
+import io.github.audiz.models.isLocal
 
 @Composable
 fun SearchResultsList(
@@ -196,10 +197,7 @@ private fun ResultCard(
             (playingTrackId != null && fullTrack.realId?.removePrefix("local:") == playingTrackId.removePrefix("local:"))
         ) && (isPlaying || isPaused)
         val isCurrentTrackPlaying = isCurrentTrackActive && isPlaying && !isPaused
-        val rId = fullTrack.realId
-        val isDownloaded = fullTrack.id.startsWith("local:") ||
-            (rId != null && (rId.startsWith("local:") || rId.startsWith("/") || (rId.length > 2 && rId[1] == ':'))) ||
-            isTrackDownloaded(artistsString, fullTrack.title)
+        val isDownloaded = fullTrack.isLocal || isTrackDownloaded(artistsString, fullTrack.title)
         val isInPlaylist = isTrackInPlaylist?.invoke(fullTrack) ?: false
 
         TrackItemCard(

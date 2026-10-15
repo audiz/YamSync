@@ -22,6 +22,7 @@ import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.LocalPlaylist
 import io.github.audiz.models.PersonalPlaylistItemData
 import io.github.audiz.models.PlaylistInfo
+import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.models.YandexPlaylistDetails
 import io.github.audiz.saveLocalPlaylists
 import io.github.audiz.savePersonalPlaylistsCache
@@ -791,6 +792,32 @@ class PlaylistManager(
         return path
     }
 
+    /** Проверяет, лайкнут ли трек (с учетом нормализации ID и суффиксов альбомов) */
+    fun isTrackLiked(trackId: String?): Boolean {
+        if (trackId.isNullOrBlank()) return false
+        val clean = trackId.removePrefix("local:").substringBefore(":")
+        if (likedTrackIds.contains(clean) || likedTrackIds.contains(trackId)) return true
+        val matched = likedTrackIds.firstOrNull { it.removePrefix("local:").substringBefore(":") == clean }
+        if (matched != null) {
+            likedTrackIds.add(clean)
+            return true
+        }
+        return false
+    }
+
+    /** Проверяет, дизлайкнут ли трек (с учетом нормализации ID и суффиксов альбомов) */
+    fun isTrackDisliked(trackId: String?): Boolean {
+        if (trackId.isNullOrBlank()) return false
+        val clean = trackId.removePrefix("local:").substringBefore(":")
+        if (dislikedTrackIds.contains(clean) || dislikedTrackIds.contains(trackId)) return true
+        val matched = dislikedTrackIds.firstOrNull { it.removePrefix("local:").substringBefore(":") == clean }
+        if (matched != null) {
+            dislikedTrackIds.add(clean)
+            return true
+        }
+        return false
+    }
+
     /**
      * ❤️ Загрузить и обновить список всех лайкнутых треков пользователя в фоне
      */
@@ -802,8 +829,9 @@ class PlaylistManager(
                     val uuid = repository.getLikesPlaylistUuid()
                     repository.getPlaylistTrackIdsByUuid(uuid)
                 }
-                likedTrackIds.addAll(ids)
-                println("PlaylistManager: Синхронизировано ${ids.size} лайкнутых треков")
+                likedTrackIds.clear()
+                likedTrackIds.addAll(ids.map { it.removePrefix("local:").substringBefore(":") })
+                println("PlaylistManager: Синхронизировано ${likedTrackIds.size} лайкнутых треков")
             } catch (e: Throwable) {
                 println("PlaylistManager: Ошибка синхронизации лайкнутых треков: ${e.message}")
             }
@@ -814,29 +842,39 @@ class PlaylistManager(
      * Переключить лайк для трека (оптимистичное обновление + запрос на сервер)
      */
     fun toggleLike(trackId: String, albumId: Long? = null) {
-        val trackKey = if (albumId != null && albumId > 0) "$trackId:$albumId" else trackId
-        val wasLiked = likedTrackIds.contains(trackId)
-        val wasDisliked = dislikedTrackIds.contains(trackId)
+        val cleanTrackId = trackId.removePrefix("local:").substringBefore(":")
+        val parsedAlbumId = trackId.removePrefix("local:").substringAfter(":", "").toLongOrNull()
+        val finalAlbumId = albumId ?: parsedAlbumId
+        val trackKey = if (finalAlbumId != null && finalAlbumId > 0) "$cleanTrackId:$finalAlbumId" else cleanTrackId
+
+        val wasLiked = isTrackLiked(trackId)
+        val wasDisliked = isTrackDisliked(trackId)
 
         if (wasLiked) {
+            likedTrackIds.remove(cleanTrackId)
             likedTrackIds.remove(trackId)
-            println("PlaylistManager: Трек $trackId удален из лайков (локально)")
+            val legacy = likedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+            likedTrackIds.removeAll(legacy)
+            println("PlaylistManager: Трек $cleanTrackId удален из лайков (локально)")
         } else {
-            likedTrackIds.add(trackId)
-            println("PlaylistManager: Трек $trackId добавлен в лайки (локально)")
+            likedTrackIds.add(cleanTrackId)
+            println("PlaylistManager: Трек $cleanTrackId добавлен в лайки (локально)")
             if (wasDisliked) {
+                dislikedTrackIds.remove(cleanTrackId)
                 dislikedTrackIds.remove(trackId)
-                println("PlaylistManager: Трек $trackId удален из дизлайков из-за лайка")
+                val legacyDislikes = dislikedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+                dislikedTrackIds.removeAll(legacyDislikes)
+                println("PlaylistManager: Трек $cleanTrackId удален из дизлайков из-за лайка")
             }
         }
 
-        if (trackId.startsWith("local:")) return
+        if (isLocalTrackId(trackId)) return
 
         launchSafe {
             if (wasLiked) {
                 val success = repository.unlikeTrack(trackKey)
                 if (!success) {
-                    likedTrackIds.add(trackId)
+                    likedTrackIds.add(cleanTrackId)
                     println("PlaylistManager: ❌ Ошибка изменения статуса лайка на сервере для $trackKey, состояние откатано")
                 } else {
                     println("PlaylistManager: ✅ Статус лайка для $trackKey успешно обновлен на сервере")
@@ -847,9 +885,12 @@ class PlaylistManager(
                 }
                 val success = repository.likeTrack(trackKey)
                 if (!success) {
+                    likedTrackIds.remove(cleanTrackId)
                     likedTrackIds.remove(trackId)
+                    val legacy = likedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+                    likedTrackIds.removeAll(legacy)
                     if (wasDisliked) {
-                        dislikedTrackIds.add(trackId)
+                        dislikedTrackIds.add(cleanTrackId)
                     }
                     println("PlaylistManager: ❌ Ошибка изменения статуса лайка на сервере для $trackKey, состояние откатано")
                 } else {
@@ -863,28 +904,38 @@ class PlaylistManager(
      * Переключить дизлайк для трека (оптимистичное обновление + запрос на сервер)
      */
     fun toggleDislike(trackId: String, albumId: Long? = null, onDisliked: (() -> Unit)? = null) {
-        val trackKey = if (albumId != null && albumId > 0) "$trackId:$albumId" else trackId
-        val wasDisliked = dislikedTrackIds.contains(trackId)
-        val wasLiked = likedTrackIds.contains(trackId)
+        val cleanTrackId = trackId.removePrefix("local:").substringBefore(":")
+        val parsedAlbumId = trackId.removePrefix("local:").substringAfter(":", "").toLongOrNull()
+        val finalAlbumId = albumId ?: parsedAlbumId
+        val trackKey = if (finalAlbumId != null && finalAlbumId > 0) "$cleanTrackId:$finalAlbumId" else cleanTrackId
+
+        val wasDisliked = isTrackDisliked(trackId)
+        val wasLiked = isTrackLiked(trackId)
 
         if (wasDisliked) {
+            dislikedTrackIds.remove(cleanTrackId)
             dislikedTrackIds.remove(trackId)
-            println("PlaylistManager: Трек $trackId удален из дизлайков (локально)")
+            val legacy = dislikedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+            dislikedTrackIds.removeAll(legacy)
+            println("PlaylistManager: Трек $cleanTrackId удален из дизлайков (локально)")
         } else {
-            dislikedTrackIds.add(trackId)
-            println("PlaylistManager: Трек $trackId добавлен в дизлайки (локально)")
+            dislikedTrackIds.add(cleanTrackId)
+            println("PlaylistManager: Трек $cleanTrackId добавлен в дизлайки (локально)")
             if (wasLiked) {
+                likedTrackIds.remove(cleanTrackId)
                 likedTrackIds.remove(trackId)
-                println("PlaylistManager: Трек $trackId удален из лайков из-за дизлайка")
+                val legacyLikes = likedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+                likedTrackIds.removeAll(legacyLikes)
+                println("PlaylistManager: Трек $cleanTrackId удален из лайков из-за дизлайка")
             }
         }
 
-        if (!trackId.startsWith("local:")) {
+        if (!isLocalTrackId(trackId)) {
             launchSafe {
                 if (wasDisliked) {
                     val success = repository.undislikeTrack(trackKey)
                     if (!success) {
-                        dislikedTrackIds.add(trackId)
+                        dislikedTrackIds.add(cleanTrackId)
                         println("PlaylistManager: ❌ Ошибка снятия дизлайка на сервере для $trackKey, состояние откатано")
                     } else {
                         println("PlaylistManager: ✅ Статус дизлайка для $trackKey успешно обновлен на сервере (снят)")
@@ -895,9 +946,12 @@ class PlaylistManager(
                     }
                     val success = repository.dislikeTrack(trackKey)
                     if (!success) {
+                        dislikedTrackIds.remove(cleanTrackId)
                         dislikedTrackIds.remove(trackId)
+                        val legacy = dislikedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+                        dislikedTrackIds.removeAll(legacy)
                         if (wasLiked) {
-                            likedTrackIds.add(trackId)
+                            likedTrackIds.add(cleanTrackId)
                         }
                         println("PlaylistManager: ❌ Ошибка добавления дизлайка на сервере для $trackKey, состояние откатано")
                     } else {
@@ -910,5 +964,51 @@ class PlaylistManager(
         if (!wasDisliked) {
             onDisliked?.invoke()
         }
+    }
+
+    /**
+     * Всегда поставить дизлайк треку (если еще не стоит) и вызвать onDisliked (например, переключение на следующий)
+     */
+    fun dislikeTrack(trackId: String, albumId: Long? = null, onDisliked: (() -> Unit)? = null) {
+        val cleanTrackId = trackId.removePrefix("local:").substringBefore(":")
+        val finalAlbumId = albumId ?: trackId.removePrefix("local:").substringAfter(":", "").toLongOrNull()
+        val trackKey = if (finalAlbumId != null && finalAlbumId > 0) "$cleanTrackId:$finalAlbumId" else cleanTrackId
+
+        val wasDisliked = isTrackDisliked(trackId)
+        val wasLiked = isTrackLiked(trackId)
+
+        if (!wasDisliked) {
+            dislikedTrackIds.add(cleanTrackId)
+            println("PlaylistManager: Трек $cleanTrackId добавлен в дизлайки")
+            if (wasLiked) {
+                likedTrackIds.remove(cleanTrackId)
+                likedTrackIds.remove(trackId)
+                val legacyLikes = likedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+                likedTrackIds.removeAll(legacyLikes)
+            }
+
+            if (!isLocalTrackId(trackId)) {
+                launchSafe {
+                    if (wasLiked) {
+                        repository.unlikeTrack(trackKey)
+                    }
+                    val success = repository.dislikeTrack(trackKey)
+                    if (!success) {
+                        dislikedTrackIds.remove(cleanTrackId)
+                        dislikedTrackIds.remove(trackId)
+                        val legacy = dislikedTrackIds.filter { it.removePrefix("local:").substringBefore(":") == cleanTrackId }
+                        dislikedTrackIds.removeAll(legacy)
+                        if (wasLiked) {
+                            likedTrackIds.add(cleanTrackId)
+                        }
+                        println("PlaylistManager: ❌ Ошибка добавления дизлайка на сервере для $trackKey, состояние откатано")
+                    } else {
+                        println("PlaylistManager: ✅ Дизлайк для $trackKey успешно отправлен на сервер")
+                    }
+                }
+            }
+        }
+
+        onDisliked?.invoke()
     }
 }

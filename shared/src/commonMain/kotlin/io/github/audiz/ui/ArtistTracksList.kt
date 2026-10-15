@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.audiz.models.FullTrackInfo
+import io.github.audiz.models.isLocal
 
 @Composable
 private fun LazyListState.OnBottomReached(buffer: Int = 2, onLoadMore: () -> Unit) {
@@ -230,10 +231,7 @@ fun ArtistTracksList(
                             (playingTrackId != null && track.realId?.removePrefix("local:") == playingTrackId.removePrefix("local:"))
                         ) && (isPlaying || isPaused)
                         val isCurrentTrackPlaying = isCurrentTrackActive && isPlaying && !isPaused
-                        val rId = track.realId
-                        val isDownloaded = track.id.startsWith("local:") ||
-                            (rId != null && (rId.startsWith("local:") || rId.startsWith("/") || (rId.length > 2 && rId[1] == ':'))) ||
-                            isTrackDownloaded(artistsString, track.title)
+                        val isDownloaded = track.isLocal || isTrackDownloaded(artistsString, track.title)
                         val isInPlaylist = isTrackInPlaylist?.invoke(track) ?: false
 
                         TrackItemCard(

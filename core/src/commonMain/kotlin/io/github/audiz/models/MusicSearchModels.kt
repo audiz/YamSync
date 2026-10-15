@@ -163,6 +163,26 @@ data class FullTrackInfo(
     val coverUri: String? = null
 )
 
+/**
+ * Проверяет, является ли идентификатор трека ссылкой на локальный файл на устройстве
+ * (а не облачным треком Яндекс Музыки).
+ */
+fun isLocalTrackId(id: String?): Boolean {
+    if (id.isNullOrBlank()) return false
+    val trimmed = id.trim()
+    if (trimmed.startsWith("local:") || trimmed.startsWith("file:") || trimmed.startsWith("/") || trimmed.startsWith("~")) {
+        return true
+    }
+    // Windows absolute path with drive letter (например, C:\... или D:/...)
+    if (trimmed.length >= 3 && trimmed[0].isLetter() && trimmed[1] == ':' && (trimmed[2] == '\\' || trimmed[2] == '/')) {
+        return true
+    }
+    return false
+}
+
+val FullTrackInfo.isLocal: Boolean
+    get() = isLocalTrackId(id) || (realId != null && isLocalTrackId(realId))
+
 @Serializable
 data class FullArtistInfo(
     val id: Long = 0,

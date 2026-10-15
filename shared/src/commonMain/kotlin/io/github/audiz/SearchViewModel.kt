@@ -12,6 +12,7 @@ import io.github.audiz.models.FullAlbumInfo
 import io.github.audiz.models.PlaylistInfo
 import io.github.audiz.models.LocalPlaylist
 import io.github.audiz.models.ThematicWavePreset
+import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.api.generatePlayUuid
 import io.github.audiz.download.DownloadManager
 import io.github.audiz.player.LocalTrackResolver
@@ -260,11 +261,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /** Проверяет, является ли текущий воспроизводимый трек локальным файлом или источником */
     val isCurrentTrackLocal: Boolean
         get() {
-            val id = playerTrackId
-            return id?.startsWith("local:") == true ||
-                   id?.startsWith("/") == true ||
-                   (id != null && id.length > 2 && id[1] == ':') ||
-                   currentPlayingFilePath != null
+            val id = playerTrackId ?: currentWaveTrack?.id ?: return false
+            return isLocalTrackId(id)
         }
 
     /** Скачать текущий трек на диск или удалить его из библиотеки, если уже скачан */
@@ -317,14 +315,14 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     val isCurrentTrackLiked: Boolean
         get() {
             val id = playerTrackId ?: currentWaveTrack?.id
-            return id != null && likedTrackIds.contains(id)
+            return playlistManager.isTrackLiked(id)
         }
 
     /** Проверяет, дизлайкнут ли текущий воспроизводимый трек */
     val isCurrentTrackDisliked: Boolean
         get() {
             val id = playerTrackId ?: currentWaveTrack?.id
-            return id != null && dislikedTrackIds.contains(id)
+            return playlistManager.isTrackDisliked(id)
         }
 
     /** 🎵 Проверяет, содержится ли текущий воспроизводимый трек хотя бы в одном плейлисте (локальном или облачном) */
@@ -350,6 +348,25 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         val trackId = playerTrackId ?: currentWaveTrack?.id ?: return
         val albumId = playerAlbumId ?: currentWaveTrack?.albums?.firstOrNull()?.id
         playlistManager.toggleLike(trackId, albumId)
+        val isLikedNow = playlistManager.isTrackLiked(trackId)
+        playbackManager.systemMediaControls.updateLikedState(isLikedNow)
+    }
+
+    /** Всегда поставить дизлайк текущему треку и переключить на следующий */
+    fun dislikeCurrentTrackAndSkip() {
+        if (isCurrentTrackLocal) {
+            playNextTrack()
+            return
+        }
+        val trackId = playerTrackId ?: currentWaveTrack?.id ?: run {
+            playNextTrack()
+            return
+        }
+        val albumId = playerAlbumId ?: currentWaveTrack?.albums?.firstOrNull()?.id
+        playlistManager.dislikeTrack(trackId, albumId) {
+            playNextTrack()
+        }
+        playbackManager.systemMediaControls.updateLikedState(false)
     }
 
     /** Переключить дизлайк для текущего воспроизводимого трека */
@@ -360,6 +377,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         playlistManager.toggleDislike(trackId, albumId) {
             playNextTrack()
         }
+        val isLikedNow = playlistManager.isTrackLiked(trackId)
+        playbackManager.systemMediaControls.updateLikedState(isLikedNow)
     }
 
     /** Загрузить и обновить список всех лайкнутых треков пользователя в фоне */
@@ -389,7 +408,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         scope = viewModelScope,
         repository = repository,
         getAccessToken = { settingsManager.currentAccessToken },
-        onTrackLiked = { trackId -> playlistManager.likedTrackIds.add(trackId) },
+        onTrackLiked = { trackId -> playlistManager.likedTrackIds.add(trackId.removePrefix("local:").substringBefore(":")) },
         onError = { errorMessage = it }
     )
 
@@ -555,7 +574,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     val playerCoverUri: String?
         get() {
             val id = playerTrackId
-            val isLocal = id?.startsWith("local:") == true || currentPlayingFilePath != null
+            val isLocal = isLocalTrackId(id)
             if (isLocal) {
                 return playbackManager.coverUri ?: loadedTracks.firstOrNull { it.id == id }?.coverUri
             }
@@ -581,9 +600,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             val cleanArtist = playerArtistName.ifBlank { "Unknown Artist" }
             val cleanTitle = playerTrackTitle.ifBlank { "Unknown Track" }
             val filePath = currentPlayingFilePath
+            val isLocal = isLocalTrackId(id)
             return FullTrackInfo(
                 id = id,
-                realId = filePath ?: if (id.startsWith("local:")) id.removePrefix("local:") else null,
+                realId = if (isLocal) (filePath ?: id.removePrefix("local:")) else null,
                 title = cleanTitle,
                 available = true,
                 durationMs = playerDurationMs,
@@ -627,6 +647,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     init {
         io.github.audiz.ui.CoverImageLoader.repository = repository
         waveManager.attachPlayback(playbackManager)
+        playbackManager.isTrackLiked = { id ->
+            if (id != null) playlistManager.isTrackLiked(id) else false
+        }
+        playbackManager.systemMediaControls.setCustomActions(
+            onToggleLike = { toggleLikeCurrentTrack() },
+            onDislike = { dislikeCurrentTrackAndSkip() }
+        )
 
         // 🌊 При старте запрашиваем сессию Моей волны, персональные плейлисты и список лайков
         loadLocalPlaylistsFromDisk()
@@ -1795,7 +1822,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     val (ids, richTracks) = fetchIdsAndTracksBlock()
                     allTrackIds = ids
                     if (title == "Мне нравится") {
-                        likedTrackIds.addAll(ids)
+                        likedTrackIds.addAll(ids.map { it.removePrefix("local:").substringBefore(":") })
                     }
                     if (richTracks.isNotEmpty()) {
                         loadedTracks.clear()
@@ -2131,15 +2158,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             it.id.removePrefix("local:") == cleanId ||
             it.realId?.removePrefix("local:") == cleanId
         }
-        val effectiveTrackId = when {
-            trackId.startsWith("local:") || trackId.startsWith("/") || trackId.startsWith("~") || (trackId.length > 2 && trackId[1] == ':') -> trackId
-            foundTrack?.realId != null -> foundTrack.realId!!
-            foundTrack?.id?.startsWith("local:") == true -> foundTrack.id
+        val effectiveTrackId: String = when {
+            isLocalTrackId(trackId) -> trackId
+            !foundTrack?.realId.isNullOrBlank() -> foundTrack!!.realId!!
+            foundTrack != null && isLocalTrackId(foundTrack.id) -> foundTrack.id
             else -> trackId
         }
         val playingPath = currentPlayingFilePath?.removePrefix("local:")
         val isCurrentlyPlayingThis = (playerTrackId == trackId || playerTrackId?.removePrefix("local:") == cleanId || playingPath == cleanId)
-        val finalTrackId = if (isCurrentlyPlayingThis && playingPath != null && !effectiveTrackId.startsWith("/") && !effectiveTrackId.startsWith("local:") && !effectiveTrackId.startsWith("~") && !(effectiveTrackId.length > 2 && effectiveTrackId[1] == ':')) {
+        val finalTrackId = if (isCurrentlyPlayingThis && playingPath != null && !isLocalTrackId(effectiveTrackId)) {
             playingPath
         } else {
             effectiveTrackId
