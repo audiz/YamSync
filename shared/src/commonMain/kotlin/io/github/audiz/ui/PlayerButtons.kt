@@ -171,6 +171,7 @@ fun GhostIconButton(
     contentDescription: String,
     modifier: Modifier = Modifier,
     size: Dp = 36.dp,
+    iconSize: Dp? = null,
     shape: Shape = CircleShape,
     contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
     onClick: () -> Unit
@@ -199,7 +200,7 @@ fun GhostIconButton(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = contentDescription, tint = contentColor, modifier = Modifier.size(size * 0.55f))
+        Icon(icon, contentDescription = contentDescription, tint = contentColor, modifier = Modifier.size(iconSize ?: (size * 0.55f)))
     }
 }
 
