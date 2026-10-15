@@ -75,10 +75,10 @@ actual class SystemMediaControls {
                     val target = (MediaPlaybackBridge.currentPositionMs - 15000L).coerceAtLeast(0L)
                     onSeek(target)
                 }
-                override fun onSetRating(rating: Rating?) {
+                override fun onSetRating(rating: Rating) {
                     MediaPlaybackBridge.onToggleLike?.invoke()
                 }
-                override fun onCustomAction(action: String?, extras: Bundle?) {
+                override fun onCustomAction(action: String, extras: Bundle?) {
                     when (action) {
                         MediaPlaybackService.ACTION_TOGGLE_LIKE -> MediaPlaybackBridge.onToggleLike?.invoke()
                         MediaPlaybackService.ACTION_DISLIKE -> MediaPlaybackBridge.onDislike?.invoke()
@@ -286,7 +286,6 @@ actual class SystemMediaControls {
             val wasActive = MediaPlaybackBridge.isPlaying
             MediaPlaybackBridge.isPlaying = active
             MediaPlaybackBridge.currentPositionMs = positionMs
-            val context = AppContextHolder.appContext
 
             if (isPlaying || isPaused) {
                 // Обновляем Foreground Service только при смене состояния воспроизведения (play/pause),
