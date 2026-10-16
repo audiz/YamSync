@@ -32,10 +32,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import io.github.audiz.AppConfigKeys
 import io.github.audiz.SearchViewModel
 import io.github.audiz.isPlatformPickerSupported
+import io.github.audiz.loadAppConfig
 import io.github.audiz.pickSaveFile
 import io.github.audiz.sanitizeKeepSpaces
+import io.github.audiz.saveAppConfig
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.PlaylistInfo
 
@@ -51,7 +54,6 @@ fun AddToPlaylistDialog(
     viewModel: SearchViewModel,
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(0) }
     val tabs = remember {
         if (isPlatformPickerSupported) {
             listOf("💾 Локальные", "☁️ Яндекс", "📁 Сохранить как...")
@@ -59,6 +61,11 @@ fun AddToPlaylistDialog(
             listOf("💾 Локальные", "☁️ Яндекс")
         }
     }
+    val initialTab = remember {
+        val saved = loadAppConfig(AppConfigKeys.LAST_ADD_TO_PLAYLIST_TAB)?.toIntOrNull() ?: 0
+        saved.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+    }
+    var selectedTab by remember { mutableStateOf(initialTab) }
 
     var isCreatingLocal by remember { mutableStateOf(false) }
     var newLocalTitle by remember { mutableStateOf("") }
@@ -148,7 +155,10 @@ fun AddToPlaylistDialog(
                     tabs.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTab == index,
-                            onClick = { selectedTab = index },
+                            onClick = {
+                                selectedTab = index
+                                saveAppConfig(AppConfigKeys.LAST_ADD_TO_PLAYLIST_TAB, index.toString())
+                            },
                             text = {
                                 Text(
                                     text = title,

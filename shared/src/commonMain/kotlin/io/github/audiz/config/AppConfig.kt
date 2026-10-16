@@ -31,6 +31,7 @@ object AppConfigKeys {
     const val TRACKS_LIST_VISIBLE = "tracks_list_visible"
     const val SHOW_PLAYLISTS_DIALOG = "show_playlists_dialog"
     const val EXPANDED_PLAYLIST_ID = "expanded_playlist_id"
+    const val LAST_ADD_TO_PLAYLIST_TAB = "last_add_to_playlist_tab"
     const val WINDOW_WIDTH = "window_width"
     const val WINDOW_HEIGHT = "window_height"
     const val WINDOW_IS_MAXIMIZED = "window_is_maximized"
