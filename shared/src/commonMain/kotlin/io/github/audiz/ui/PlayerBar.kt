@@ -381,7 +381,7 @@ fun DesktopPlayerBar(
                             )
                         }
 
-                        if (!state.isMobile && containerWidth >= 380.dp) {
+                        if (containerWidth >= 380.dp) {
                             FavoriteButton(
                                 isFavorite = state.isFavorite,
                                 size = standardButtonSize,
@@ -390,25 +390,17 @@ fun DesktopPlayerBar(
                         }
                     }
 
-                    // В правом углу: Регулятор громкости (Desktop) или кнопка Лайк (на мобильных)
+                    // В правом углу: Регулятор громкости
                     if (showSideControls) {
                         Box(
                             modifier = Modifier.weight(1f, fill = false),
                             contentAlignment = Alignment.CenterEnd
                         ) {
-                            if (!state.isMobile) {
-                                DesktopVolumeControl(
-                                    volume = state.volume,
-                                    onVolumeChange = actions.onVolumeChange,
-                                    buttonSize = standardButtonSize
-                                )
-                            } else {
-                                FavoriteButton(
-                                    isFavorite = state.isFavorite,
-                                    size = standardButtonSize,
-                                    onClick = { actions.onToggleFavorite?.invoke() }
-                                )
-                            }
+                            DesktopVolumeControl(
+                                volume = state.volume,
+                                onVolumeChange = actions.onVolumeChange,
+                                buttonSize = standardButtonSize
+                            )
                         }
                     }
                 }
