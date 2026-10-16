@@ -1,5 +1,6 @@
 package io.github.audiz
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadata
@@ -81,6 +82,7 @@ actual class SystemMediaControls {
                 override fun onCustomAction(action: String, extras: Bundle?) {
                     when (action) {
                         MediaPlaybackService.ACTION_TOGGLE_LIKE -> MediaPlaybackBridge.onToggleLike?.invoke()
+                        MediaPlaybackService.ACTION_CLOSE_APP -> MediaPlaybackBridge.onCloseApp?.invoke()
                         MediaPlaybackService.ACTION_DISLIKE -> MediaPlaybackBridge.onDislike?.invoke()
                     }
                 }
@@ -98,6 +100,16 @@ actual class SystemMediaControls {
             MediaPlaybackBridge.onNext = onNext
             MediaPlaybackBridge.onPrev = onPrev
             MediaPlaybackBridge.onSeek = onSeek
+            MediaPlaybackBridge.onCloseApp = {
+                try {
+                    val intent = Intent(context, MediaPlaybackService::class.java).apply {
+                        action = MediaPlaybackService.ACTION_CLOSE_APP
+                    }
+                    context.startService(intent)
+                } catch (e: Throwable) {
+                    println("SystemMediaControls: Ошибка вызова ACTION_CLOSE_APP: ${e.message}")
+                }
+            }
             MediaPlaybackBridge.sessionToken = session.sessionToken
         } catch (e: Exception) {
             println("Android MediaSession init error: ${e.message}")
@@ -249,7 +261,7 @@ actual class SystemMediaControls {
             val likeFallback = if (MediaPlaybackBridge.isLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
             val likeResId = context.resources.getIdentifier(likeResName, "drawable", context.packageName).takeIf { it != 0 } ?: likeFallback
 
-            val dislikeResId = context.resources.getIdentifier("ic_notification_dislike", "drawable", context.packageName).takeIf { it != 0 } ?: android.R.drawable.ic_menu_close_clear_cancel
+            val closeResId = context.resources.getIdentifier("ic_notification_close", "drawable", context.packageName).takeIf { it != 0 } ?: android.R.drawable.ic_menu_close_clear_cancel
 
             val likeCustomAction = PlaybackState.CustomAction.Builder(
                 MediaPlaybackService.ACTION_TOGGLE_LIKE,
@@ -257,10 +269,10 @@ actual class SystemMediaControls {
                 likeResId
             ).build()
 
-            val dislikeCustomAction = PlaybackState.CustomAction.Builder(
-                MediaPlaybackService.ACTION_DISLIKE,
-                "Не нравится",
-                dislikeResId
+            val closeCustomAction = PlaybackState.CustomAction.Builder(
+                MediaPlaybackService.ACTION_CLOSE_APP,
+                "Закрыть приложение",
+                closeResId
             ).build()
 
             val playbackState = PlaybackState.Builder()
@@ -277,7 +289,7 @@ actual class SystemMediaControls {
                     PlaybackState.ACTION_SET_RATING
                 )
                 .addCustomAction(likeCustomAction)
-                .addCustomAction(dislikeCustomAction)
+                .addCustomAction(closeCustomAction)
                 .setState(state, positionMs, if (isPlaying && !isPaused) 1.0f else 0.0f)
                 .build()
             mediaSession?.setPlaybackState(playbackState)

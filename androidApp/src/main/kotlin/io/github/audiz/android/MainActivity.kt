@@ -13,6 +13,7 @@ import io.github.audiz.AndroidFilePickerBridge
 import io.github.audiz.App // Импортируем точку входа из вашего модуля :shared
 import io.github.audiz.AppContextHolder
 import io.github.audiz.DeepLinkHandler
+import io.github.audiz.MediaPlaybackBridge
 
 class MainActivity : ComponentActivity() {
 
@@ -39,6 +40,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 🔥 Инициализируем контекст для SharedPreferences (сохранение cookie)
         AppContextHolder.appContext = applicationContext
+
+        // 🛑 Обработчик полного закрытия приложения по крестику из системного уведомления/плеера
+        MediaPlaybackBridge.closeAppHandler = {
+            try {
+                finishAndRemoveTask()
+            } catch (_: Throwable) {
+                finishAffinity()
+            }
+        }
 
         // 📁 Связываем ActivityResult контракты с PlatformFilePicker
         AndroidFilePickerBridge.directoryPickerLauncher = { callback ->
@@ -145,6 +155,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        MediaPlaybackBridge.closeAppHandler = null
         AndroidFilePickerBridge.directoryPickerLauncher = null
         AndroidFilePickerBridge.filePickerLauncher = null
     }

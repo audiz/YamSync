@@ -24,6 +24,8 @@ object MediaPlaybackBridge {
     var onSeek: ((Long) -> Unit)? = null
     var onToggleLike: (() -> Unit)? = null
     var onDislike: (() -> Unit)? = null
+    var onCloseApp: (() -> Unit)? = null
+    var closeAppHandler: (() -> Unit)? = null
     var sessionToken: MediaSession.Token? = null
 
     var currentTitle: String = ""
@@ -54,6 +56,7 @@ class MediaPlaybackService : Service() {
         const val ACTION_REWIND = "io.github.audiz.ACTION_REWIND"
         const val ACTION_FAST_FORWARD = "io.github.audiz.ACTION_FAST_FORWARD"
         const val ACTION_TOGGLE_LIKE = "io.github.audiz.ACTION_TOGGLE_LIKE"
+        const val ACTION_CLOSE_APP = "io.github.audiz.ACTION_CLOSE_APP"
         const val ACTION_DISLIKE = "io.github.audiz.ACTION_DISLIKE"
         const val ACTION_STOP = "io.github.audiz.ACTION_STOP"
         const val ACTION_UPDATE = "io.github.audiz.ACTION_UPDATE"
@@ -77,21 +80,41 @@ class MediaPlaybackService : Service() {
                 MediaPlaybackBridge.onSeek?.invoke(target)
             }
             ACTION_TOGGLE_LIKE -> MediaPlaybackBridge.onToggleLike?.invoke()
+            ACTION_CLOSE_APP -> {
+                closeApplication()
+                return START_NOT_STICKY
+            }
             ACTION_DISLIKE -> MediaPlaybackBridge.onDislike?.invoke()
             ACTION_STOP -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(true)
-                }
-                stopSelf()
+                closeApplication()
                 return START_NOT_STICKY
             }
         }
 
         startInForeground()
         return START_STICKY
+    }
+
+    private fun closeApplication() {
+        try {
+            MediaPlaybackBridge.onPause?.invoke()
+        } catch (_: Throwable) {}
+        try {
+            MediaPlaybackBridge.closeAppHandler?.invoke()
+        } catch (_: Throwable) {}
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            stopSelf()
+        } catch (_: Throwable) {}
+        try {
+            android.os.Process.killProcess(android.os.Process.myPid())
+            kotlin.system.exitProcess(0)
+        } catch (_: Throwable) {}
     }
 
     private fun getDrawableResId(name: String, fallback: Int): Int {
@@ -163,9 +186,9 @@ class MediaPlaybackService : Service() {
             Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_TOGGLE_LIKE },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val dislikeIntent = PendingIntent.getService(
+        val closeIntent = PendingIntent.getService(
             this, 7,
-            Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_DISLIKE },
+            Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_CLOSE_APP },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -176,7 +199,7 @@ class MediaPlaybackService : Service() {
         val mediaStyle = Notification.MediaStyle().apply {
             MediaPlaybackBridge.sessionToken?.let { setMediaSession(it) }
             // В компактной шторке отображаются 3 главные кнопки: Предыдущий (1), Play/Pause (2), Следующий (3)
-            // В развернутом виде и на экране заставки доступны все 5 кнопок: Лайк (0), Назад (1), Play/Pause (2), Вперед (3), Дизлайк (4)
+            // В развернутом виде и на экране заставки доступны все 5 кнопок: Лайк (0), Назад (1), Play/Pause (2), Вперед (3), Закрыть (4)
             setShowActionsInCompactView(1, 2, 3)
         }
 
@@ -233,16 +256,16 @@ class MediaPlaybackService : Service() {
             Notification.Action.Builder(android.R.drawable.ic_media_next, "Вперед", nextIntent).build()
         }
 
-        // 4: Дизлайк (Крестик / Не нравится трек)
-        val dislikeResId = getDrawableResId("ic_notification_dislike", android.R.drawable.ic_menu_close_clear_cancel)
-        val dislikeTitle = "Не нравится"
+        // 4: Крестик (Закрыть приложение)
+        val closeResId = getDrawableResId("ic_notification_close", android.R.drawable.ic_menu_close_clear_cancel)
+        val closeTitle = "Закрыть"
 
-        val dislikeAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val icon = android.graphics.drawable.Icon.createWithResource(this, dislikeResId)
-            Notification.Action.Builder(icon, dislikeTitle, dislikeIntent).build()
+        val closeAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val icon = android.graphics.drawable.Icon.createWithResource(this, closeResId)
+            Notification.Action.Builder(icon, closeTitle, closeIntent).build()
         } else {
             @Suppress("DEPRECATION")
-            Notification.Action.Builder(dislikeResId, dislikeTitle, dislikeIntent).build()
+            Notification.Action.Builder(closeResId, closeTitle, closeIntent).build()
         }
 
         val artwork = MediaPlaybackBridge.currentArtworkBitmap
@@ -265,7 +288,7 @@ class MediaPlaybackService : Service() {
             .addAction(prevAction)       // 1: Предыдущий трек
             .addAction(playPauseAction)  // 2: Воспроизведение / Пауза
             .addAction(nextAction)       // 3: Следующий трек
-            .addAction(dislikeAction)    // 4: Дизлайк (Крестик)
+            .addAction(closeAction)      // 4: Крестик (Закрыть приложение)
             .build()
     }
 }
