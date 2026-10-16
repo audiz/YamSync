@@ -19,15 +19,11 @@ captures
 node_modules/
 scratch/
 hs_err_pid*.log
-.agents/cache/
-.agents/logs/
-.agents/mcp_config.local.json
-.agents/run/
-.agents/tmp/
-
-# Оставляем правила (.agents/rules/) и навыки (.agents/skills/) в Git,
-# но если агент создает локальные неотслеживаемые конфиги, игнорируем их
-.agents/*.local.*
+# Правила и конфиги агентов (строго локально на этой машине, исключены из Git)
+.agents/
+AGENTS.md
+GEMINI.md
+GEMINI.md.txt
 .android/
 .gradle_home/
 
