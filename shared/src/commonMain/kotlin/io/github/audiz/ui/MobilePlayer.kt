@@ -849,6 +849,16 @@ fun MobileFullPlayerSheet(
             // ==========================================
             // 6. СТРОКА ДЕЙСТВИЙ (Корзина, Очередь, EQ, Диск, Плейлист, Шаринг)
             // ==========================================
+            var showDislikeConfirmDialog by remember { mutableStateOf(false) }
+            var justCopiedShare by remember { mutableStateOf(false) }
+
+            LaunchedEffect(justCopiedShare) {
+                if (justCopiedShare) {
+                    delay(1500)
+                    justCopiedShare = false
+                }
+            }
+
             val actionButtonSize = if (isNarrow) 34.dp else 40.dp
             val actionIconSize = if (isNarrow) 20.dp else 22.dp
             val defaultActionTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
@@ -864,11 +874,30 @@ fun MobileFullPlayerSheet(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    DislikeButton(
-                        isDisliked = state.isDisliked,
-                        isDownloadedOrLocal = state.isDownloadedOrLocal,
+                    val dislikeTint = if (state.isDisliked || state.isDownloadedOrLocal) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        defaultActionTint
+                    }
+                    GhostIconButton(
+                        icon = Icons.Filled.Delete,
+                        contentDescription = if (state.isDownloadedOrLocal) {
+                            "Удалить файл с диска"
+                        } else if (state.isDisliked) {
+                            "Не нравится"
+                        } else {
+                            "Дизлайк"
+                        },
                         size = actionButtonSize,
-                        onClick = { actions.onToggleDislike?.invoke() }
+                        iconSize = actionIconSize,
+                        contentColor = dislikeTint,
+                        onClick = {
+                            if (state.isDownloadedOrLocal) {
+                                actions.onToggleDislike?.invoke()
+                            } else {
+                                showDislikeConfirmDialog = true
+                            }
+                        }
                     )
                 }
 
@@ -878,7 +907,7 @@ fun MobileFullPlayerSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     GhostIconButton(
-                        icon = Icons.AutoMirrored.Filled.QueueMusic,
+                        icon = Icons.AutoMirrored.Filled.FormatListBulleted,
                         contentDescription = "Очередь воспроизведения",
                         size = actionButtonSize,
                         iconSize = actionIconSize,
@@ -910,12 +939,27 @@ fun MobileFullPlayerSheet(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    RecordToDiskButton(
-                        isSaved = state.isRecordToDisk,
-                        isSaving = state.isSavingToDisk,
-                        size = actionButtonSize,
-                        onClick = { actions.onToggleRecordToDisk?.invoke() }
-                    )
+                    if (state.isSavingToDisk) {
+                        Box(
+                            modifier = Modifier.size(actionButtonSize),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(actionIconSize),
+                                strokeWidth = 1.8.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else {
+                        GhostIconButton(
+                            icon = Icons.Filled.Save,
+                            contentDescription = if (state.isRecordToDisk) "Сохранено на диск (нажмите для удаления)" else "Сохранить на диск",
+                            size = actionButtonSize,
+                            iconSize = actionIconSize,
+                            contentColor = if (state.isRecordToDisk) MaterialTheme.colorScheme.primary else defaultActionTint,
+                            onClick = { actions.onToggleRecordToDisk?.invoke() }
+                        )
+                    }
                 }
 
                 // 5. Добавить в плейлист
@@ -924,12 +968,31 @@ fun MobileFullPlayerSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     val canAddToPlaylist = state.hasTrackCandidate || (state.trackTitle.isNotBlank() && state.trackTitle != "Выберите трек")
-                    AddToPlaylistPlayerButton(
-                        enabled = canAddToPlaylist,
-                        isInPlaylist = state.isInPlaylist,
-                        playlistCount = state.playlistCount,
+                    val playlistTint = when {
+                        !canAddToPlaylist -> defaultActionTint.copy(alpha = 0.35f)
+                        state.isInPlaylist -> MaterialTheme.colorScheme.primary
+                        else -> defaultActionTint
+                    }
+                    val playlistIcon = if (state.isInPlaylist) {
+                        Icons.AutoMirrored.Filled.PlaylistAddCheck
+                    } else {
+                        Icons.AutoMirrored.Filled.PlaylistAdd
+                    }
+                    GhostIconButton(
+                        icon = playlistIcon,
+                        contentDescription = when {
+                            !state.isInPlaylist -> "Добавить в плейлист"
+                            state.playlistCount > 1 -> "В плейлистах (${state.playlistCount})"
+                            else -> "В плейлисте"
+                        },
                         size = actionButtonSize,
-                        onClick = { actions.onAddToPlaylist?.invoke() }
+                        iconSize = actionIconSize,
+                        contentColor = playlistTint,
+                        onClick = {
+                            if (canAddToPlaylist) {
+                                actions.onAddToPlaylist?.invoke()
+                            }
+                        }
                     )
                 }
 
@@ -938,12 +1001,73 @@ fun MobileFullPlayerSheet(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    ShareTrackButton(
-                        isSharing = state.isSharing,
-                        size = actionButtonSize,
-                        onClick = { actions.onShareTrack?.invoke() }
-                    )
+                    if (state.isSharing) {
+                        Box(
+                            modifier = Modifier.size(actionButtonSize),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(actionIconSize),
+                                strokeWidth = 1.8.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else {
+                        val shareIcon = if (justCopiedShare) Icons.Filled.Check else Icons.Filled.Share
+                        val shareTint = if (justCopiedShare) Color(0xFF1D9E75) else defaultActionTint
+                        GhostIconButton(
+                            icon = shareIcon,
+                            contentDescription = if (justCopiedShare) "Ссылка скопирована" else "Поделиться треком",
+                            size = actionButtonSize,
+                            iconSize = actionIconSize,
+                            contentColor = shareTint,
+                            onClick = {
+                                justCopiedShare = true
+                                actions.onShareTrack?.invoke()
+                            }
+                        )
+                    }
                 }
+            }
+
+            if (!state.isDownloadedOrLocal && showDislikeConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showDislikeConfirmDialog = false },
+                    title = {
+                        Text(
+                            text = if (state.isDisliked) "Убрать из корзины?" else "Не рекомендовать этот трек?",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = if (state.isDisliked) {
+                                "Вы уверены, что хотите продолжить и вернуть этот трек в рекомендации?"
+                            } else {
+                                "Вы уверены, что хотите продолжить? Этот трек больше не будет воспроизводиться в Моей Волне."
+                            }
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showDislikeConfirmDialog = false
+                                actions.onToggleDislike?.invoke()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (state.isDisliked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                contentColor = if (state.isDisliked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Text(if (state.isDisliked) "Вернуть" else "Дизлайк")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDislikeConfirmDialog = false }) {
+                            Text("Отмена")
+                        }
+                    }
+                )
             }
         }
     }
