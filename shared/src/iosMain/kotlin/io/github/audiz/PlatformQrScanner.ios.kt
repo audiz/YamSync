@@ -1,5 +1,7 @@
 package io.github.audiz
 
+import kotlin.concurrent.Volatile
+
 fun interface QrScanCallback {
     fun onScanned(code: String)
 }
@@ -9,6 +11,7 @@ interface IosQrScannerProvider {
 }
 
 object IosQrScannerRegistry {
+    @Volatile
     var provider: IosQrScannerProvider? = null
 
     fun register(provider: IosQrScannerProvider) {

@@ -2,12 +2,14 @@ package io.github.audiz
 
 import platform.AVFoundation.AVPlayerItem
 import io.github.audiz.dsp.EqualizerEngine
+import kotlin.concurrent.Volatile
 
 interface IosAudioTapAttacher {
     fun attachTap(playerItem: AVPlayerItem)
 }
 
 object IosAudioTapRegistry {
+    @Volatile
     var attacher: IosAudioTapAttacher? = null
 
     fun register(attacher: IosAudioTapAttacher) {
@@ -34,6 +36,7 @@ interface IosEqualizerListener {
 }
 
 object IosEqualizerBridge {
+    @Volatile
     private var listener: IosEqualizerListener? = null
 
     init {
