@@ -29,27 +29,29 @@ import kotlinx.coroutines.launch
 actual class AudioPlayer actual constructor() {
 
     private object JavaFxInitializer {
-        private val started = AtomicBoolean(false)
-        private var available = false
+        @Volatile private var isInitialized = false
+        @Volatile private var available = false
+        private val lock = Any()
 
         fun isAvailable(): Boolean {
-            ensureStarted()
-            return available
-        }
-
-        private fun ensureStarted() {
-            if (started.compareAndSet(false, true)) {
-                try {
-                    javafx.application.Platform.startup {}
-                    available = true
-                    println("AudioPlayer JVM: JavaFX Media успешно инициализирован.")
-                } catch (e: IllegalStateException) {
-                    available = true
-                } catch (t: Throwable) {
-                    println("AudioPlayer JVM: JavaFX Platform.startup недоступен: ${t.message}")
-                    available = false
+            if (!isInitialized) {
+                synchronized(lock) {
+                    if (!isInitialized) {
+                        try {
+                            javafx.application.Platform.startup {}
+                            available = true
+                            println("AudioPlayer JVM: JavaFX Media успешно инициализирован.")
+                        } catch (e: IllegalStateException) {
+                            available = true
+                        } catch (t: Throwable) {
+                            println("AudioPlayer JVM: JavaFX Platform.startup недоступен: ${t.message}")
+                            available = false
+                        }
+                        isInitialized = true
+                    }
                 }
             }
+            return available
         }
     }
 
@@ -66,6 +68,20 @@ actual class AudioPlayer actual constructor() {
     @Volatile private var isFallbackMode: Boolean = false
     @Volatile private var cachedWavFile: File? = null
     private val tempPlaybackFiles = java.util.Collections.synchronizedList(mutableListOf<File>())
+
+    private fun createSecureTempFile(prefix: String, suffix: String): File {
+        return try {
+            java.nio.file.Files.createTempFile(prefix, suffix).toFile().apply {
+                setReadable(true, true)
+                setWritable(true, true)
+            }
+        } catch (_: Throwable) {
+            File.createTempFile(prefix, suffix).apply {
+                setReadable(true, true)
+                setWritable(true, true)
+            }
+        }
+    }
 
     private fun registerTempFile(file: File): File {
         tempPlaybackFiles.add(file)
@@ -237,7 +253,7 @@ actual class AudioPlayer actual constructor() {
             else -> ".mp3"
         }
         try {
-            val tmp = File.createTempFile("ya_stream_", ext)
+            val tmp = createSecureTempFile("ya_stream_", ext)
             tmp.deleteOnExit()
             tmp.writeBytes(bytes)
             registerTempFile(tmp)
@@ -1413,7 +1429,7 @@ actual class AudioPlayer actual constructor() {
     private fun decodeToWavWithFfmpeg(file: File): File? {
         return try {
             val ffmpeg = getFfmpegPath() ?: return null
-            val tempWav = File.createTempFile("ya_extract_", ".wav")
+            val tempWav = createSecureTempFile("ya_extract_", ".wav")
             tempWav.deleteOnExit()
             
             // decode to wav for native Java Sound API
@@ -1507,7 +1523,7 @@ actual class AudioPlayer actual constructor() {
     private fun preparePlayableFile(file: File): File {
         if (file.name.endsWith(".aac", ignoreCase = true) && isMp4Container(file)) {
             try {
-                val tempM4a = File.createTempFile("ya_play_", ".m4a")
+                val tempM4a = createSecureTempFile("ya_play_", ".m4a")
                 tempM4a.deleteOnExit()
                 file.inputStream().use { input ->
                     tempM4a.outputStream().use { output ->

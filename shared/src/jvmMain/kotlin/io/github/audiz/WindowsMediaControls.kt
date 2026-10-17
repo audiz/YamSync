@@ -143,7 +143,17 @@ class WindowsMediaControls(
             return null
         }
 
-        val tempCs = File.createTempFile("yamusic_smtc_", ".cs")
+        val tempCs = try {
+            java.nio.file.Files.createTempFile("yamusic_smtc_", ".cs").toFile().apply {
+                setReadable(true, true)
+                setWritable(true, true)
+            }
+        } catch (_: Throwable) {
+            File.createTempFile("yamusic_smtc_", ".cs").apply {
+                setReadable(true, true)
+                setWritable(true, true)
+            }
+        }
         try {
             tempCs.writeText(CS_SOURCE_CODE, StandardCharsets.UTF_8)
 
