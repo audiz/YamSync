@@ -6,8 +6,9 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.swing.SwingUtilities
 
 actual object UiWatchdog {
+    private val stateLock = Any()
     @Volatile private var isRunning = false
-    private var watchdogThread: Thread? = null
+    @Volatile private var watchdogThread: Thread? = null
     private val isPingPending = AtomicBoolean(false)
     private val pingStartTime = AtomicLong(0L)
     @Volatile private var thresholdMs: Long = 100L
@@ -16,56 +17,60 @@ actual object UiWatchdog {
     actual fun isRunning(): Boolean = isRunning
 
     actual fun start(thresholdMs: Long) {
-        if (isRunning) return
-        this.thresholdMs = thresholdMs
-        isRunning = true
-        isPingPending.set(false)
+        synchronized(stateLock) {
+            if (isRunning) return
+            this.thresholdMs = thresholdMs
+            isRunning = true
+            isPingPending.set(false)
 
-        watchdogThread = Thread({
-            AppLogger.i("UiWatchdog", "⚡ [UI-Watchdog] Сторожевой таймер интерфейса запущен (порог: ${thresholdMs}мс)")
-            while (isRunning) {
-                try {
-                    val now = System.currentTimeMillis()
-                    if (isPingPending.get()) {
-                        val hungTime = now - pingStartTime.get()
-                        if (hungTime >= this.thresholdMs) {
-                            if (now - lastReportTime > 1000L) {
-                                lastReportTime = now
-                                dumpFreezeReport(hungTime)
+            watchdogThread = Thread({
+                AppLogger.i("UiWatchdog", "⚡ [UI-Watchdog] Сторожевой таймер интерфейса запущен (порог: ${thresholdMs}мс)")
+                while (isRunning) {
+                    try {
+                        val now = System.currentTimeMillis()
+                        if (isPingPending.get()) {
+                            val hungTime = now - pingStartTime.get()
+                            if (hungTime >= this.thresholdMs) {
+                                if (now - lastReportTime > 1000L) {
+                                    lastReportTime = now
+                                    dumpFreezeReport(hungTime)
+                                }
+                            }
+                        } else {
+                            isPingPending.set(true)
+                            pingStartTime.set(now)
+                            SwingUtilities.invokeLater {
+                                val elapsed = System.currentTimeMillis() - pingStartTime.get()
+                                if (elapsed >= this.thresholdMs && isRunning) {
+                                    AppLogger.i("UiWatchdog", "✅ [UI-Watchdog] UI-поток возобновил работу. Задержка кадра: ${elapsed}мс")
+                                }
+                                isPingPending.set(false)
                             }
                         }
-                    } else {
-                        isPingPending.set(true)
-                        pingStartTime.set(now)
-                        SwingUtilities.invokeLater {
-                            val elapsed = System.currentTimeMillis() - pingStartTime.get()
-                            if (elapsed >= this.thresholdMs && isRunning) {
-                                AppLogger.i("UiWatchdog", "✅ [UI-Watchdog] UI-поток возобновил работу. Задержка кадра: ${elapsed}мс")
-                            }
-                            isPingPending.set(false)
-                        }
+                        Thread.sleep(30L)
+                    } catch (_: InterruptedException) {
+                        break
+                    } catch (e: Throwable) {
+                        AppLogger.w("UiWatchdog", "Ошибка в цикле watchdog: ${e.message}")
                     }
-                    Thread.sleep(30L)
-                } catch (_: InterruptedException) {
-                    break
-                } catch (e: Throwable) {
-                    AppLogger.w("UiWatchdog", "Ошибка в цикле watchdog: ${e.message}")
                 }
+                AppLogger.i("UiWatchdog", "⚡ [UI-Watchdog] Сторожевой таймер интерфейса остановлен")
+            }, "YamSync-UI-Watchdog").apply {
+                isDaemon = true
+                priority = Thread.MAX_PRIORITY
+                start()
             }
-            AppLogger.i("UiWatchdog", "⚡ [UI-Watchdog] Сторожевой таймер интерфейса остановлен")
-        }, "YamSync-UI-Watchdog").apply {
-            isDaemon = true
-            priority = Thread.MAX_PRIORITY
-            start()
         }
     }
 
     actual fun stop() {
-        if (!isRunning) return
-        isRunning = false
-        watchdogThread?.interrupt()
-        watchdogThread = null
-        isPingPending.set(false)
+        synchronized(stateLock) {
+            if (!isRunning) return
+            isRunning = false
+            watchdogThread?.interrupt()
+            watchdogThread = null
+            isPingPending.set(false)
+        }
     }
 
     private fun dumpFreezeReport(hungTimeMs: Long) {
