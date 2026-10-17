@@ -7,6 +7,7 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import kotlin.random.Random
+import io.github.audiz.core.CoreLogger
 
 /**
  * ⚡ Сервис для работы с Yandex Music Ynison WebSocket API (Моя Волна / синхронизация очереди)
@@ -129,8 +130,7 @@ class YnisonService(private val client: HttpClient) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             val msg = e.message ?: "Сбой соединения"
             lastYnisonError = "Ошибка редиректора ynison.music.yandex.ru: $msg"
-            println("YnisonService: Ошибка WebSocket редиректора: ${e.message}")
-            e.printStackTrace()
+            CoreLogger.w("YnisonService", "Ошибка WebSocket редиректора: ${e.message}")
         }
 
         return result
@@ -260,8 +260,7 @@ class YnisonService(private val client: HttpClient) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             val msg = e.message ?: "Сбой соединения"
             lastYnisonError = "Ошибка хоста ${redirect.host}: $msg"
-            println("YnisonService: Ошибка при работе с PutYnisonState: ${e.message}")
-            e.printStackTrace()
+            CoreLogger.w("YnisonService", "Ошибка при работе с PutYnisonState: ${e.message}")
         }
 
         return waveSessionId

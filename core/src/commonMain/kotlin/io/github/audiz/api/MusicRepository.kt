@@ -1190,10 +1190,7 @@ class MusicRepository {
             return DownloadedTrackAudio(decryptedAudio, parsedInfo.type, bitrate)
 
         } catch (networkException: Throwable) {
-            println("Core API Debug: КРИТИЧЕСКАЯ СЕТЕВАЯ ОШИБКА ИЛИ ПАДЕНИЕ КОРУТИНЫ!")
-            println("Тип ошибки: ${networkException::class.simpleName}")
-            println("Сообщение: ${networkException.message}")
-            networkException.printStackTrace()
+            CoreLogger.e("MusicRepository", "Сетевая ошибка при загрузке аудиопотока: ${networkException.message}")
             throw networkException
         }
     }

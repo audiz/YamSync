@@ -4,6 +4,7 @@ import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.github.audiz.core.CoreLogger
 
 /**
  * 🔑 Сервис авторизации и извлечения OAuth access_token для Яндекс Музыки
@@ -79,8 +80,7 @@ class YandexCookieService {
                 }
             }
         } catch (e: Exception) {
-            println("YandexCookieService: Ошибка получения Session_id: ${e.message}")
-            e.printStackTrace()
+            CoreLogger.w("YandexCookieService", "Ошибка получения Session_id: ${e.message}")
         } finally {
             client.close()
         }
