@@ -1,5 +1,6 @@
 package io.github.audiz
 
+import io.github.audiz.util.AppLogger
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -68,12 +69,18 @@ class MprisServer(
     private fun log(msg: String, throwable: Throwable? = null) {
         val time = try { LocalTime.now().format(timeFormatter) } catch (_: Exception) { "" }
         val line = "[$time] 🐧 MPRIS: $msg"
-        println(line)
+        if (throwable != null) {
+            AppLogger.e("MPRIS", msg, throwable)
+        } else {
+            AppLogger.d("MPRIS", msg)
+        }
         try {
             val sw = StringWriter()
             val pw = PrintWriter(sw)
             pw.println(line)
-            throwable?.printStackTrace(pw)
+            if (throwable != null) {
+                pw.println("${throwable::class.simpleName}: ${throwable.message}")
+            }
             Files.writeString(
                 logFilePath,
                 sw.toString(),

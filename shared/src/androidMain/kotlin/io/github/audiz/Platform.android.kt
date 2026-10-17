@@ -3,6 +3,7 @@ package io.github.audiz
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Environment
+import io.github.audiz.util.AppLogger
 import java.io.File
 
 // 🔥 Контекст для доступа к SharedPreferences (инициализируется при старте приложения)
@@ -95,8 +96,7 @@ actual fun saveFilePlatformSpecific(bytes: ByteArray, fileName: String) {
         outputFile.writeBytes(bytes)
         println("Android IO: Файл успешно сохранен в загрузки: ${outputFile.absolutePath}")
     } catch (e: Exception) {
-        println("Android IO: Ошибка сохранения файла: ${e.message}")
-        e.printStackTrace()
+        AppLogger.e("AndroidIO", "Ошибка сохранения файла: ${e.message}")
     }
 }
 

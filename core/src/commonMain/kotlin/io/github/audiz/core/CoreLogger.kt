@@ -17,8 +17,8 @@ object CoreLogger {
 
     fun e(tag: String, message: String, throwable: Throwable? = null) {
         listener?.invoke("ERROR", tag, message, throwable) ?: run {
-            println("ERROR [$tag] $message")
-            throwable?.printStackTrace()
+            val errorDetails = if (throwable != null) " - ${throwable::class.simpleName}: ${throwable.message}" else ""
+            println("ERROR [$tag] $message$errorDetails")
         }
     }
 }

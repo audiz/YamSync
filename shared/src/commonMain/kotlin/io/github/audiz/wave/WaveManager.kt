@@ -18,6 +18,7 @@ import io.github.audiz.AppConfigKeys
 import io.github.audiz.loadAppConfig
 import io.github.audiz.saveAppConfig
 import io.github.audiz.models.ThematicWavePreset
+import io.github.audiz.util.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -305,8 +306,7 @@ class WaveManager(
                 }
             } catch (e: Throwable) {
                 if (e is CancellationException) throw e
-                println("WaveManager: Ошибка инициализации Волны: ${e.message}")
-                e.printStackTrace()
+                AppLogger.e("WaveManager", "Ошибка инициализации Волны: ${e.message}", e)
                 onError?.invoke("Ошибка инициализации Волны: ${e.message}")
                 if (autoPlay) {
                     playbackManager?.resetLoadingFlags()
@@ -400,8 +400,7 @@ class WaveManager(
                 }
             } catch (e: Throwable) {
                 if (e is CancellationException) throw e
-                println("WaveManager: Ошибка запуска тематической Волны: ${e.message}")
-                e.printStackTrace()
+                AppLogger.e("WaveManager", "Ошибка запуска тематической Волны: ${e.message}", e)
                 val waveName = title?.takeIf { it.isNotBlank() } ?: "выбранная волна"
                 onError?.invoke("Волна «$waveName» недоступна (требуется подписка Плюс). Включаем Мою Волну...")
                 fallbackToPersonal = true
@@ -556,8 +555,8 @@ class WaveManager(
             println("🌊 Волна: Назад к треку [в истории назад: ${wavePastTracks.size}, вперед: ${waveFutureTracks.size}]: ${prevTrack.title}")
             playWaveTrackDirect(prevTrack, source = TrackPlaySource.PREV)
         } catch (t: Throwable) {
-            println("🌊 Волна: Ошибка в playPrevWaveTrack: ${t.message}")
-            t.printStackTrace()
+            if (t is CancellationException) throw t
+            AppLogger.e("WaveManager", "Ошибка в playPrevWaveTrack: ${t.message}", t)
             playbackManager?.setLoadingFlags(next = false, prev = false, play = false)
         }
     }
@@ -853,8 +852,7 @@ class WaveManager(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                println("WaveManager: Ошибка при skip в Волне: ${e.message}")
-                e.printStackTrace()
+                AppLogger.e("WaveManager", "Ошибка при skip в Волне: ${e.message}", e)
                 onError?.invoke("Ошибка при skip в Волне: ${e.message}")
                 playbackManager?.resetLoadingFlags()
             } finally {
@@ -1069,8 +1067,7 @@ class WaveManager(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                println("WaveManager: Ошибка при загрузке следующей пачки Волны: ${e.message}")
-                e.printStackTrace()
+                AppLogger.e("WaveManager", "Ошибка при загрузке следующей пачки Волны: ${e.message}", e)
                 onError?.invoke("Ошибка при загрузке следующей пачки Волны: ${e.message}")
                 playbackManager?.resetLoadingFlags()
             } finally {

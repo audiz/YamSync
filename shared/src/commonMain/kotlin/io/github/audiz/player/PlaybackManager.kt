@@ -726,7 +726,6 @@ class PlaybackManager(
                 val errorMsg = e.message?.takeIf { it.isNotBlank() } ?: e::class.simpleName ?: "Неизвестная ошибка"
                 io.github.audiz.util.AppLogger.e("PlaybackManager", "Ошибка воспроизведения '$cleanTitle': $errorMsg", e)
                 onError("Ошибка воспроизведения: $errorMsg")
-                e.printStackTrace()
             } finally {
                 if (!isStreamingStarted) {
                     val currentJob = coroutineContext[Job]
@@ -916,8 +915,8 @@ class PlaybackManager(
                 isNextLoading = false
                 isPrevLoading = false
                 isPlayLoading = false
+                io.github.audiz.util.AppLogger.e("PlaybackManager", "Ошибка LQ fallback: ${e.message}", e)
                 onError("Ошибка LQ fallback: ${e.message}")
-                e.printStackTrace()
             } finally {
                 val currentJob = coroutineContext[Job]
                 if (currentJob == null || !currentJob.isCancelled || playTrackJob === currentJob || playTrackJob === thisJob) {
@@ -1466,8 +1465,7 @@ class PlaybackManager(
                 isPrevLoading = false
             }
         } catch (t: Throwable) {
-            println("PlaybackManager: Ошибка playPrevTrack: ${t.message}")
-            t.printStackTrace()
+            io.github.audiz.util.AppLogger.e("PlaybackManager", "Ошибка playPrevTrack: ${t.message}", t)
             isPrevLoading = false
         }
     }

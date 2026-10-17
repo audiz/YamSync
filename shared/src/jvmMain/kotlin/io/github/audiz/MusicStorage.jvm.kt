@@ -1,5 +1,6 @@
 package io.github.audiz
 
+import io.github.audiz.util.AppLogger
 import java.io.File
 import java.util.prefs.Preferences
 
@@ -16,7 +17,7 @@ actual fun saveMusicStoragePath(path: String) {
     try {
         prefs.flush()
     } catch (e: Exception) {
-        e.printStackTrace()
+        AppLogger.e("MusicStorage", "Ошибка сохранения пути хранилища: ${e.message}", e)
     }
 }
 

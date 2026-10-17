@@ -1,6 +1,7 @@
 package io.github.audiz.ui
 
 import androidx.compose.runtime.Composable
+import io.github.audiz.util.AppLogger
 
 @Composable
 actual fun BackHandler(enabled: Boolean, onBack: () -> Unit) {
@@ -8,8 +9,7 @@ actual fun BackHandler(enabled: Boolean, onBack: () -> Unit) {
         try {
             onBack()
         } catch (e: Throwable) {
-            println("BackHandler: Перехвачено исключение в onBack(): ${e.message}")
-            e.printStackTrace()
+            AppLogger.e("BackHandler", "Перехвачено исключение в onBack(): ${e.message}")
         }
     }
 }

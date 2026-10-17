@@ -5,9 +5,10 @@ import io.github.audiz.models.FolderListing
 import io.github.audiz.models.FullAlbumInfo
 import io.github.audiz.models.FullArtistInfo
 import io.github.audiz.models.FullTrackInfo
-import io.github.audiz.models.PersonalPlaylistItemData
 import io.github.audiz.models.LocalPlaylist
+import io.github.audiz.models.PersonalPlaylistItemData
 import io.github.audiz.models.PlaylistInfo
+import io.github.audiz.util.AppLogger
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -354,8 +355,7 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
             )
         }
     } catch (e: Exception) {
-        println("MusicStorage: Ошибка при сканировании $basePath: ${e.message}")
-        e.printStackTrace()
+        AppLogger.e("MusicStorage", "Ошибка при сканировании $basePath: ${e.message}", e)
     }
 
     // Дедупликация: если один и тот же трек есть и в HQ, и в LQ — выбираем версию HQ (или с большим размером)

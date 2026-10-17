@@ -29,6 +29,7 @@ import io.github.audiz.models.LocalSourceType
 import io.github.audiz.models.LastPlaybackSession
 import io.github.audiz.models.LastPlaybackType
 import io.github.audiz.player.PlaybackSessionManager
+import io.github.audiz.util.AppLogger
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,8 +56,7 @@ enum class TracksListOrigin {
 class SearchViewModel(private val repository: MusicRepository = MusicRepository()) : ViewModel() {
 
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        println("SearchViewModel: ❌ Uncaught coroutine exception: ${throwable.message}")
-        throwable.printStackTrace()
+        AppLogger.e("SearchViewModel", "❌ Uncaught coroutine exception: ${throwable.message}")
     }
 
     private fun launchSafe(block: suspend CoroutineScope.() -> Unit): Job {
@@ -64,8 +64,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             try {
                 block()
             } catch (t: Throwable) {
-                println("SearchViewModel: ❌ Error in safe coroutine: ${t.message}")
-                t.printStackTrace()
+                AppLogger.e("SearchViewModel", "❌ Error in safe coroutine: ${t.message}")
             }
         }
     }
@@ -918,7 +917,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 }
             } catch (e: Exception) {
                 errorMessage = e.message ?: e.toString()
-                e.printStackTrace()
+                AppLogger.e("SearchViewModel", "Ошибка поиска: ${e.message}")
             } finally {
                 isLoading = false
             }
@@ -981,7 +980,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 }
             } catch (e: Exception) {
                 errorMessage = "Ошибка чтения файлов с диска: ${e.message}"
-                e.printStackTrace()
+                AppLogger.e("SearchViewModel", "Ошибка чтения файлов с диска: ${e.message}")
             } finally {
                 isLoading = false
             }
@@ -2369,8 +2368,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         try {
             playbackManager.playNextTrack(currentId, source)
         } catch (t: Throwable) {
-            println("SearchViewModel: Ошибка playNextTrack: ${t.message}")
-            t.printStackTrace()
+            AppLogger.e("SearchViewModel", "Ошибка playNextTrack: ${t.message}")
         }
     }
 
@@ -2378,8 +2376,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         try {
             playbackManager.playPrevTrack(currentId, source)
         } catch (t: Throwable) {
-            println("SearchViewModel: Ошибка playPrevTrack: ${t.message}")
-            t.printStackTrace()
+            AppLogger.e("SearchViewModel", "Ошибка playPrevTrack: ${t.message}")
         }
     }
 

@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.PowerManager
 import io.github.audiz.dsp.AudioVisualizer
 import io.github.audiz.dsp.EqualizerEngine
+import io.github.audiz.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -373,8 +374,7 @@ actual class AudioPlayer actual constructor() {
             startCrossfade(newPlayer, crossfadeMs)
             onPlaybackStartedListener?.invoke()
         } catch (e: Exception) {
-            println("AudioPlayer Android: Ошибка воспроизведения из bytes: ${e.message}")
-            e.printStackTrace()
+            AppLogger.e("AudioPlayerAndroid", "Ошибка воспроизведения из bytes: ${e.message}")
             if (sessionId == currentSessionId) {
                 onErrorListener?.invoke("Ошибка воспроизведения аудио: ${e.message}")
             }
@@ -430,8 +430,7 @@ actual class AudioPlayer actual constructor() {
             startCrossfade(newPlayer, crossfadeMs)
             onPlaybackStartedListener?.invoke()
         } catch (e: Exception) {
-            println("AudioPlayer Android: Ошибка воспроизведения файла: ${e.message}")
-            e.printStackTrace()
+            AppLogger.e("AudioPlayerAndroid", "Ошибка воспроизведения файла: ${e.message}")
             if (sessionId == currentSessionId) {
                 val msg = e.message ?: ""
                 val errorMsg = if (msg.contains("EACCES") || msg.contains("Permission denied", ignoreCase = true)) {
@@ -564,8 +563,7 @@ actual class AudioPlayer actual constructor() {
 
             newPlayer.prepareAsync()
         } catch (e: Exception) {
-            println("AudioPlayer Android: Ошибка вызова playFromUrl: ${e.message}")
-            e.printStackTrace()
+            AppLogger.e("AudioPlayerAndroid", "Ошибка вызова playFromUrl: ${e.message}")
             if (sessionId == currentSessionId) {
                 preparingMediaPlayer = null
                 preparingMediaDataSource = null

@@ -23,6 +23,7 @@ import io.github.audiz.models.LocalPlaylist
 import io.github.audiz.models.PersonalPlaylistItemData
 import io.github.audiz.models.PlaylistInfo
 import io.github.audiz.models.isLocalTrackId
+import io.github.audiz.util.AppLogger
 import io.github.audiz.models.YandexPlaylistDetails
 import io.github.audiz.saveLocalPlaylists
 import io.github.audiz.savePersonalPlaylistsCache
@@ -53,8 +54,7 @@ class PlaylistManager(
     private val onError: (String) -> Unit = {}
 ) {
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        println("PlaylistManager: ❌ Uncaught coroutine exception: ${throwable.message}")
-        throwable.printStackTrace()
+        AppLogger.e("PlaylistManager", "❌ Uncaught coroutine exception: ${throwable.message}")
     }
 
     private fun launchSafe(block: suspend CoroutineScope.() -> Unit): Job {
@@ -62,8 +62,7 @@ class PlaylistManager(
             try {
                 block()
             } catch (t: Throwable) {
-                println("PlaylistManager: ❌ Error in safe coroutine: ${t.message}")
-                t.printStackTrace()
+                AppLogger.e("PlaylistManager", "❌ Error in safe coroutine: ${t.message}")
             }
         }
     }

@@ -1,5 +1,6 @@
 package io.github.audiz
 
+import io.github.audiz.util.AppLogger
 import java.io.File
 import java.util.prefs.Preferences
 
@@ -29,7 +30,7 @@ actual fun saveSessionToken(token: String) {
     try {
         prefs.flush() // Принудительно сохраняет данные на диск ПРЯМО СЕЙЧАС
     } catch (e: Exception) {
-        e.printStackTrace()
+        AppLogger.e("SaveFile", "Ошибка сохранения токена сессии: ${e.message}", e)
     }
 }
 
@@ -42,7 +43,7 @@ actual fun saveAppConfig(key: String, value: String) {
     try {
         prefs.flush()
     } catch (e: Exception) {
-        e.printStackTrace()
+        AppLogger.e("SaveFile", "Ошибка сохранения конфигурации приложения: ${e.message}", e)
     }
 }
 

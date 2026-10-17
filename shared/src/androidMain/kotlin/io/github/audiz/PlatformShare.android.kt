@@ -2,6 +2,7 @@ package io.github.audiz
 
 import android.content.Intent
 import androidx.core.content.FileProvider
+import io.github.audiz.util.AppLogger
 import java.io.File
 
 actual fun shareTrackFile(
@@ -51,7 +52,6 @@ actual fun shareTrackFile(
             context.startActivity(chooser)
         }
     } catch (e: Exception) {
-        println("Ошибка при отправке трека: ${e.message}")
-        e.printStackTrace()
+        AppLogger.e("PlatformShare", "Ошибка при отправке трека: ${e.message}")
     }
 }

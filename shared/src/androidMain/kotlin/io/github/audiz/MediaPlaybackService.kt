@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.media.session.MediaSession
 import android.os.Build
 import android.os.IBinder
+import io.github.audiz.util.AppLogger
 
 /**
  * 🎵 Bridge-объект для связи MediaPlaybackService с SystemMediaControls и ViewModel
@@ -137,8 +138,7 @@ class MediaPlaybackService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            println("MediaPlaybackService: Ошибка запуска startForeground: ${e.message}")
-            e.printStackTrace()
+            AppLogger.e("MediaPlaybackService", "Ошибка запуска startForeground: ${e.message}")
         }
     }
 
