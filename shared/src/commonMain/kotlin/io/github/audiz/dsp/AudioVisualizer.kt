@@ -66,6 +66,7 @@ object AudioVisualizer {
     private const val PEAK_CAP_GRAVITY = 2.8f     // Ускорение падения пиковой засечки
 
     // Трекер пиковой громкости трека (быстрый захват, медленный спад ~4.0 сек)
+    @Volatile
     private var trackPeakEma = 0.5f
 
     // --- 5 полос для микро-иконок ---
@@ -127,10 +128,16 @@ object AudioVisualizer {
     private var lastUpdateTimeMs: Long = 0L
 
     // Фильтры PCM (1-pole IIR)
+    private val pcmLock = Any()
+    @Volatile
     private var subCutFilter: Float = 0f
+    @Volatile
     private var kickFilter: Float = 0f
+    @Volatile
     private var bassFilter: Float = 0f
+    @Volatile
     private var midFilter: Float = 0f
+    @Volatile
     private var highMidFilter: Float = 0f
 
     @Volatile
@@ -229,81 +236,83 @@ object AudioVisualizer {
     }
 
     private fun applyBandsDirect(b1: Float, b2: Float, b3: Float, b4: Float, b5: Float) {
-        val raw0 = b1.coerceIn(0f, 1f)
-        // Эластичный софт-лимитер бочки: выше 0.85 оставляет запас хода для динамических ударов
-        val softCappedB1 = if (raw0 > 0.85f) 0.85f + (raw0 - 0.85f) * 0.35f else raw0
-        val raw1 = b2.coerceIn(0f, 1f)
-        val raw2 = b3.coerceIn(0f, 1f)
-        val raw3 = b4.coerceIn(0f, 1f)
-        val raw4 = b5.coerceIn(0f, 1f)
+        synchronized(currentLevels) {
+            val raw0 = b1.coerceIn(0f, 1f)
+            // Эластичный софт-лимитер бочки: выше 0.85 оставляет запас хода для динамических ударов
+            val softCappedB1 = if (raw0 > 0.85f) 0.85f + (raw0 - 0.85f) * 0.35f else raw0
+            val raw1 = b2.coerceIn(0f, 1f)
+            val raw2 = b3.coerceIn(0f, 1f)
+            val raw3 = b4.coerceIn(0f, 1f)
+            val raw4 = b5.coerceIn(0f, 1f)
 
-        val raw = floatArrayOf(softCappedB1, raw1, raw2, raw3, raw4)
+            val raw = floatArrayOf(softCappedB1, raw1, raw2, raw3, raw4)
 
-        // Слежение за пиковой громкостью трека
-        var currentMax = 0f
-        for (i in 0 until BAND_COUNT) {
-            if (raw[i] > currentMax) currentMax = raw[i]
-        }
-
-        if (currentMax > trackPeakEma) {
-            trackPeakEma = currentMax // мгновенный захват при нарастании громкости
-        }
-
-        // Адаптивное усиление для спокойных/тихих композиций:
-        val autoGain = (0.85f / max(0.18f, trackPeakEma)).coerceIn(1.0f, 2.5f)
-
-        // Мягкая экспансия: на громких треках - честная квадратичная (2.0) для хлесткого панча бочки,
-        // на тихих треках - мягкая (1.5), предотвращающая залипание столбиков на самом дне
-        val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
-
-        // Передача в баллистический движок Winamp Pro (атака 0 мс)
-        for (i in 0 until BAND_COUNT) {
-            val normalized = (raw[i] * autoGain).coerceIn(0f, 1f)
-            val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
-            targetLevels[i] = t
-
-            if (t > currentLevels[i]) {
-                currentLevels[i] = t
-                velocities[i] = 0f
-                holdTimers[i] = BAR_HOLD_SEC
+            // Слежение за пиковой громкостью трека
+            var currentMax = 0f
+            for (i in 0 until BAND_COUNT) {
+                if (raw[i] > currentMax) currentMax = raw[i]
             }
 
-            if (t > peakCapLevels[i]) {
-                peakCapLevels[i] = t
-                peakCapVelocities[i] = 0f
-                peakCapHoldTimers[i] = PEAK_CAP_HOLD_SEC
+            if (currentMax > trackPeakEma) {
+                trackPeakEma = currentMax // мгновенный захват при нарастании громкости
             }
-        }
 
-        // Если прямой 19-полосный спектр не поступает (например, fallback PCM), синтезируем 19 полос
-        if (currentTime() - lastSpectrum19UpdateTimeMs > 350L) {
-            val src5 = floatArrayOf(softCappedB1, raw1, raw2, raw3, raw4)
-            for (k in 0 until SPECTRUM_BAND_COUNT) {
-                val t = (k.toFloat() / (SPECTRUM_BAND_COUNT - 1)) * 4f
-                val idx = t.toInt().coerceIn(0, 3)
-                val frac = t - idx
-                val smoothFrac = (1f - cos(frac * PI.toFloat())) / 2f
-                val interp = src5[idx] * (1f - smoothFrac) + src5[idx + 1] * smoothFrac
-                val norm = (interp * autoGain).coerceIn(0f, 1f)
-                val lvl = norm.pow(dynamicExp).coerceIn(0f, 1f)
-                targetSpectrumLevels[k] = lvl
+            // Адаптивное усиление для спокойных/тихих композиций:
+            val autoGain = (0.85f / max(0.18f, trackPeakEma)).coerceIn(1.0f, 2.5f)
 
-                if (lvl > currentSpectrumLevels[k]) {
-                    currentSpectrumLevels[k] = lvl
-                    spectrumVelocities[k] = 0f
-                    spectrumHoldTimers[k] = BAR_HOLD_SEC
+            // Мягкая экспансия: на громких треках - честная квадратичная (2.0) для хлесткого панча бочки,
+            // на тихих треках - мягкая (1.5), предотвращающая залипание столбиков на самом дне
+            val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
+
+            // Передача в баллистический движок Winamp Pro (атака 0 мс)
+            for (i in 0 until BAND_COUNT) {
+                val normalized = (raw[i] * autoGain).coerceIn(0f, 1f)
+                val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
+                targetLevels[i] = t
+
+                if (t > currentLevels[i]) {
+                    currentLevels[i] = t
+                    velocities[i] = 0f
+                    holdTimers[i] = BAR_HOLD_SEC
                 }
 
-                if (lvl > peakCapSpectrumLevels[k]) {
-                    peakCapSpectrumLevels[k] = lvl
-                    peakCapSpectrumVelocities[k] = 0f
-                    peakCapSpectrumHoldTimers[k] = PEAK_CAP_HOLD_SEC
+                if (t > peakCapLevels[i]) {
+                    peakCapLevels[i] = t
+                    peakCapVelocities[i] = 0f
+                    peakCapHoldTimers[i] = PEAK_CAP_HOLD_SEC
                 }
             }
-        }
 
-        lastUpdateTimeMs = currentTime()
-        _levels.value = currentLevels.copyOf()
+            // Если прямой 19-полосный спектр не поступает (например, fallback PCM), синтезируем 19 полос
+            if (currentTime() - lastSpectrum19UpdateTimeMs > 350L) {
+                val src5 = floatArrayOf(softCappedB1, raw1, raw2, raw3, raw4)
+                for (k in 0 until SPECTRUM_BAND_COUNT) {
+                    val t = (k.toFloat() / (SPECTRUM_BAND_COUNT - 1)) * 4f
+                    val idx = t.toInt().coerceIn(0, 3)
+                    val frac = t - idx
+                    val smoothFrac = (1f - cos(frac * PI.toFloat())) / 2f
+                    val interp = src5[idx] * (1f - smoothFrac) + src5[idx + 1] * smoothFrac
+                    val norm = (interp * autoGain).coerceIn(0f, 1f)
+                    val lvl = norm.pow(dynamicExp).coerceIn(0f, 1f)
+                    targetSpectrumLevels[k] = lvl
+
+                    if (lvl > currentSpectrumLevels[k]) {
+                        currentSpectrumLevels[k] = lvl
+                        spectrumVelocities[k] = 0f
+                        spectrumHoldTimers[k] = BAR_HOLD_SEC
+                    }
+
+                    if (lvl > peakCapSpectrumLevels[k]) {
+                        peakCapSpectrumLevels[k] = lvl
+                        peakCapSpectrumVelocities[k] = 0f
+                        peakCapSpectrumHoldTimers[k] = PEAK_CAP_HOLD_SEC
+                    }
+                }
+            }
+
+            lastUpdateTimeMs = currentTime()
+            _levels.value = currentLevels.copyOf()
+        }
     }
 
     /**
@@ -326,39 +335,41 @@ object AudioVisualizer {
     }
 
     private fun applySpectrum19Direct(spectrum: FloatArray) {
-        val count = minOf(spectrum.size, SPECTRUM_BAND_COUNT)
-        var currentMax = 0f
-        for (i in 0 until count) {
-            if (spectrum[i] > currentMax) currentMax = spectrum[i]
-        }
-        if (currentMax > trackPeakEma) {
-            trackPeakEma = currentMax
-        }
-
-        val autoGain = (0.85f / max(0.18f, trackPeakEma)).coerceIn(1.0f, 2.5f)
-        val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
-
-        for (i in 0 until count) {
-            val rawVal = spectrum[i].coerceIn(0f, 1f)
-            val softVal = if (i <= 1 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
-            val normalized = (softVal * autoGain).coerceIn(0f, 1f)
-            val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
-            targetSpectrumLevels[i] = t
-
-            if (t > currentSpectrumLevels[i]) {
-                currentSpectrumLevels[i] = t
-                spectrumVelocities[i] = 0f
-                spectrumHoldTimers[i] = BAR_HOLD_SEC
+        synchronized(currentLevels) {
+            val count = minOf(spectrum.size, SPECTRUM_BAND_COUNT)
+            var currentMax = 0f
+            for (i in 0 until count) {
+                if (spectrum[i] > currentMax) currentMax = spectrum[i]
+            }
+            if (currentMax > trackPeakEma) {
+                trackPeakEma = currentMax
             }
 
-            if (t > peakCapSpectrumLevels[i]) {
-                peakCapSpectrumLevels[i] = t
-                peakCapSpectrumVelocities[i] = 0f
-                peakCapSpectrumHoldTimers[i] = PEAK_CAP_HOLD_SEC
-            }
-        }
+            val autoGain = (0.85f / max(0.18f, trackPeakEma)).coerceIn(1.0f, 2.5f)
+            val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
 
-        lastUpdateTimeMs = currentTime()
+            for (i in 0 until count) {
+                val rawVal = spectrum[i].coerceIn(0f, 1f)
+                val softVal = if (i <= 1 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
+                val normalized = (softVal * autoGain).coerceIn(0f, 1f)
+                val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
+                targetSpectrumLevels[i] = t
+
+                if (t > currentSpectrumLevels[i]) {
+                    currentSpectrumLevels[i] = t
+                    spectrumVelocities[i] = 0f
+                    spectrumHoldTimers[i] = BAR_HOLD_SEC
+                }
+
+                if (t > peakCapSpectrumLevels[i]) {
+                    peakCapSpectrumLevels[i] = t
+                    peakCapSpectrumVelocities[i] = 0f
+                    peakCapSpectrumHoldTimers[i] = PEAK_CAP_HOLD_SEC
+                }
+            }
+
+            lastUpdateTimeMs = currentTime()
+        }
     }
 
     /**
@@ -367,66 +378,86 @@ object AudioVisualizer {
     fun processPcmChunk(buffer: ByteArray, readBytes: Int) {
         if (readBytes < 4) return
 
-        var sumKick = 0f
-        var sumBass = 0f
-        var sumMid = 0f
-        var sumHighMid = 0f
-        var sumTreble = 0f
-        var sampleCount = 0
+        var b1 = 0f
+        var b2 = 0f
+        var b3 = 0f
+        var b4 = 0f
+        var b5 = 0f
 
-        var i = 0
-        while (i + 1 < readBytes) {
-            val s1 = ((buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)).toShort()
-            val sample = s1 / 32768f
-            i += 2
+        synchronized(pcmLock) {
+            var sumKick = 0f
+            var sumBass = 0f
+            var sumMid = 0f
+            var sumHighMid = 0f
+            var sumTreble = 0f
+            var sampleCount = 0
 
-            val mono = if (i + 1 < readBytes) {
-                val s2 = ((buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)).toShort()
+            var i = 0
+            var localSubCut = subCutFilter
+            var localKick = kickFilter
+            var localBass = bassFilter
+            var localMid = midFilter
+            var localHighMid = highMidFilter
+
+            while (i + 1 < readBytes) {
+                val s1 = ((buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)).toShort()
+                val sample = s1 / 32768f
                 i += 2
-                (sample + (s2 / 32768f)) * 0.5f
-            } else {
-                sample
+
+                val mono = if (i + 1 < readBytes) {
+                    val s2 = ((buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)).toShort()
+                    i += 2
+                    (sample + (s2 / 32768f)) * 0.5f
+                } else {
+                    sample
+                }
+
+                // ✂️ Срез инфразвука (< 40 Гц): устраняет паразитный рокот и DC-смещение
+                localSubCut += ALPHA_SUBCUT * (mono - localSubCut)
+                val cleanMono = mono - localSubCut
+
+                // Каскад фильтров частотных полос
+                localKick += ALPHA_KICK * (cleanMono - localKick)
+                localBass += ALPHA_BASS * (cleanMono - localBass)
+                localMid += ALPHA_MID * (cleanMono - localMid)
+                localHighMid += ALPHA_HIGH_MID * (cleanMono - localHighMid)
+
+                val kickEnergy = abs(localKick)
+                val bassEnergy = abs(localBass - localKick)
+                val midEnergy = abs(localMid - localBass)
+                val highMidEnergy = abs(localHighMid - localMid)
+                val trebleEnergy = abs(cleanMono - localHighMid)
+
+                sumKick += kickEnergy
+                sumBass += bassEnergy
+                sumMid += midEnergy
+                sumHighMid += highMidEnergy
+                sumTreble += trebleEnergy
+                sampleCount++
             }
 
-            // ✂️ Срез инфразвука (< 40 Гц): устраняет паразитный рокот и DC-смещение
-            subCutFilter += ALPHA_SUBCUT * (mono - subCutFilter)
-            val cleanMono = mono - subCutFilter
+            subCutFilter = localSubCut
+            kickFilter = localKick
+            bassFilter = localBass
+            midFilter = localMid
+            highMidFilter = localHighMid
 
-            // Каскад фильтров частотных полос
-            kickFilter += ALPHA_KICK * (cleanMono - kickFilter)
-            bassFilter += ALPHA_BASS * (cleanMono - bassFilter)
-            midFilter += ALPHA_MID * (cleanMono - midFilter)
-            highMidFilter += ALPHA_HIGH_MID * (cleanMono - highMidFilter)
+            if (sampleCount == 0) return
 
-            val kickEnergy = abs(kickFilter)
-            val bassEnergy = abs(bassFilter - kickFilter)
-            val midEnergy = abs(midFilter - bassFilter)
-            val highMidEnergy = abs(highMidFilter - midFilter)
-            val trebleEnergy = abs(cleanMono - highMidFilter)
+            val avgKick = sumKick / sampleCount
+            val avgBass = sumBass / sampleCount
+            val avgMid = sumMid / sampleCount
+            val avgHighMid = sumHighMid / sampleCount
+            val avgTreble = sumTreble / sampleCount
 
-            sumKick += kickEnergy
-            sumBass += bassEnergy
-            sumMid += midEnergy
-            sumHighMid += highMidEnergy
-            sumTreble += trebleEnergy
-            sampleCount++
+            // Преамп-калибровка под кривую равной громкости:
+            // Плотный упругий бас (бочка 3.0, бас-гитара 5.6)
+            b1 = (avgKick * 3.0f).coerceIn(0f, 1f)
+            b2 = (avgBass * 5.6f).coerceIn(0f, 1f)
+            b3 = (avgMid * 6.5f).coerceIn(0f, 1f)
+            b4 = (avgHighMid * 11.0f).coerceIn(0f, 1f)
+            b5 = (avgTreble * 17.5f).coerceIn(0f, 1f)
         }
-
-        if (sampleCount == 0) return
-
-        val avgKick = sumKick / sampleCount
-        val avgBass = sumBass / sampleCount
-        val avgMid = sumMid / sampleCount
-        val avgHighMid = sumHighMid / sampleCount
-        val avgTreble = sumTreble / sampleCount
-
-        // Преамп-калибровка под кривую равной громкости:
-        // Плотный упругий бас (бочка 3.0, бас-гитара 5.6)
-        val b1 = (avgKick * 3.0f).coerceIn(0f, 1f)
-        val b2 = (avgBass * 5.6f).coerceIn(0f, 1f)
-        val b3 = (avgMid * 6.5f).coerceIn(0f, 1f)
-        val b4 = (avgHighMid * 11.0f).coerceIn(0f, 1f)
-        val b5 = (avgTreble * 17.5f).coerceIn(0f, 1f)
 
         updateBands(b1, b2, b3, b4, b5)
     }
@@ -671,11 +702,13 @@ object AudioVisualizer {
                 peakCapSpectrumVelocities[j] = 0f
                 peakCapSpectrumHoldTimers[j] = 0f
             }
-            subCutFilter = 0f
-            kickFilter = 0f
-            bassFilter = 0f
-            midFilter = 0f
-            highMidFilter = 0f
+            synchronized(pcmLock) {
+                subCutFilter = 0f
+                kickFilter = 0f
+                bassFilter = 0f
+                midFilter = 0f
+                highMidFilter = 0f
+            }
             trackPeakEma = 0.5f
             resetTrackAudibility()
             val frame = FloatArray(BAND_COUNT) { RESTING_LEVEL }
