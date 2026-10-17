@@ -29,6 +29,7 @@ import java.util.concurrent.Executors
  * 4. Нативное TCP Backpressure: темп отдачи согласуется со скоростью воспроизведения плеера.
  */
 actual object LocalStreamProxy {
+    private val stateLock = Any()
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var assignedPort: Int = 0
     @Volatile private var repository: MusicRepository? = null
@@ -162,51 +163,55 @@ actual object LocalStreamProxy {
         isRecordToDisk: () -> Boolean,
         onTrackSaved: ((trackId: String, filePath: String) -> Unit)?
     ) {
-        if (serverSocket != null && !serverSocket!!.isClosed) return
+        synchronized(stateLock) {
+            if (serverSocket?.isClosed == false) return
 
-        this.repository = repository
-        this.getMusicStoragePathFunc = getMusicStoragePath
-        this.isRecordToDiskFunc = isRecordToDisk
-        this.onTrackSavedCallback = onTrackSaved
+            this.repository = repository
+            this.getMusicStoragePathFunc = getMusicStoragePath
+            this.isRecordToDiskFunc = isRecordToDisk
+            this.onTrackSavedCallback = onTrackSaved
 
-        try {
-            val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
-            serverSocket = server
-            assignedPort = server.localPort
-            println("⚡ [StreamProxy] Сервер запущен на http://127.0.0.1:$assignedPort")
+            try {
+                val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+                serverSocket = server
+                assignedPort = server.localPort
+                println("⚡ [StreamProxy] Сервер запущен на http://127.0.0.1:$assignedPort")
 
-            threadPool.execute {
-                while (!server.isClosed) {
-                    try {
-                        val clientSocket = server.accept()
-                        threadPool.execute {
-                            handleClient(clientSocket)
+                threadPool.execute {
+                    while (!server.isClosed) {
+                        try {
+                            val clientSocket = server.accept()
+                            threadPool.execute {
+                                handleClient(clientSocket)
+                            }
+                        } catch (_: SocketException) {
+                            break
+                        } catch (e: Exception) {
+                            println("⚡ [StreamProxy] Ошибка accept: ${e.message}")
                         }
-                    } catch (_: SocketException) {
-                        break
-                    } catch (e: Exception) {
-                        println("⚡ [StreamProxy] Ошибка accept: ${e.message}")
                     }
                 }
+            } catch (e: Exception) {
+                println("⚡ [StreamProxy] Не удалось запустить локальный сервер: ${e.message}")
             }
-        } catch (e: Exception) {
-            println("⚡ [StreamProxy] Не удалось запустить локальный сервер: ${e.message}")
         }
     }
 
     actual fun stop() {
-        try {
-            serverSocket?.close()
-        } catch (_: Exception) {}
-        serverSocket = null
-        assignedPort = 0
-        sessions.values.forEach { it.close() }
-        sessions.clear()
-        sessionCreationLocks.clear()
+        synchronized(stateLock) {
+            try {
+                serverSocket?.close()
+            } catch (_: Exception) {}
+            serverSocket = null
+            assignedPort = 0
+            sessions.values.forEach { it.close() }
+            sessions.clear()
+            sessionCreationLocks.clear()
+        }
     }
 
     actual fun isRunning(): Boolean {
-        return serverSocket != null && !serverSocket!!.isClosed && repository != null
+        return serverSocket?.isClosed == false && repository != null
     }
 
     /**
