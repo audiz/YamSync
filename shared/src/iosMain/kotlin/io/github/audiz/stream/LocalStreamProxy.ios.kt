@@ -12,15 +12,17 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.*
+import kotlin.concurrent.Volatile
 import platform.Foundation.*
 
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual object LocalStreamProxy {
-    private var isStarted: Boolean = false
-    private var repository: MusicRepository? = null
-    private var getMusicStoragePathFunc: (() -> String)? = null
-    private var isRecordToDiskFunc: (() -> Boolean)? = null
-    private var onTrackSavedCallback: ((trackId: String, filePath: String) -> Unit)? = null
+    private val stateLock = NSLock()
+    @Volatile private var isStarted: Boolean = false
+    @Volatile private var repository: MusicRepository? = null
+    @Volatile private var getMusicStoragePathFunc: (() -> String)? = null
+    @Volatile private var isRecordToDiskFunc: (() -> Boolean)? = null
+    @Volatile private var onTrackSavedCallback: ((trackId: String, filePath: String) -> Unit)? = null
 
     private val proxyScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val activeDownloadJobs = mutableMapOf<String, Job>()
@@ -31,20 +33,32 @@ actual object LocalStreamProxy {
         isRecordToDisk: () -> Boolean,
         onTrackSaved: ((trackId: String, filePath: String) -> Unit)?
     ) {
-        this.repository = repository
-        this.getMusicStoragePathFunc = getMusicStoragePath
-        this.isRecordToDiskFunc = isRecordToDisk
-        this.onTrackSavedCallback = onTrackSaved
-        this.isStarted = true
-        CoreLogger.i("LocalStreamProxy", "iOS LocalStreamProxy активирован (AVAssetResourceLoaderDelegate)")
+        stateLock.lock()
+        try {
+            this.repository = repository
+            this.getMusicStoragePathFunc = getMusicStoragePath
+            this.isRecordToDiskFunc = isRecordToDisk
+            this.onTrackSavedCallback = onTrackSaved
+            this.isStarted = true
+            CoreLogger.i("LocalStreamProxy", "iOS LocalStreamProxy активирован (AVAssetResourceLoaderDelegate)")
+        } finally {
+            stateLock.unlock()
+        }
     }
 
     actual fun stop() {
-        isStarted = false
-        repository = null
-        activeDownloadJobs.values.forEach { it.cancel() }
-        activeDownloadJobs.clear()
-        CoreLogger.d("LocalStreamProxy", "iOS LocalStreamProxy остановлен")
+        val jobsToCancel: List<Job>
+        stateLock.lock()
+        try {
+            isStarted = false
+            repository = null
+            jobsToCancel = activeDownloadJobs.values.toList()
+            activeDownloadJobs.clear()
+            CoreLogger.d("LocalStreamProxy", "iOS LocalStreamProxy остановлен")
+        } finally {
+            stateLock.unlock()
+        }
+        jobsToCancel.forEach { it.cancel() }
     }
 
     actual fun isRunning(): Boolean = isStarted && repository != null
@@ -107,15 +121,22 @@ actual object LocalStreamProxy {
         artist: String
     ) {
         val saveKey = "save:$trackId:$quality"
-        if (activeDownloadJobs.containsKey(saveKey)) return
-
-        // Отменяем фоновые сохранения предыдущих треков для приоритета текущего
-        activeDownloadJobs.forEach { (key, oldJob) ->
-            if (key != saveKey) {
-                oldJob.cancel()
-                activeDownloadJobs.remove(key)
+        val jobsToCancel = mutableListOf<Job>()
+        stateLock.lock()
+        try {
+            if (activeDownloadJobs.containsKey(saveKey)) return
+            val it = activeDownloadJobs.entries.iterator()
+            while (it.hasNext()) {
+                val entry = it.next()
+                if (entry.key != saveKey) {
+                    jobsToCancel.add(entry.value)
+                    it.remove()
+                }
             }
+        } finally {
+            stateLock.unlock()
         }
+        jobsToCancel.forEach { it.cancel() }
 
         val job = proxyScope.launch {
             try {
@@ -174,9 +195,23 @@ actual object LocalStreamProxy {
             } catch (e: Throwable) {
                 CoreLogger.e("LocalStreamProxy", "Ошибка фонового сохранения трека: ${e.message}")
             } finally {
-                activeDownloadJobs.remove(saveKey)
+                stateLock.lock()
+                try {
+                    activeDownloadJobs.remove(saveKey)
+                } finally {
+                    stateLock.unlock()
+                }
             }
         }
-        activeDownloadJobs[saveKey] = job
+        stateLock.lock()
+        try {
+            if (isStarted) {
+                activeDownloadJobs[saveKey] = job
+            } else {
+                job.cancel()
+            }
+        } finally {
+            stateLock.unlock()
+        }
     }
 }
