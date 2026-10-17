@@ -3,14 +3,25 @@ package io.github.audiz
 import platform.AVFoundation.AVPlayerItem
 import io.github.audiz.dsp.EqualizerEngine
 import kotlin.concurrent.Volatile
+import platform.Foundation.NSLock
 
 interface IosAudioTapAttacher {
     fun attachTap(playerItem: AVPlayerItem)
 }
 
 object IosAudioTapRegistry {
+    private val lock = NSLock()
+
     @Volatile
     var attacher: IosAudioTapAttacher? = null
+        get() = lock.let {
+            it.lock()
+            try { field } finally { it.unlock() }
+        }
+        set(value) {
+            lock.lock()
+            try { field = value } finally { lock.unlock() }
+        }
 
     fun register(attacher: IosAudioTapAttacher) {
         this.attacher = attacher
@@ -36,6 +47,8 @@ interface IosEqualizerListener {
 }
 
 object IosEqualizerBridge {
+    private val stateLock = NSLock()
+
     @Volatile
     private var listener: IosEqualizerListener? = null
 
@@ -46,11 +59,21 @@ object IosEqualizerBridge {
     }
 
     fun register(listener: IosEqualizerListener) {
-        this.listener = listener
+        stateLock.lock()
+        try {
+            this.listener = listener
+        } finally {
+            stateLock.unlock()
+        }
         notifyListener(EqualizerEngine.state.value)
     }
 
     private fun notifyListener(state: EqualizerEngine.State) {
+        val currentListener = stateLock.let {
+            it.lock()
+            try { listener } finally { it.unlock() }
+        } ?: return
+
         val g = state.gains
         val g0 = if (g.isNotEmpty()) g[0] else 0f
         val g1 = if (g.size > 1) g[1] else 0f
@@ -62,7 +85,7 @@ object IosEqualizerBridge {
         val g7 = if (g.size > 7) g[7] else 0f
         val g8 = if (g.size > 8) g[8] else 0f
         val g9 = if (g.size > 9) g[9] else 0f
-        listener?.onEqualizerStateChanged(
+        currentListener.onEqualizerStateChanged(
             state.isEnabled,
             state.hpfHz,
             state.lpfHz,

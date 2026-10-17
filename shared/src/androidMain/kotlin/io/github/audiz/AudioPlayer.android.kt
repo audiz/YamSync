@@ -329,7 +329,10 @@ actual class AudioPlayer actual constructor() {
                         bytes[2] == 'a'.code.toByte() && bytes[3] == 'C'.code.toByte() -> ".flac"
                 else -> ".mp3"
             }
-            val tmp = File.createTempFile("yandex_audio_", ext)
+            val tmp = File.createTempFile("yandex_audio_", ext).apply {
+                setReadable(true, true)
+                setWritable(true, true)
+            }
             tmp.deleteOnExit()
             FileOutputStream(tmp).use { it.write(bytes) }
             oldTempFile?.delete()

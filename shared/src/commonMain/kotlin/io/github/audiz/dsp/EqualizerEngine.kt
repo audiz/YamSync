@@ -2,6 +2,7 @@ package io.github.audiz.dsp
 
 import io.github.audiz.loadAppConfig
 import io.github.audiz.saveAppConfig
+import io.github.audiz.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,6 +99,7 @@ object EqualizerEngine {
     @Volatile var lpfHz: Float = 20000f
         private set
 
+    private val filterLock = Any()
     @Volatile private var sampleRate: Float = 44100f
 
     private val hpfFilter = BiquadFilter()
@@ -105,8 +107,10 @@ object EqualizerEngine {
     private val lpfFilter = BiquadFilter()
 
     init {
-        loadSettings()
-        recalculateFilters()
+        synchronized(filterLock) {
+            loadSettings()
+            recalculateFiltersLocked()
+        }
     }
 
     fun hasCutoffsActive(): Boolean {
@@ -165,64 +169,77 @@ object EqualizerEngine {
     }
 
     fun setSampleRate(rate: Float) {
-        if (rate > 8000f && rate != sampleRate) {
-            sampleRate = rate
-            recalculateFilters()
+        if (rate <= 8000f) return
+        synchronized(filterLock) {
+            if (rate != sampleRate) {
+                sampleRate = rate
+                recalculateFiltersLocked()
+            }
         }
     }
 
     fun setEnabled(enabled: Boolean) {
-        isEnabled = enabled
-        _state.value = _state.value.copy(isEnabled = enabled)
-        saveAppConfig("eq_enabled", enabled.toString())
-        recalculateFilters()
+        synchronized(filterLock) {
+            isEnabled = enabled
+            _state.value = _state.value.copy(isEnabled = enabled)
+            saveAppConfig("eq_enabled", enabled.toString())
+            recalculateFiltersLocked()
+        }
     }
 
     fun setHpfCutoff(freqHz: Float) {
         val clamped = freqHz.coerceIn(20f, 250f)
-        hpfHz = clamped
-        _state.value = _state.value.copy(hpfHz = clamped, presetName = "Custom")
-        saveAppConfig("eq_hpf", clamped.toString())
-        saveAppConfig("eq_preset", "Custom")
-        recalculateFilters()
+        synchronized(filterLock) {
+            hpfHz = clamped
+            _state.value = _state.value.copy(hpfHz = clamped, presetName = "Custom")
+            saveAppConfig("eq_hpf", clamped.toString())
+            saveAppConfig("eq_preset", "Custom")
+            recalculateFiltersLocked()
+        }
     }
 
     fun setLpfCutoff(freqHz: Float) {
         val clamped = freqHz.coerceIn(4000f, 20000f)
-        lpfHz = clamped
-        _state.value = _state.value.copy(lpfHz = clamped, presetName = "Custom")
-        saveAppConfig("eq_lpf", clamped.toString())
-        saveAppConfig("eq_preset", "Custom")
-        recalculateFilters()
+        synchronized(filterLock) {
+            lpfHz = clamped
+            _state.value = _state.value.copy(lpfHz = clamped, presetName = "Custom")
+            saveAppConfig("eq_lpf", clamped.toString())
+            saveAppConfig("eq_preset", "Custom")
+            recalculateFiltersLocked()
+        }
     }
 
     fun setBandGain(index: Int, gainDb: Float) {
         if (index !in 0..9) return
-        val currentGains = _state.value.gains.copyOf()
-        currentGains[index] = gainDb.coerceIn(-12f, 12f)
-        _state.value = _state.value.copy(gains = currentGains, presetName = "Custom")
-        saveAppConfig("eq_band_$index", currentGains[index].toString())
-        saveAppConfig("eq_preset", "Custom")
-        recalculateFilters()
+        synchronized(filterLock) {
+            val currentGains = _state.value.gains.copyOf()
+            currentGains[index] = gainDb.coerceIn(-12f, 12f)
+            _state.value = _state.value.copy(gains = currentGains, presetName = "Custom")
+            saveAppConfig("eq_band_$index", currentGains[index].toString())
+            saveAppConfig("eq_preset", "Custom")
+            recalculateFiltersLocked()
+        }
     }
 
     fun applyPreset(preset: Preset) {
         val gainsCopy = preset.gains.copyOf()
-        hpfHz = preset.hpfHz
-        lpfHz = preset.lpfHz
-        _state.value = _state.value.copy(
-            gains = gainsCopy,
-            hpfHz = preset.hpfHz,
-            lpfHz = preset.lpfHz,
-            presetName = preset.name
-        )
-        saveAppConfig("eq_preset", preset.name)
-        saveAppConfig("eq_hpf", preset.hpfHz.toString())
-        saveAppConfig("eq_lpf", preset.lpfHz.toString())
-        for (i in 0..9) {
-            saveAppConfig("eq_band_$i", gainsCopy[i].toString())
+        synchronized(filterLock) {
+            hpfHz = preset.hpfHz
+            lpfHz = preset.lpfHz
+            _state.value = _state.value.copy(
+                gains = gainsCopy,
+                hpfHz = preset.hpfHz,
+                lpfHz = preset.lpfHz,
+                presetName = preset.name
+            )
+            saveAppConfig("eq_preset", preset.name)
+            saveAppConfig("eq_hpf", preset.hpfHz.toString())
+            saveAppConfig("eq_lpf", preset.lpfHz.toString())
+            for (i in 0..9) {
+                saveAppConfig("eq_band_$i", gainsCopy[i].toString())
+            }
+            recalculateFiltersLocked()
         }
-        recalculateFilters()
     }
 
     fun resetToFlat() {
@@ -235,7 +252,13 @@ object EqualizerEngine {
         setLpfCutoff(20000f)
     }
 
-    private fun recalculateFilters() {
+    fun recalculateFilters() {
+        synchronized(filterLock) {
+            recalculateFiltersLocked()
+        }
+    }
+
+    private fun recalculateFiltersLocked() {
         if (!isEnabled) {
             hpfFilter.setBypass()
             for (f in bandFilters) f.setBypass()
@@ -264,39 +287,42 @@ object EqualizerEngine {
     fun processPcm(buffer: ByteArray, bytesRead: Int) {
         if (!isEnabled) return
 
-        var i = 0
-        while (i < bytesRead - 3) {
-            val leftRaw = (buffer[i + 1].toInt() shl 8) or (buffer[i].toInt() and 0xFF)
-            val rightRaw = (buffer[i + 3].toInt() shl 8) or (buffer[i + 2].toInt() and 0xFF)
+        synchronized(filterLock) {
+            if (!isEnabled) return
+            var i = 0
+            while (i < bytesRead - 3) {
+                val leftRaw = (buffer[i + 1].toInt() shl 8) or (buffer[i].toInt() and 0xFF)
+                val rightRaw = (buffer[i + 3].toInt() shl 8) or (buffer[i + 2].toInt() and 0xFF)
 
-            var l = leftRaw / 32768f
-            var r = rightRaw / 32768f
+                var l = leftRaw / 32768f
+                var r = rightRaw / 32768f
 
-            // 1. Срез НЧ (HPF)
-            l = hpfFilter.processLeft(l)
-            r = hpfFilter.processRight(r)
+                // 1. Срез НЧ (HPF)
+                l = hpfFilter.processLeft(l)
+                r = hpfFilter.processRight(r)
 
-            // 2. 10 полос эквалайзера
-            for (k in 0..9) {
-                val filter = bandFilters[k]
-                l = filter.processLeft(l)
-                r = filter.processRight(r)
+                // 2. 10 полос эквалайзера
+                for (k in 0..9) {
+                    val filter = bandFilters[k]
+                    l = filter.processLeft(l)
+                    r = filter.processRight(r)
+                }
+
+                // 3. Срез ВЧ (LPF)
+                l = lpfFilter.processLeft(l)
+                r = lpfFilter.processRight(r)
+
+                // Ограничение амплитуды (soft clamp)
+                val outL = (l * 32767f).roundToInt().coerceIn(-32768, 32767)
+                val outR = (r * 32767f).roundToInt().coerceIn(-32768, 32767)
+
+                buffer[i] = (outL and 0xFF).toByte()
+                buffer[i + 1] = ((outL shr 8) and 0xFF).toByte()
+                buffer[i + 2] = (outR and 0xFF).toByte()
+                buffer[i + 3] = ((outR shr 8) and 0xFF).toByte()
+
+                i += 4
             }
-
-            // 3. Срез ВЧ (LPF)
-            l = lpfFilter.processLeft(l)
-            r = lpfFilter.processRight(r)
-
-            // Ограничение амплитуды (soft clamp)
-            val outL = (l * 32767f).roundToInt().coerceIn(-32768, 32767)
-            val outR = (r * 32767f).roundToInt().coerceIn(-32768, 32767)
-
-            buffer[i] = (outL and 0xFF).toByte()
-            buffer[i + 1] = ((outL shr 8) and 0xFF).toByte()
-            buffer[i + 2] = (outR and 0xFF).toByte()
-            buffer[i + 3] = ((outR shr 8) and 0xFF).toByte()
-
-            i += 4
         }
     }
 

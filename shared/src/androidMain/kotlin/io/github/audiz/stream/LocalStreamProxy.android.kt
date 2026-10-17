@@ -145,7 +145,10 @@ actual object LocalStreamProxy {
                 if (totalSize <= 0L) return@launch
 
                 println("⚡ [StreamProxy Android] Старт фонового сохранения трека: $fullFileName")
-                val tempFile = File.createTempFile("ya_save_", ".$ext")
+                val tempFile = File.createTempFile("ya_save_", ".$ext").apply {
+                    setReadable(true, true)
+                    setWritable(true, true)
+                }
                 tempFile.deleteOnExit()
 
                 val chunkSize = 512 * 1024L

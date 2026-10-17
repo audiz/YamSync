@@ -19,11 +19,16 @@ class LocalTrackResolver(
     companion object {
         fun sanitizeKeepSpaces(input: String): String = io.github.audiz.sanitizeKeepSpaces(input)
 
+        private val versionLock = Any()
+
         @kotlin.concurrent.Volatile
         var globalCacheVersion: Long = 0L
+            private set
 
         fun invalidateAllCaches() {
-            globalCacheVersion++
+            synchronized(versionLock) {
+                globalCacheVersion++
+            }
         }
     }
 
