@@ -330,15 +330,12 @@ actual object LocalStreamProxy {
             val fullPath = parts[1]
 
             var rangeHeader: String? = null
-            var line: String? = input.readLine()
-            var headerCount = 0
-            val maxHeaders = 100
-            while (!line.isNullOrBlank() && headerCount < maxHeaders) {
-                if (line.startsWith("Range:", ignoreCase = true)) {
-                    rangeHeader = line.substringAfter(":").trim()
+            for (i in 0 until 100) {
+                val headerLine = input.readLine() ?: break
+                if (headerLine.isBlank()) break
+                if (headerLine.startsWith("Range:", ignoreCase = true)) {
+                    rangeHeader = headerLine.substringAfter(":").trim()
                 }
-                headerCount++
-                line = input.readLine()
             }
 
             if (!fullPath.startsWith("/stream/")) {
