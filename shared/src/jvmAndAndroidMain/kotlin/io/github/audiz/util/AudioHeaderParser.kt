@@ -838,7 +838,7 @@ object AudioHeaderParser {
     private fun parseFlacPictureBlock(payload: ByteArray): ByteArray? {
         if (payload.size < 32) return null
         var pos = 0
-        val picType = readInt32Be(payload, pos); pos += 4
+        pos += 4 // picType (3 = Cover Front)
         val mimeLen = readInt32Be(payload, pos); pos += 4
         if (mimeLen < 0 || pos + mimeLen > payload.size) return null
         pos += mimeLen

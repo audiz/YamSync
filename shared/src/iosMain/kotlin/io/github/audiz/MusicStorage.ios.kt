@@ -794,7 +794,6 @@ actual fun appendLogToFile(line: String) {
 /** Получить листинг содержимого директории (подпапки и аудиофайлы) для встроенного проводника */
 actual fun listFolderContents(folderPath: String, rootPath: String?): FolderListing {
     val fileManager = NSFileManager.defaultManager
-    var isDir = false
     val exists = fileManager.fileExistsAtPath(folderPath)
     if (!exists) {
         return FolderListing(folderPath, null, rootPath, emptyList(), emptyList())

@@ -648,7 +648,6 @@ class YamSyncManager(
         errorMessage = null
         statusMessage = "Запуск сервера YamSync..."
 
-        val basePath = getMusicStoragePath()
         val token = getOrCreateDeviceSyncToken()
         val ip = getLocalIpAddress()
         val localDevice = YamSyncDevice(

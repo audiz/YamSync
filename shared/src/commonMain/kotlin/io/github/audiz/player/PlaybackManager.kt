@@ -1179,7 +1179,6 @@ class PlaybackManager(
             trackId = null
             positionMs = durationMs
 
-            val playedTimeMs = currentTimeMillis() - trackStartSystemTime
             if (prevId != null) {
                 if (isNaturalCompletion) {
                     if (LocalStreamProxy.isRunning()) {

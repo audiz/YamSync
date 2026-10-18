@@ -331,10 +331,13 @@ actual object LocalStreamProxy {
 
             var rangeHeader: String? = null
             var line: String? = input.readLine()
-            while (!line.isNullOrBlank()) {
+            var headerCount = 0
+            val maxHeaders = 100
+            while (!line.isNullOrBlank() && headerCount < maxHeaders) {
                 if (line.startsWith("Range:", ignoreCase = true)) {
                     rangeHeader = line.substringAfter(":").trim()
                 }
+                headerCount++
                 line = input.readLine()
             }
 

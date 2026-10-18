@@ -968,7 +968,7 @@ actual class AudioPlayer actual constructor() {
         ensureAudioPumpRunning()
 
         // Запускаем фоновый поток декодирования ffmpeg в очередь PCM чанков
-        val decodeThread = Thread {
+        Thread {
             if (sessionId != currentSessionId || session.isClosed) return@Thread
             var proc: Process? = null
             try {
