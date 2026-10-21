@@ -5,6 +5,7 @@ import io.github.audiz.DispatcherIO
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.getLocalCoverArtUrl
 import io.github.audiz.loadLocalCoverBytes
+import io.github.audiz.synchronized
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.decodeToImageBitmap
 
@@ -12,6 +13,7 @@ import org.jetbrains.compose.resources.decodeToImageBitmap
  * 🖼️ Загрузчик и кэш обложек альбомов и треков
  */
 object CoverImageLoader {
+    private val cacheLock = Any()
     private val memoryCache = mutableMapOf<String, ImageBitmap>()
     var repository: MusicRepository? = null
 
@@ -40,7 +42,7 @@ object CoverImageLoader {
     suspend fun loadCover(coverUri: String?, size: Int = 400): ImageBitmap? {
         if (coverUri.isNullOrBlank()) return null
         val trimmed = coverUri.trim()
-        memoryCache[trimmed]?.let { return it }
+        synchronized(cacheLock) { memoryCache[trimmed] }?.let { return it }
 
         // 1. Проверяем локальные файлы
         if (trimmed.startsWith("local:") || trimmed.startsWith("file:") || trimmed.startsWith("/")) {
@@ -50,7 +52,9 @@ object CoverImageLoader {
             if (bytes != null && bytes.isNotEmpty()) {
                 return try {
                     val bitmap = bytes.decodeToImageBitmap()
-                    memoryCache[trimmed] = bitmap
+                    synchronized(cacheLock) {
+                        memoryCache[trimmed] = bitmap
+                    }
                     bitmap
                 } catch (e: Exception) {
                     println("CoverImageLoader: Ошибка декодирования локальной обложки $trimmed: ${e.message}")
@@ -62,7 +66,7 @@ object CoverImageLoader {
 
         // 2. Сетевая обложка Яндекс Музыки
         val url = formatCoverUrl(trimmed, size) ?: return null
-        memoryCache[url]?.let { return it }
+        synchronized(cacheLock) { memoryCache[url] }?.let { return it }
 
         val repo = repository ?: return null
         val bytes = withContext(DispatcherIO) {
@@ -72,8 +76,10 @@ object CoverImageLoader {
         return withContext(DispatcherIO) {
             try {
                 val bitmap = bytes.decodeToImageBitmap()
-                memoryCache[trimmed] = bitmap
-                memoryCache[url] = bitmap
+                synchronized(cacheLock) {
+                    memoryCache[trimmed] = bitmap
+                    memoryCache[url] = bitmap
+                }
                 bitmap
             } catch (e: Exception) {
                 println("CoverImageLoader: Ошибка декодирования изображения $url: ${e.message}")

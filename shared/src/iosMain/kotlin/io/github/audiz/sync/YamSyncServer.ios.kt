@@ -2,6 +2,7 @@
 
 package io.github.audiz.sync
 
+import io.github.audiz.core.constantTimeEquals
 import io.github.audiz.models.YamSyncDevice
 import io.github.audiz.models.YamSyncManifest
 import io.github.audiz.models.YamSyncMergePayload
@@ -147,7 +148,7 @@ actual class YamSyncServer actual constructor(
             val queryParams = parseQuery(queryString)
             val clientToken = headers["x-yamsync-token"] ?: queryParams["token"]
 
-            if (path != "/yamsync/v1/ping" && clientToken != token) {
+            if (path != "/yamsync/v1/ping" && !constantTimeEquals(clientToken, token)) {
                 val err = """{"error":"Unauthorized"}""".encodeToByteArray()
                 sendResponse(clientFd, 401, "Unauthorized", mapOf("Content-Type" to "application/json"), err)
                 return
@@ -272,6 +273,10 @@ actual class YamSyncServer actual constructor(
     private fun streamIosFile(clientFd: Int, filePath: String, rangeHeader: String?) {
         val fileHandle = NSFileHandle.fileHandleForReadingAtPath(filePath) ?: return
         val totalLen = fileHandle.seekToEndOfFile().toLong()
+        if (totalLen <= 0L) {
+            sendResponse(clientFd, 200, "OK", mapOf("Content-Length" to "0"), ByteArray(0))
+            return
+        }
 
         var start = 0L
         var end = totalLen - 1L
@@ -281,12 +286,22 @@ actual class YamSyncServer actual constructor(
             val rParts = rangeVal.split("-")
             val rStart = rParts.getOrNull(0)?.toLongOrNull()
             val rEnd = rParts.getOrNull(1)?.toLongOrNull()
+            if (rStart != null && (rStart < 0L || rStart >= totalLen)) {
+                sendResponse(clientFd, 416, "Range Not Satisfiable", mapOf("Content-Range" to "bytes */$totalLen"), ByteArray(0))
+                return
+            }
             if (rStart != null) start = rStart
-            if (rEnd != null && rEnd < totalLen) end = rEnd
+            if (rEnd != null) {
+                if (rEnd < start) {
+                    sendResponse(clientFd, 416, "Range Not Satisfiable", mapOf("Content-Range" to "bytes */$totalLen"), ByteArray(0))
+                    return
+                }
+                end = minOf(rEnd, totalLen - 1L)
+            }
             true
         } else false
 
-        val contentLen = end - start + 1L
+        val contentLen = (end - start + 1L).coerceAtLeast(0L)
         val statusCode = if (isRange) 206 else 200
         val statusText = if (isRange) "Partial Content" else "OK"
 

@@ -1,5 +1,6 @@
 package io.github.audiz.sync
 
+import io.github.audiz.core.constantTimeEquals
 import io.github.audiz.models.YamSyncDevice
 import io.github.audiz.models.YamSyncManifest
 import io.github.audiz.models.YamSyncMergePayload
@@ -162,7 +163,7 @@ actual class YamSyncServer actual constructor(
             val clientToken = headers["x-yamsync-token"] ?: queryParams["token"]
 
             // Валидация токена для закрытых эндпоинтов
-            if (path != "/yamsync/v1/ping" && clientToken != token) {
+            if (path != "/yamsync/v1/ping" && !constantTimeEquals(clientToken, token)) {
                 val err = """{"error":"Unauthorized"}""".encodeToByteArray()
                 sendResponse(output, 401, "Unauthorized", mapOf("Content-Type" to "application/json"), err)
                 return
@@ -313,6 +314,11 @@ actual class YamSyncServer actual constructor(
         }
 
         val fileLen = canonicalFile.length()
+        if (fileLen <= 0L) {
+            sendResponse(output, 200, "OK", mapOf("Content-Length" to "0"), ByteArray(0))
+            return
+        }
+
         var start = 0L
         var end = fileLen - 1L
 
@@ -322,12 +328,22 @@ actual class YamSyncServer actual constructor(
             val rStart = rParts.getOrNull(0)?.toLongOrNull()
             val rEnd = rParts.getOrNull(1)?.toLongOrNull()
 
+            if (rStart != null && (rStart < 0L || rStart >= fileLen)) {
+                sendResponse(output, 416, "Range Not Satisfiable", mapOf("Content-Range" to "bytes */$fileLen"), ByteArray(0))
+                return
+            }
             if (rStart != null) start = rStart
-            if (rEnd != null && rEnd < fileLen) end = rEnd
+            if (rEnd != null) {
+                if (rEnd < start) {
+                    sendResponse(output, 416, "Range Not Satisfiable", mapOf("Content-Range" to "bytes */$fileLen"), ByteArray(0))
+                    return
+                }
+                end = minOf(rEnd, fileLen - 1L)
+            }
             true
         } else false
 
-        val contentLen = end - start + 1L
+        val contentLen = (end - start + 1L).coerceAtLeast(0L)
         val statusCode = if (isRange) 206 else 200
         val statusText = if (isRange) "Partial Content" else "OK"
 

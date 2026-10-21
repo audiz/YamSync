@@ -2,6 +2,7 @@ package io.github.audiz.api
 
 import io.github.audiz.YandexCookieService
 import io.github.audiz.core.CoreLogger
+import io.github.audiz.core.constantTimeEquals
 import io.github.audiz.core.NativeTrackSigner
 import io.github.audiz.core.parseTrackDownloadInfo
 import io.github.audiz.models.*
@@ -86,7 +87,7 @@ class MusicRepository {
 
     fun updateAccessToken(newToken: String) {
         val extracted = YandexCookieService.extractAccessToken(newToken)
-        if (extracted != this.accessToken) {
+        if (!constantTimeEquals(extracted, this.accessToken)) {
             cachedUserId = null
         }
         this.accessToken = extracted
