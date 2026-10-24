@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Save
 import io.github.audiz.isPlatformPickerSupported
 import io.github.audiz.launchDirectoryPicker
 import androidx.compose.material3.*
@@ -132,7 +133,7 @@ fun SettingsDialog(
         }
 
         // 🔲 Полупрозрачный фон (scrim), клик по которому закрывает настройки
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.45f))
@@ -145,11 +146,15 @@ fun SettingsDialog(
                     actions.onClose()
                 }
         ) {
+            val isCompact = maxWidth < 450.dp
+            val horizontalCardPadding = if (isCompact) 8.dp else 16.dp
+            val horizontalContentPadding = if (isCompact) 10.dp else 16.dp
+            val endContentPadding = if (isCompact) 8.dp else 12.dp
             ElevatedCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = horizontalCardPadding)
                     .padding(top = 8.dp, bottom = 76.dp)
                     .offset { IntOffset(0, animatedOffsetY.toInt()) }
                     .animateEnterExit(
@@ -243,8 +248,8 @@ fun SettingsDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .verticalScroll(settingsScrollState)
-                                .padding(16.dp)
-                                .padding(end = 12.dp)
+                                .padding(horizontalContentPadding)
+                                .padding(end = endContentPadding)
                         ) {
                             // 💾 Сохранение на диск при воспроизведении
                             Row(
@@ -578,9 +583,10 @@ fun SettingsDialog(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 if (isPlatformPickerSupported) {
                                     OutlinedButton(
@@ -597,7 +603,7 @@ fun SettingsDialog(
                                     ) {
                                         Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("📁 Обзор...")
+                                        Text("Обзор...", maxLines = 1, softWrap = false)
                                     }
                                 }
                                 Button(
@@ -605,15 +611,20 @@ fun SettingsDialog(
                                         actions.onSaveMusicPath(pathInput)
                                         pathSaved = true
                                     },
-                                    enabled = pathInput.isNotBlank() && pathInput != state.musicStoragePath
+                                    enabled = pathInput.isNotBlank() && pathInput != state.musicStoragePath,
+                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                                 ) {
-                                    Text("💾 Сохранить путь")
+                                    Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Сохранить путь", maxLines = 1, softWrap = false)
                                 }
                                 if (pathSaved) {
                                     Text(
                                         text = "✅ Сохранено!",
                                         color = MaterialTheme.colorScheme.primary,
-                                        style = MaterialTheme.typography.bodySmall
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -668,9 +679,10 @@ fun SettingsDialog(
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 FilledTonalButton(
                                     onClick = {
@@ -683,7 +695,7 @@ fun SettingsDialog(
                                     enabled = tokenInput.isNotBlank(),
                                     modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                                 ) {
-                                    Text("💾 2. Сохранить токен")
+                                    Text("💾 2. Сохранить токен", maxLines = 1, softWrap = false)
                                 }
 
                                 if (state.authStatusMessage != null) {
