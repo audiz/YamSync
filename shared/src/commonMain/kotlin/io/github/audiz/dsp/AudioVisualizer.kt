@@ -259,19 +259,23 @@ object AudioVisualizer {
                 if (raw[i] > currentMax) currentMax = raw[i]
             }
 
+            // Отслеживание динамической активности для PCM-потока
+            val avgEnergy = (softCappedB1 + raw1 + raw2 + raw3 + raw4) / 5f
+            val energyDelta = kotlin.math.abs(avgEnergy - lastEnergySum)
+            lastEnergySum = avgEnergy
+            trackActivityEma += (energyDelta - trackActivityEma) * 0.08f
+
             if (currentMax > trackPeakEma) {
                 trackPeakEma = currentMax // мгновенный захват при нарастании громкости
             } else {
                 trackPeakEma = max(0.20f, trackPeakEma * 0.998f)
             }
 
-            // Адаптивное усиление для спокойных/тихих композиций:
-            val autoGain = (0.85f / max(0.22f, trackPeakEma)).coerceIn(1.0f, 2.4f)
+            // Умеренное усиление и экспонента: чувствителен к тихому интро, но без раздувания шума
+            val autoGain = (0.80f / max(0.22f, trackPeakEma)).coerceIn(1.0f, 2.0f)
+            val dynamicExp = (1.65f - (autoGain - 1.0f) * 0.25f).coerceIn(1.35f, 1.65f)
 
-            // Мягкая экспансия: сохраняет четкую динамику на интро и тихих партиях
-            val dynamicExp = (1.8f - (autoGain - 1.0f) * 0.30f).coerceIn(1.35f, 1.8f)
-
-            // Передача в баллистический движок
+            // Передача в баллистический движок 5 микро-полос
             for (i in 0 until BAND_COUNT) {
                 val normalized = (raw[i] * autoGain).coerceIn(0f, 1f)
                 val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
@@ -290,16 +294,22 @@ object AudioVisualizer {
                 }
             }
 
-            // Если прямой спектр не поступает (например, fallback PCM), синтезируем полосы
+            // Если прямой спектр не поступает (например, fallback PCM), синтезируем 25 полос с межполосной связностью
             if (currentTime() - lastSpectrum19UpdateTimeMs > 350L) {
                 val src5 = floatArrayOf(softCappedB1, raw1, raw2, raw3, raw4)
+                val rawInterp = FloatArray(SPECTRUM_BAND_COUNT)
                 for (k in 0 until SPECTRUM_BAND_COUNT) {
                     val t = (k.toFloat() / (SPECTRUM_BAND_COUNT - 1)) * 4f
                     val idx = t.toInt().coerceIn(0, 3)
                     val frac = t - idx
                     val smoothFrac = (1f - cos(frac * PI.toFloat())) / 2f
-                    val interp = src5[idx] * (1f - smoothFrac) + src5[idx + 1] * smoothFrac
-                    val norm = (interp * autoGain).coerceIn(0f, 1f)
+                    rawInterp[k] = src5[idx] * (1f - smoothFrac) + src5[idx + 1] * smoothFrac
+                }
+                for (k in 0 until SPECTRUM_BAND_COUNT) {
+                    val prev = if (k > 0) rawInterp[k - 1] else rawInterp[k]
+                    val next = if (k < SPECTRUM_BAND_COUNT - 1) rawInterp[k + 1] else rawInterp[k]
+                    val cohesive = rawInterp[k] * 0.80f + (prev + next) * 0.10f
+                    val norm = (cohesive * autoGain).coerceIn(0f, 1f)
                     targetSpectrumLevels[k] = norm.pow(dynamicExp).coerceIn(0f, 1f)
                 }
             }
@@ -352,9 +362,9 @@ object AudioVisualizer {
                 trackPeakEma = max(0.20f, trackPeakEma * 0.998f)
             }
 
-            // Умеренный autoGain (до 1.85x вместо 2.4x) — не раздувает фоновые микрошумы в тихих треках
-            val autoGain = (0.75f / max(0.26f, trackPeakEma)).coerceIn(1.0f, 1.85f)
-            val dynamicExp = (1.65f - (autoGain - 1.0f) * 0.20f).coerceIn(1.35f, 1.65f)
+            // Умеренный autoGain (до 2.0x вместо 2.4x) — чувствителен к тихому интро, но не раздувает фоновый шум
+            val autoGain = (0.80f / max(0.22f, trackPeakEma)).coerceIn(1.0f, 2.0f)
+            val dynamicExp = (1.65f - (autoGain - 1.0f) * 0.25f).coerceIn(1.35f, 1.65f)
 
             val inSize = spectrum.size
             val rawLevels = FloatArray(SPECTRUM_BAND_COUNT)
