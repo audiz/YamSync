@@ -165,19 +165,19 @@ class AudioVisualizerTest {
         AudioVisualizer.latencyCompensationMs = 120L
         AudioVisualizer.reset()
 
-        val raw30 = FloatArray(30) { if (it == 8) 0.95f else 0.1f }
-        AudioVisualizer.updateSpectrum(raw30)
+        val raw25 = FloatArray(25) { if (it == 8) 0.95f else 0.1f }
+        AudioVisualizer.updateSpectrum(raw25)
 
         // At 60 ms later
         simTime = 2060L
         val frameEarly = AudioVisualizer.advanceSpectrumFrame(0.060f, isPlaying = true)
-        assertEquals(30, frameEarly.levels.size, "Spectrum frame should contain 30 bands")
+        assertEquals(25, frameEarly.levels.size, "Spectrum frame should contain 25 bands")
         assertEquals(AudioVisualizer.RESTING_LEVEL, frameEarly.levels[8], 0.001f, "Band 8 should remain at resting level before 120ms")
 
         // At 120 ms later
         simTime = 2120L
         val frameMatured = AudioVisualizer.advanceSpectrumFrame(0.060f, isPlaying = true)
-        assertEquals(30, frameMatured.levels.size, "Spectrum frame should contain 30 bands")
-        assertTrue(frameMatured.levels[8] > 0.70f, "Band 8 should trigger after 120ms latency")
+        assertEquals(25, frameMatured.levels.size, "Spectrum frame should contain 25 bands")
+        assertTrue(frameMatured.levels[8] > 0.50f, "Band 8 should trigger after 120ms latency")
     }
 }
