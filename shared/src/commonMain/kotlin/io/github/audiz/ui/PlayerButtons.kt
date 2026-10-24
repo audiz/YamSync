@@ -544,7 +544,8 @@ fun NowPlayingIndicator(
 
         for (i in 0 until 5) {
             val level = if (i < levels.size) levels[i] else AudioVisualizer.RESTING_LEVEL
-            val h = (maxH * level.coerceIn(0.12f, 1f)).coerceAtLeast(w)
+            val minH = 1.5.dp.toPx()
+            val h = (maxH * level.coerceIn(0.04f, 1f)).coerceAtLeast(minH)
             val x = i * (w + spacing)
             val y = maxH - h
 
@@ -558,7 +559,7 @@ fun NowPlayingIndicator(
             // 2. Парящая пиковая засечка (Winamp Peak Cap, прямоугольная)
             if (i < peakCaps.size) {
                 val peakLevel = peakCaps[i]
-                val targetPeakY = (maxH - (maxH * peakLevel.coerceIn(0.12f, 1f))).coerceIn(0f, maxH - peakH)
+                val targetPeakY = (maxH - (maxH * peakLevel.coerceIn(0.04f, 1f))).coerceIn(0f, maxH - peakH)
                 val peakY = targetPeakY.coerceAtMost(y - 1.2f).coerceAtLeast(0f)
                 if (y - peakY >= 0.5f) {
                     drawRect(
