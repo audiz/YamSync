@@ -884,13 +884,13 @@ actual class AudioPlayer actual constructor() {
             return ((combinedDb - threshold) / (-threshold)).coerceIn(0f, 1f)
         }
 
-        // 19 аппаратных полос Winamp Pro (обложка альбома)
-        val spectrum19 = FloatArray(19)
-        for (k in 0 until 19) {
-            val progress = k.toFloat() / 18f
+        // 30 аппаратных полос (1/3 октавы, 20 Гц .. 20 кГц) для обложки альбома
+        val spectrum30 = FloatArray(30)
+        for (k in 0 until 30) {
+            val progress = k.toFloat() / 29f
             val tilt = -7.0f + progress * 23.0f
-            val (fStart, fEnd) = FREQ_RANGES_19[k]
-            spectrum19[k] = calcBandEnergy(fStart, fEnd, tiltDb = tilt, peakWeight = 0.75f)
+            val (fStart, fEnd) = FREQ_RANGES_30[k]
+            spectrum30[k] = calcBandEnergy(fStart, fEnd, tiltDb = tilt, peakWeight = 0.75f)
         }
 
         // 5 полос для кнопок плеера и микро-иконок
@@ -906,31 +906,42 @@ actual class AudioPlayer actual constructor() {
         val b5 = calcBandEnergy(6500f, 15000f, tiltDb = 15.5f)
 
         AudioVisualizer.updateBands(b1, b2, b3, b4, b5)
-        AudioVisualizer.updateSpectrum19(spectrum19)
+        AudioVisualizer.updateSpectrum(spectrum30)
     }
 
     companion object {
-        // 🎛️ 19 аппаратных частотных полос Winamp Pro (20 Гц .. 20 кГц) для спектроанализатора на обложке:
-        private val FREQ_RANGES_19 = arrayOf(
-            20f to 55f,      // Полоса 0: ~31 Гц
-            55f to 100f,     // Полоса 1: ~62 Гц
-            100f to 155f,    // Полоса 2: ~93 Гц
-            155f to 220f,    // Полоса 3: ~125 Гц
-            220f to 310f,    // Полоса 4: ~170 Гц
-            310f to 440f,    // Полоса 5: ~250 Гц
-            440f to 620f,    // Полоса 6: ~350 Гц
-            620f to 880f,    // Полоса 7: ~500 Гц
-            880f to 1250f,   // Полоса 8: ~700 Гц
-            1250f to 1750f,  // Полоса 9: ~1 кГц
-            1750f to 2500f,  // Полоса 10: ~1.4 кГц
-            2500f to 3500f,  // Полоса 11: ~2 кГц
-            3500f to 5000f,  // Полоса 12: ~2.8 кГц
-            5000f to 7000f,  // Полоса 13: ~4 кГц
-            7000f to 9500f,  // Полоса 14: ~5.6 кГц
-            9500f to 12500f, // Полоса 15: ~8 кГц
-            12500f to 15000f,// Полоса 16: ~11 кГц
-            15000f to 17500f,// Полоса 17: ~14 кГц
-            17500f to 21000f // Полоса 18: ~16 кГц
+        // 🎛️ 30 частотных полос (20 Гц .. 20 кГц, 1/3 октавы):
+        private val FREQ_RANGES_30 = arrayOf(
+            20.0f to 25.2f,    // Полоса 0: ~22 Гц
+            25.2f to 31.8f,    // Полоса 1: ~28 Гц
+            31.8f to 40.0f,    // Полоса 2: ~36 Гц
+            40.0f to 50.4f,    // Полоса 3: ~45 Гц
+            50.4f to 63.5f,    // Полоса 4: ~57 Гц
+            63.5f to 80.0f,    // Полоса 5: ~71 Гц
+            80.0f to 100.8f,   // Полоса 6: ~90 Гц
+            100.8f to 127.0f,  // Полоса 7: ~113 Гц
+            127.0f to 160.0f,  // Полоса 8: ~143 Гц
+            160.0f to 201.7f,  // Полоса 9: ~180 Гц
+            201.7f to 254.1f,  // Полоса 10: ~226 Гц
+            254.1f to 320.1f,  // Полоса 11: ~285 Гц
+            320.1f to 403.3f,  // Полоса 12: ~359 Гц
+            403.3f to 508.2f,  // Полоса 13: ~453 Гц
+            508.2f to 640.3f,  // Полоса 14: ~570 Гц
+            640.3f to 806.8f,  // Полоса 15: ~719 Гц
+            806.8f to 1016.5f, // Полоса 16: ~906 Гц
+            1016.5f to 1280.7f,// Полоса 17: ~1.14 кГц
+            1280.7f to 1613.7f,// Полоса 18: ~1.44 кГц
+            1613.7f to 2033.2f,// Полоса 19: ~1.81 кГц
+            2033.2f to 2561.7f,// Полоса 20: ~2.28 кГц
+            2561.7f to 3227.7f,// Полоса 21: ~2.88 кГц
+            3227.7f to 4066.8f,// Полоса 22: ~3.62 кГц
+            4066.8f to 5124.0f,// Полоса 23: ~4.56 кГц
+            5124.0f to 6456.0f,// Полоса 24: ~5.75 кГц
+            6456.0f to 8134.4f,// Полоса 25: ~7.25 кГц
+            8134.4f to 10249.0f,// Полоса 26: ~9.13 кГц
+            10249.0f to 12913.4f,// Полоса 27: ~11.5 кГц
+            12913.4f to 16270.3f,// Полоса 28: ~14.5 кГц
+            16270.3f to 20500.0f // Полоса 29: ~18.3 кГц
         )
     }
 }

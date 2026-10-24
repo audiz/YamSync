@@ -159,23 +159,25 @@ class AudioVisualizerTest {
     }
 
     @Test
-    fun testSpectrum19LatencyCompensation() {
+    fun testSpectrumLatencyCompensation() {
         var simTime = 2000L
         AudioVisualizer.timeProvider = { simTime }
         AudioVisualizer.latencyCompensationMs = 120L
         AudioVisualizer.reset()
 
-        val raw19 = FloatArray(19) { if (it == 5) 0.95f else 0.1f }
-        AudioVisualizer.updateSpectrum19(raw19)
+        val raw30 = FloatArray(30) { if (it == 8) 0.95f else 0.1f }
+        AudioVisualizer.updateSpectrum(raw30)
 
         // At 60 ms later
         simTime = 2060L
-        val frameEarly = AudioVisualizer.advanceSpectrum19Frame(0.060f, isPlaying = true)
-        assertEquals(AudioVisualizer.RESTING_LEVEL, frameEarly.levels[5], 0.001f, "Band 5 should remain at resting level before 120ms")
+        val frameEarly = AudioVisualizer.advanceSpectrumFrame(0.060f, isPlaying = true)
+        assertEquals(30, frameEarly.levels.size, "Spectrum frame should contain 30 bands")
+        assertEquals(AudioVisualizer.RESTING_LEVEL, frameEarly.levels[8], 0.001f, "Band 8 should remain at resting level before 120ms")
 
         // At 120 ms later
         simTime = 2120L
-        val frameMatured = AudioVisualizer.advanceSpectrum19Frame(0.060f, isPlaying = true)
-        assertTrue(frameMatured.levels[5] > 0.70f, "Band 5 should trigger after 120ms latency")
+        val frameMatured = AudioVisualizer.advanceSpectrumFrame(0.060f, isPlaying = true)
+        assertEquals(30, frameMatured.levels.size, "Spectrum frame should contain 30 bands")
+        assertTrue(frameMatured.levels[8] > 0.70f, "Band 8 should trigger after 120ms latency")
     }
 }

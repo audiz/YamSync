@@ -1158,12 +1158,12 @@ fun CoverSpectrumVisualizer(
     modifier: Modifier = Modifier
 ) {
     var frame by remember {
-        mutableStateOf(AudioVisualizer.advanceSpectrum19Frame(0.016f, isPlaying))
+        mutableStateOf(AudioVisualizer.advanceSpectrumFrame(0.016f, isPlaying))
     }
 
     LaunchedEffect(isPlaying) {
         if (!isPlaying) {
-            frame = AudioVisualizer.advanceSpectrum19Frame(0.016f, false)
+            frame = AudioVisualizer.advanceSpectrumFrame(0.016f, false)
         } else {
             var lastTimeNs = 0L
             while (isActive) {
@@ -1172,7 +1172,7 @@ fun CoverSpectrumVisualizer(
                         ((nowNs - lastTimeNs) / 1_000_000_000f).coerceIn(0.005f, 0.05f)
                     } else 0.016f
                     lastTimeNs = nowNs
-                    frame = AudioVisualizer.advanceSpectrum19Frame(dt, true)
+                    frame = AudioVisualizer.advanceSpectrumFrame(dt, true)
                 }
             }
         }
@@ -1204,7 +1204,7 @@ fun CoverSpectrumVisualizer(
             )
             .pointerHoverIcon(if (onOpenEqualizer != null) PointerIcon.Hand else PointerIcon.Default)
     ) {
-        // 📊 Спектральные столбики с парящими пиками (19 полос Winamp Pro)
+        // 📊 Спектральные столбики с парящими пиками (30 полос Winamp Pro / 1/3 октавы)
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1216,12 +1216,12 @@ fun CoverSpectrumVisualizer(
             val maxH = size.height
             if (totalW <= 0f || maxH <= 0f) return@Canvas
 
-            val spacing = 4.dp.toPx()
-            val availableW = totalW - 20.dp.toPx()
-            val barW = ((availableW - (numBars - 1) * spacing) / numBars).coerceIn(4.dp.toPx(), 14.dp.toPx())
+            val spacing = if (numBars >= 25) 2.dp.toPx() else 4.dp.toPx()
+            val availableW = totalW - 16.dp.toPx()
+            val barW = ((availableW - (numBars - 1) * spacing) / numBars).coerceIn(2.5f.dp.toPx(), 14.dp.toPx())
             val totalBarsW = numBars * barW + (numBars - 1) * spacing
             val startX = (totalW - totalBarsW) / 2f
-            val peakH = 2.5.dp.toPx()
+            val peakH = 2.dp.toPx()
 
             val barBrush = Brush.horizontalGradient(
                 colors = listOf(
@@ -1269,7 +1269,7 @@ fun CoverSpectrumVisualizer(
                 // 2. Парящая пиковая засечка (Winamp Peak Cap, прямоугольная)
                 val capLevel = if (i < capLevels.size) capLevels[i].coerceAtLeast(level) else level
                 val targetPeakY = (maxH - (maxH * capLevel.coerceIn(0.08f, 1f))).coerceIn(0f, maxH - peakH)
-                val peakY = targetPeakY.coerceAtMost(y - 2.dp.toPx()).coerceAtLeast(0f)
+                val peakY = targetPeakY.coerceAtMost(y - 1.5f.dp.toPx()).coerceAtLeast(0f)
                 drawRect(
                     color = Color.White.copy(alpha = 0.88f),
                     topLeft = Offset(x, peakY),

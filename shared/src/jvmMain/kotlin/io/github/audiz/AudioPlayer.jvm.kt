@@ -546,19 +546,21 @@ actual class AudioPlayer actual constructor() {
                             return ((combinedDb - threshold) / (-threshold)).coerceIn(0f, 1f)
                         }
 
-                        // 🎛️ 19 аппаратных частотных полос Winamp Pro (20 Гц .. 20 кГц) для спектроанализатора на обложке:
-                        val bandRanges19 = arrayOf(
+                        // 🎛️ 30 частотных полос (20 Гц .. 20 кГц, 1/3-октавный спектроанализатор) для обложки:
+                        val bandRanges30 = arrayOf(
                             0 to 0,   1 to 1,   2 to 2,   3 to 3,   4 to 4,
-                            5 to 6,   7 to 8,   9 to 10,  11 to 13, 14 to 16,
-                            17 to 20, 21 to 25, 26 to 31, 32 to 38, 39 to 47,
-                            48 to 58, 59 to 71, 72 to 86, 87 to 105
+                            5 to 5,   6 to 6,   7 to 7,   8 to 8,   9 to 10,
+                            11 to 12, 13 to 15, 16 to 18, 19 to 21, 22 to 24,
+                            25 to 28, 29 to 32, 33 to 36, 37 to 41, 42 to 46,
+                            47 to 51, 52 to 57, 58 to 62, 63 to 69, 70 to 75,
+                            76 to 82, 83 to 89, 90 to 96, 97 to 104, 105 to 112
                         )
-                        val spectrum19 = FloatArray(19)
-                        for (k in 0 until 19) {
-                            val (startBin, endBin) = bandRanges19[k]
-                            val progress = k.toFloat() / 18f
+                        val spectrum30 = FloatArray(30)
+                        for (k in 0 until 30) {
+                            val (startBin, endBin) = bandRanges30[k]
+                            val progress = k.toFloat() / 29f
                             val tilt = -7.0f + progress * 23.0f
-                            spectrum19[k] = calcBandEnergy(startBin, endBin, tiltDb = tilt, peakWeight = 0.75f)
+                            spectrum30[k] = calcBandEnergy(startBin, endBin, tiltDb = tilt, peakWeight = 0.75f)
                         }
 
                         // 5 полос для микро-иконок
@@ -574,7 +576,7 @@ actual class AudioPlayer actual constructor() {
                         val b5 = calcBandEnergy(38, 87, tiltDb = 15.5f)
 
                         io.github.audiz.dsp.AudioVisualizer.updateBands(b1, b2, b3, b4, b5)
-                        io.github.audiz.dsp.AudioVisualizer.updateSpectrum19(spectrum19)
+                        io.github.audiz.dsp.AudioVisualizer.updateSpectrum(spectrum30)
                     }
                 }
             }

@@ -43,7 +43,7 @@ data class VisualizerFrame(
  *
  * Поддерживает два режима:
  * 1. 5 полос (BAND_COUNT = 5) — для ультракомпактных микро-индикаторов (NowPlayingIndicator 16x16 dp)
- * 2. 19 полос (SPECTRUM_BAND_COUNT = 19) — честный аппаратный спектроанализатор Winamp Pro (20 Гц .. 20 кГц) для обложки альбома
+ * 2. 30 полос (SPECTRUM_BAND_COUNT = 30) — 1/3-октавный спектроанализатор (20 Гц .. 20 кГц) для обложки альбома
  *
  * Особенности:
  * - Студийная калибровка Winamp Pro с плотным упругим басом
@@ -56,7 +56,7 @@ data class VisualizerFrame(
 object AudioVisualizer {
 
     const val BAND_COUNT = 5
-    const val SPECTRUM_BAND_COUNT = 19
+    const val SPECTRUM_BAND_COUNT = 30
     const val RESTING_LEVEL = 0.15f
 
     // Константы физики Winamp Pro
@@ -316,15 +316,15 @@ object AudioVisualizer {
     }
 
     /**
-     * 🎚 Обновить 19 аппаратных полос спектроанализатора Winamp Pro напрямую из FFT.
+     * 🎚 Обновить 30 аппаратных полос спектроанализатора напрямую из FFT.
      * Помещает снимок в очередь компенсации задержки вывода звука.
      */
-    fun updateSpectrum19(spectrum: FloatArray) {
+    fun updateSpectrum(spectrum: FloatArray) {
         synchronized(currentLevels) {
             lastSpectrum19UpdateTimeMs = currentTime()
             val latency = latencyCompensationMs
             if (latency <= 0L) {
-                applySpectrum19Direct(spectrum)
+                applySpectrumDirect(spectrum)
             } else {
                 while (delayQueue19.size >= 50) {
                     delayQueue19.removeFirst()
@@ -334,7 +334,9 @@ object AudioVisualizer {
         }
     }
 
-    private fun applySpectrum19Direct(spectrum: FloatArray) {
+    fun updateSpectrum19(spectrum: FloatArray) = updateSpectrum(spectrum)
+
+    private fun applySpectrumDirect(spectrum: FloatArray) {
         synchronized(currentLevels) {
             val count = minOf(spectrum.size, SPECTRUM_BAND_COUNT)
             var currentMax = 0f
@@ -348,9 +350,21 @@ object AudioVisualizer {
             val autoGain = (0.85f / max(0.18f, trackPeakEma)).coerceIn(1.0f, 2.5f)
             val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
 
-            for (i in 0 until count) {
-                val rawVal = spectrum[i].coerceIn(0f, 1f)
-                val softVal = if (i <= 1 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
+            val inSize = spectrum.size
+            for (i in 0 until SPECTRUM_BAND_COUNT) {
+                val rawVal = if (inSize == SPECTRUM_BAND_COUNT) {
+                    spectrum[i].coerceIn(0f, 1f)
+                } else if (inSize > 0) {
+                    val progress = (i.toFloat() / (SPECTRUM_BAND_COUNT - 1)) * (inSize - 1)
+                    val idx = progress.toInt().coerceIn(0, inSize - 1)
+                    val frac = progress - idx
+                    val v1 = spectrum[idx]
+                    val v2 = if (idx + 1 < inSize) spectrum[idx + 1] else v1
+                    (v1 * (1f - frac) + v2 * frac).coerceIn(0f, 1f)
+                } else {
+                    RESTING_LEVEL
+                }
+                val softVal = if (i <= 2 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
                 val normalized = (softVal * autoGain).coerceIn(0f, 1f)
                 val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
                 targetSpectrumLevels[i] = t
@@ -371,6 +385,8 @@ object AudioVisualizer {
             lastUpdateTimeMs = currentTime()
         }
     }
+
+    private fun applySpectrum19Direct(spectrum: FloatArray) = applySpectrumDirect(spectrum)
 
     /**
      * 📊 Обработать сырой 16-битный PCM-буфер (LE Stereo или Mono)
@@ -572,9 +588,9 @@ object AudioVisualizer {
     }
 
     /**
-     * ⏱ Рассчитать следующий кадр физики 19 полос Winamp Pro (для спектра на обложке)
+     * ⏱ Рассчитать следующий кадр физики 30 полос спектроанализатора (для спектра на обложке)
      */
-    fun advanceSpectrum19Frame(dtSeconds: Float, isPlaying: Boolean): VisualizerFrame {
+    fun advanceSpectrumFrame(dtSeconds: Float, isPlaying: Boolean): VisualizerFrame {
         synchronized(currentLevels) {
             val safeDt = dtSeconds.coerceIn(0.001f, 0.5f)
 
@@ -677,6 +693,9 @@ object AudioVisualizer {
             return frame
         }
     }
+
+    fun advanceSpectrum19Frame(dtSeconds: Float, isPlaying: Boolean): VisualizerFrame =
+        advanceSpectrumFrame(dtSeconds, isPlaying)
 
     /**
      * 🛑 Сброс уровней в состояние покоя при остановке или паузе
