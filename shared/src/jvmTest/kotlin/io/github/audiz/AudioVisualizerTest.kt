@@ -30,21 +30,21 @@ class AudioVisualizerTest {
         val peek = AudioVisualizer.levels.value
         assertEquals(1.0f, peek[2], 0.001f, "Полоса должна моментально взлетать до 1.0")
 
-        // 2. В тишине: во время hold time (70 мс) столбик удерживает пик
+        // 2. В тишине: во время первых 40 мс столбик удерживается в пике (Bar Hold = 60ms)
         AudioVisualizer.updateBands(0f, 0f, 0f, 0f, 0f)
         val frameHold = AudioVisualizer.advanceFrame(0.040f, isPlaying = true)
-        assertEquals(1.0f, frameHold.levels[2], 0.001f, "Столбик удерживает пик во время hold time")
+        assertEquals(1.0f, frameHold.levels[2], 0.001f, "Столбик должен удерживать пик 1.0 во время hold time")
         assertEquals(1.0f, frameHold.peakCaps[2], 0.001f, "Пиковая засечка также удерживается в 1.0")
 
-        // 3. Через 120 мс (40 + 80 мс): столбик начал плавный спуск, а пиковая засечка все еще парит в воздухе (Hold = 400ms)
+        // 3. Через 120 мс: столбик уже падает по гравитации, а пиковая засечка все еще парит в воздухе (Hold = 280ms)
         val frameFloating = AudioVisualizer.advanceFrame(0.080f, isPlaying = true)
-        assertTrue(frameFloating.levels[2] < 1.0f, "Столбик начал плавный спуск: ${frameFloating.levels[2]}")
+        assertTrue(frameFloating.levels[2] < 1.0f, "Столбик начал гравитационное падение: ${frameFloating.levels[2]}")
         assertEquals(1.0f, frameFloating.peakCaps[2], 0.001f, "Пиковая засечка продолжает парить на пике")
         assertTrue(frameFloating.levels[2] < frameFloating.peakCaps[2], "Столбик опустился ниже парящей засечки")
 
-        // 4. Через 500 мс (120 + 380 мс): засечка тоже начинает плавный спуск за столбиком
-        val frameLater = AudioVisualizer.advanceFrame(0.380f, isPlaying = true)
-        assertTrue(frameLater.peakCaps[2] < 1.0f, "Пиковая засечка начала спуск после удержания")
+        // 4. Через 350 мс: засечка тоже начинает плавный спуск за столбиком
+        val frameLater = AudioVisualizer.advanceFrame(0.200f, isPlaying = true)
+        assertTrue(frameLater.peakCaps[2] < 1.0f, "Пиковая засечка начала спуск после 280 мс удержания")
 
         // 5. Сброс в исходное состояние
         AudioVisualizer.reset()
@@ -127,7 +127,7 @@ class AudioVisualizerTest {
 
         val playingLevels = AudioVisualizer.getLevelsForDisplay(isPlaying = true)
         assertEquals(5, playingLevels.size)
-        assertTrue(playingLevels.all { it in 0.03f..1.0f })
+        assertTrue(playingLevels.all { it in 0.12f..1.0f })
     }
 
     @Test
@@ -178,6 +178,6 @@ class AudioVisualizerTest {
         simTime = 2120L
         val frameMatured = AudioVisualizer.advanceSpectrumFrame(0.060f, isPlaying = true)
         assertEquals(25, frameMatured.levels.size, "Spectrum frame should contain 25 bands")
-        assertTrue(frameMatured.levels[8] > 0.50f, "Band 8 should trigger after 120ms latency")
+        assertTrue(frameMatured.levels[8] > 0.70f, "Band 8 should trigger after 120ms latency")
     }
 }

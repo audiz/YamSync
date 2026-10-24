@@ -1234,8 +1234,7 @@ fun CoverSpectrumVisualizer(
 
             for (i in 0 until numBars) {
                 val level = if (i < barLevels.size) barLevels[i] else AudioVisualizer.RESTING_LEVEL
-                val minH = 2.dp.toPx()
-                val h = (maxH * level.coerceIn(0.03f, 1f)).coerceAtLeast(minH)
+                val h = (maxH * level.coerceIn(0.08f, 1f)).coerceAtLeast(barW)
                 val x = startX + i * (barW + spacing)
                 val y = maxH - h
 
@@ -1268,15 +1267,14 @@ fun CoverSpectrumVisualizer(
                 }
 
                 // 2. Парящая пиковая засечка (Winamp Peak Cap, прямоугольная)
-                if (i < capLevels.size) {
-                    val capLevel = capLevels[i].coerceAtLeast(level)
-                    val peakY = (maxH - (maxH * capLevel.coerceIn(0.03f, 1f))).coerceIn(0f, maxH - peakH)
-                    drawRect(
-                        color = Color.White.copy(alpha = 0.88f),
-                        topLeft = Offset(x, peakY),
-                        size = Size(barW, peakH)
-                    )
-                }
+                val capLevel = if (i < capLevels.size) capLevels[i].coerceAtLeast(level) else level
+                val targetPeakY = (maxH - (maxH * capLevel.coerceIn(0.08f, 1f))).coerceIn(0f, maxH - peakH)
+                val peakY = targetPeakY.coerceAtMost(y - 2.dp.toPx()).coerceAtLeast(0f)
+                drawRect(
+                    color = Color.White.copy(alpha = 0.88f),
+                    topLeft = Offset(x, peakY),
+                    size = Size(barW, peakH)
+                )
             }
         }
     }

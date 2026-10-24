@@ -521,22 +521,16 @@ actual class AudioPlayer actual constructor() {
 
     private fun setupAudioSpectrum(player: javafx.scene.media.MediaPlayer, sessionId: Long) {
         try {
-            player.audioSpectrumInterval = 0.025 // ~40 кадров/сек: размеренная, плавная анимация
+            player.audioSpectrumInterval = 0.033 // ~30 кадров/сек от аудиодекодера
             player.audioSpectrumNumBands = 128
-            player.audioSpectrumThreshold = -68 // сбалансированный порог: захватывает интро, отсекая цифровой шум
+            player.audioSpectrumThreshold = -60
             player.setAudioSpectrumListener { _, _, magnitudes, _ ->
                 if (sessionId == currentSessionId && fxPlayer == player && isPlayingState && !isPausedState) {
                     if (magnitudes != null && magnitudes.size >= 64) {
-                        val threshold = -68f
+                        val threshold = -60f
 
-                        // Умеренная компенсация громкости JavaFX (не задирает фоновый шум в паузах)
-                        val vol = currentVolume.coerceIn(0.01f, 1f)
-                        val gain = volumeToGain(vol)
-                        val volLossDb = (-20f * kotlin.math.log10(gain)).coerceIn(0f, 18f)
-                        val volCompDb = volLossDb * 0.45f
-
-                        // Функция расчета линейной энергии полосы (0.0 .. 1.0): сбалансированный peak/RMS
-                        fun calcBandEnergy(start: Int, end: Int, tiltDb: Float, peakWeight: Float = 0.40f): Float {
+                        // Функция расчета линейной энергии полосы (0.0 .. 1.0)
+                        fun calcBandEnergy(start: Int, end: Int, tiltDb: Float, peakWeight: Float = 0.65f): Float {
                             val s = start.coerceIn(0, magnitudes.size - 1)
                             val e = end.coerceIn(0, magnitudes.size - 1)
                             if (s > e) return 0f
@@ -548,7 +542,7 @@ actual class AudioPlayer actual constructor() {
                                 if (v > maxDb) maxDb = v
                             }
                             val avgDb = sum / (e - s + 1)
-                            val combinedDb = (maxDb * peakWeight + avgDb * (1f - peakWeight)) + tiltDb + volCompDb
+                            val combinedDb = (maxDb * peakWeight + avgDb * (1f - peakWeight)) + tiltDb
                             return ((combinedDb - threshold) / (-threshold)).coerceIn(0f, 1f)
                         }
 
@@ -564,21 +558,21 @@ actual class AudioPlayer actual constructor() {
                         for (k in 0 until 25) {
                             val (startBin, endBin) = bandRanges25[k]
                             val progress = k.toFloat() / 24f
-                            val tilt = -2.0f + progress * 14.0f
-                            spectrum25[k] = calcBandEnergy(startBin, endBin, tiltDb = tilt, peakWeight = 0.40f)
+                            val tilt = -7.0f + progress * 23.0f
+                            spectrum25[k] = calcBandEnergy(startBin, endBin, tiltDb = tilt, peakWeight = 0.75f)
                         }
 
                         // 5 полос для микро-иконок
-                        // 1. Sub-bass / Kick (~30 - 170 Гц): -2.0 дБ
-                        val b1 = calcBandEnergy(0, 0, tiltDb = -2.0f, peakWeight = 0.65f)
-                        // 2. Bass & Mid-bass (~170 - 680 Гц): +3.5 дБ
-                        val b2 = calcBandEnergy(1, 3, tiltDb = 3.5f, peakWeight = 0.55f)
+                        // 1. Sub-bass / Kick (~30 - 170 Гц): -7.0 дБ (упругий удар бочки с динамическим запасом)
+                        val b1 = calcBandEnergy(0, 0, tiltDb = -7.0f)
+                        // 2. Bass & Mid-bass (~170 - 680 Гц): +4.5 дБ (активная, читаемая бас-партия, 85% пик)
+                        val b2 = calcBandEnergy(1, 3, tiltDb = 4.5f, peakWeight = 0.85f)
                         // 3. Mids (~680 - 2200 Гц): +3.0 дБ (вокал, малый барабан)
-                        val b3 = calcBandEnergy(4, 12, tiltDb = 3.0f, peakWeight = 0.50f)
-                        // 4. High-Mids (~2200 - 6500 Гц): +7.0 дБ (атака рабочего барабана)
-                        val b4 = calcBandEnergy(13, 37, tiltDb = 7.0f, peakWeight = 0.50f)
-                        // 5. Treble (~6500 - 15000 Гц): +11.5 дБ (хай-хеты и тарелки)
-                        val b5 = calcBandEnergy(38, 87, tiltDb = 11.5f, peakWeight = 0.50f)
+                        val b3 = calcBandEnergy(4, 12, tiltDb = 3.0f)
+                        // 4. High-Mids (~2200 - 6500 Гц): +9.0 дБ (атака рабочего барабана)
+                        val b4 = calcBandEnergy(13, 37, tiltDb = 9.0f)
+                        // 5. Treble (~6500 - 15000 Гц): +15.5 дБ (хай-хеты и тарелки)
+                        val b5 = calcBandEnergy(38, 87, tiltDb = 15.5f)
 
                         io.github.audiz.dsp.AudioVisualizer.updateBands(b1, b2, b3, b4, b5)
                         io.github.audiz.dsp.AudioVisualizer.updateSpectrum(spectrum25)

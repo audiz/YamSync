@@ -57,23 +57,17 @@ object AudioVisualizer {
 
     const val BAND_COUNT = 5
     const val SPECTRUM_BAND_COUNT = 25
-    const val RESTING_LEVEL = 0.04f
+    const val RESTING_LEVEL = 0.15f
 
-    // Константы физики: плавный, размеренный спад столбиков и красивое парение пиков
-    private const val BAR_HOLD_SEC = 0.075f       // 75 мс базовая фиксация
-    private const val BAR_DECAY_RATE = 1.8f       // Мягкий базовый экспоненциальный спад
-    private const val PEAK_CAP_HOLD_SEC = 0.380f  // 380 мс парение пиковой засечки Winamp
-    private const val PEAK_CAP_GRAVITY = 1.35f    // Мягкое гравитационное падение засечки
+    // Константы физики Winamp Pro
+    private const val BAR_HOLD_SEC = 0.060f       // 60 мс фиксация удара бочки/баса
+    private const val BAR_GRAVITY = 4.2f          // Ускорение падения столбиков (g ≈ 4.2 / s²)
+    private const val PEAK_CAP_HOLD_SEC = 0.280f  // 280 мс парение пиковой засечки
+    private const val PEAK_CAP_GRAVITY = 2.8f     // Ускорение падения пиковой засечки
 
     // Трекер пиковой громкости трека
     @Volatile
-    private var trackPeakEma = 0.25f
-
-    // Адаптивный трекер динамической активности/темпа трека (0.0 = медленный/спокойный, 1.0 = быстрый/ритмичный)
-    @Volatile
-    private var trackActivityEma = 0.12f
-    @Volatile
-    private var lastEnergySum = 0f
+    private var trackPeakEma = 0.5f
 
     // --- 5 полос для микро-иконок ---
     private val targetLevels = FloatArray(BAND_COUNT) { RESTING_LEVEL }
@@ -259,23 +253,18 @@ object AudioVisualizer {
                 if (raw[i] > currentMax) currentMax = raw[i]
             }
 
-            // Отслеживание динамической активности для PCM-потока
-            val avgEnergy = (softCappedB1 + raw1 + raw2 + raw3 + raw4) / 5f
-            val energyDelta = kotlin.math.abs(avgEnergy - lastEnergySum)
-            lastEnergySum = avgEnergy
-            trackActivityEma += (energyDelta - trackActivityEma) * 0.08f
-
             if (currentMax > trackPeakEma) {
                 trackPeakEma = currentMax // мгновенный захват при нарастании громкости
-            } else {
-                trackPeakEma = max(0.20f, trackPeakEma * 0.998f)
             }
 
-            // Умеренное усиление и экспонента: чувствителен к тихому интро, но без раздувания шума
-            val autoGain = (0.80f / max(0.22f, trackPeakEma)).coerceIn(1.0f, 2.0f)
-            val dynamicExp = (1.65f - (autoGain - 1.0f) * 0.25f).coerceIn(1.35f, 1.65f)
+            // Адаптивное усиление для спокойных/тихих композиций:
+            val autoGain = (0.85f / max(0.18f, trackPeakEma)).coerceIn(1.0f, 2.5f)
 
-            // Передача в баллистический движок 5 микро-полос
+            // Мягкая экспансия: на громких треках - честная квадратичная (2.0) для хлесткого панча бочки,
+            // на тихих треках - мягкая (1.5), предотвращающая залипание столбиков на самом дне
+            val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
+
+            // Передача в баллистический движок Winamp Pro (атака 0 мс)
             for (i in 0 until BAND_COUNT) {
                 val normalized = (raw[i] * autoGain).coerceIn(0f, 1f)
                 val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
@@ -294,30 +283,29 @@ object AudioVisualizer {
                 }
             }
 
-            // Если прямой спектр не поступает (например, fallback PCM), синтезируем 25 полос с межполосной связностью
+            // Если прямой спектр не поступает (например, fallback PCM), синтезируем 25 полос
             if (currentTime() - lastSpectrum19UpdateTimeMs > 350L) {
                 val src5 = floatArrayOf(softCappedB1, raw1, raw2, raw3, raw4)
-                val rawInterp = FloatArray(SPECTRUM_BAND_COUNT)
                 for (k in 0 until SPECTRUM_BAND_COUNT) {
                     val t = (k.toFloat() / (SPECTRUM_BAND_COUNT - 1)) * 4f
                     val idx = t.toInt().coerceIn(0, 3)
                     val frac = t - idx
                     val smoothFrac = (1f - cos(frac * PI.toFloat())) / 2f
-                    rawInterp[k] = src5[idx] * (1f - smoothFrac) + src5[idx + 1] * smoothFrac
-                }
-                for (k in 0 until SPECTRUM_BAND_COUNT) {
-                    val prev = if (k > 0) rawInterp[k - 1] else rawInterp[k]
-                    val next = if (k < SPECTRUM_BAND_COUNT - 1) rawInterp[k + 1] else rawInterp[k]
-                    val cohesive = rawInterp[k] * 0.80f + (prev + next) * 0.10f
-                    val norm = (cohesive * autoGain).coerceIn(0f, 1f)
-                    val newLvl = norm.pow(dynamicExp).coerceIn(0f, 1f)
-                    val prevTarget = targetSpectrumLevels[k]
-                    val delta = newLvl - prevTarget
-                    // ⚡ Мгновенный пропуск транзиентов (zero lag на бите) + фильтрация шума на вершинах
-                    targetSpectrumLevels[k] = if (delta > 0.05f || prevTarget <= RESTING_LEVEL * 1.2f) {
-                        newLvl
-                    } else {
-                        prevTarget + delta * 0.35f
+                    val interp = src5[idx] * (1f - smoothFrac) + src5[idx + 1] * smoothFrac
+                    val norm = (interp * autoGain).coerceIn(0f, 1f)
+                    val lvl = norm.pow(dynamicExp).coerceIn(0f, 1f)
+                    targetSpectrumLevels[k] = lvl
+
+                    if (lvl > currentSpectrumLevels[k]) {
+                        currentSpectrumLevels[k] = lvl
+                        spectrumVelocities[k] = 0f
+                        spectrumHoldTimers[k] = BAR_HOLD_SEC
+                    }
+
+                    if (lvl > peakCapSpectrumLevels[k]) {
+                        peakCapSpectrumLevels[k] = lvl
+                        peakCapSpectrumVelocities[k] = 0f
+                        peakCapSpectrumHoldTimers[k] = PEAK_CAP_HOLD_SEC
                     }
                 }
             }
@@ -328,7 +316,7 @@ object AudioVisualizer {
     }
 
     /**
-     * 🎚 Обновить 30 аппаратных полос спектроанализатора напрямую из FFT.
+     * 🎚 Обновить 25 аппаратных полос спектроанализатора напрямую из FFT.
      * Помещает снимок в очередь компенсации задержки вывода звука.
      */
     fun updateSpectrum(spectrum: FloatArray) {
@@ -352,30 +340,17 @@ object AudioVisualizer {
         synchronized(currentLevels) {
             val count = minOf(spectrum.size, SPECTRUM_BAND_COUNT)
             var currentMax = 0f
-            var energySum = 0f
             for (i in 0 until count) {
                 if (spectrum[i] > currentMax) currentMax = spectrum[i]
-                energySum += spectrum[i]
             }
-
-            // Отслеживание динамической активности (темп, перепады энергии между кадрами)
-            val avgEnergy = energySum / count.coerceAtLeast(1).toFloat()
-            val energyDelta = kotlin.math.abs(avgEnergy - lastEnergySum)
-            lastEnergySum = avgEnergy
-            trackActivityEma += (energyDelta - trackActivityEma) * 0.08f
-
             if (currentMax > trackPeakEma) {
                 trackPeakEma = currentMax
-            } else {
-                trackPeakEma = max(0.20f, trackPeakEma * 0.998f)
             }
 
-            // Умеренный autoGain (до 2.0x вместо 2.4x) — чувствителен к тихому интро, но не раздувает фоновый шум
-            val autoGain = (0.80f / max(0.22f, trackPeakEma)).coerceIn(1.0f, 2.0f)
-            val dynamicExp = (1.65f - (autoGain - 1.0f) * 0.25f).coerceIn(1.35f, 1.65f)
+            val autoGain = (0.85f / max(0.18f, trackPeakEma)).coerceIn(1.0f, 2.5f)
+            val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
 
             val inSize = spectrum.size
-            val rawLevels = FloatArray(SPECTRUM_BAND_COUNT)
             for (i in 0 until SPECTRUM_BAND_COUNT) {
                 val rawVal = if (inSize == SPECTRUM_BAND_COUNT) {
                     spectrum[i].coerceIn(0f, 1f)
@@ -389,25 +364,21 @@ object AudioVisualizer {
                 } else {
                     RESTING_LEVEL
                 }
-                // Эластичный софт-лимитер саб-баса
-                rawLevels[i] = if (i <= 2 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
-            }
+                val softVal = if (i <= 2 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
+                val normalized = (softVal * autoGain).coerceIn(0f, 1f)
+                val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
+                targetSpectrumLevels[i] = t
 
-            // 🌊 Межполосная связность (Neighbor Cohesion):
-            // 80% собственная энергия + по 10% от соседей превращает разрозненные столбики в пластичную волну
-            for (i in 0 until SPECTRUM_BAND_COUNT) {
-                val prev = if (i > 0) rawLevels[i - 1] else rawLevels[i]
-                val next = if (i < SPECTRUM_BAND_COUNT - 1) rawLevels[i + 1] else rawLevels[i]
-                val cohesive = rawLevels[i] * 0.80f + (prev + next) * 0.10f
-                val normalized = (cohesive * autoGain).coerceIn(0f, 1f)
-                val newLvl = normalized.pow(dynamicExp).coerceIn(0f, 1f)
-                val prevTarget = targetSpectrumLevels[i]
-                val delta = newLvl - prevTarget
-                // ⚡ Мгновенный пропуск транзиентов (zero lag на бите) + фильтрация шума на вершинах
-                targetSpectrumLevels[i] = if (delta > 0.05f || prevTarget <= RESTING_LEVEL * 1.2f) {
-                    newLvl
-                } else {
-                    prevTarget + delta * 0.35f
+                if (t > currentSpectrumLevels[i]) {
+                    currentSpectrumLevels[i] = t
+                    spectrumVelocities[i] = 0f
+                    spectrumHoldTimers[i] = BAR_HOLD_SEC
+                }
+
+                if (t > peakCapSpectrumLevels[i]) {
+                    peakCapSpectrumLevels[i] = t
+                    peakCapSpectrumVelocities[i] = 0f
+                    peakCapSpectrumHoldTimers[i] = PEAK_CAP_HOLD_SEC
                 }
             }
 
@@ -559,6 +530,7 @@ object AudioVisualizer {
 
                 if (target >= current) {
                     current = target
+                    velocities[i] = 0f
                     holdTimers[i] = BAR_HOLD_SEC
                 } else {
                     var remainingDt = safeDt
@@ -573,8 +545,8 @@ object AudioVisualizer {
                     }
 
                     if (remainingDt > 0f) {
-                        val expDecay = exp(-BAR_DECAY_RATE * remainingDt)
-                        current = max(target, current * expDecay)
+                        velocities[i] += BAR_GRAVITY * remainingDt
+                        current = max(target, current - velocities[i] * remainingDt)
                     }
                 }
 
@@ -659,33 +631,39 @@ object AudioVisualizer {
                 }
             }
 
-            // 🎶 ДИНАМИЧЕСКАЯ АДАПТАЦИЯ БАЛЛИСТИКИ ПОД ТЕМП ТРЕКА:
-            // 0.0 = медленный/медитативный трек, 1.0 = быстрый ритмичный трек/EDM/рок
-            val activityNormalized = (trackActivityEma / 0.18f).coerceIn(0f, 1f)
-            val dynamicDecayRate = 4.2f + activityNormalized * 2.8f   // 4.2 (спокойный) .. 7.0 (быстрый, ритмичный бит)
-            val dynamicAttackRate = 38.0f + activityNormalized * 20.0f // 38.0 (мягкая атака ~25мс) .. 58.0 (мгновенный панч ~16мс)
-
             // ==================== РАСЧЕТ БАЛЛИСТИКИ 25 СТОЛБИКОВ ====================
             for (i in 0 until SPECTRUM_BAND_COUNT) {
                 val target = targetSpectrumLevels[i]
                 var current = currentSpectrumLevels[i]
 
-                if (target > current) {
-                    // Хлёсткая, упругая атака
-                    val attackAlpha = 1f - exp(-dynamicAttackRate * safeDt)
-                    current += (target - current) * attackAlpha
+                if (target >= current) {
+                    current = target
+                    spectrumVelocities[i] = 0f
+                    spectrumHoldTimers[i] = BAR_HOLD_SEC
                 } else {
-                    // Быстрый динамичный спад: освобождает место под следующий бит
-                    val expDecay = exp(-dynamicDecayRate * safeDt)
-                    current = max(target, current * expDecay)
+                    var remainingDt = safeDt
+                    if (spectrumHoldTimers[i] > 0f) {
+                        if (remainingDt <= spectrumHoldTimers[i]) {
+                            spectrumHoldTimers[i] -= remainingDt
+                            remainingDt = 0f
+                        } else {
+                            remainingDt -= spectrumHoldTimers[i]
+                            spectrumHoldTimers[i] = 0f
+                        }
+                    }
+
+                    if (remainingDt > 0f) {
+                        spectrumVelocities[i] += BAR_GRAVITY * remainingDt
+                        current = max(target, current - spectrumVelocities[i] * remainingDt)
+                    }
                 }
 
                 currentSpectrumLevels[i] = current.coerceIn(RESTING_LEVEL, 1f)
 
                 // ==================== РАСЧЕТ ПИКОВЫХ ЗАСЕЧЕК (PEAK CAPS) ====================
                 var cap = peakCapSpectrumLevels[i]
-                if (current >= cap) {
-                    cap = current
+                if (target >= cap) {
+                    cap = target
                     peakCapSpectrumVelocities[i] = 0f
                     peakCapSpectrumHoldTimers[i] = PEAK_CAP_HOLD_SEC
                 } else {
@@ -750,9 +728,7 @@ object AudioVisualizer {
                 midFilter = 0f
                 highMidFilter = 0f
             }
-            trackPeakEma = 0.25f
-            trackActivityEma = 0.12f
-            lastEnergySum = 0f
+            trackPeakEma = 0.5f
             resetTrackAudibility()
             val frame = FloatArray(BAND_COUNT) { RESTING_LEVEL }
             _levels.value = frame
