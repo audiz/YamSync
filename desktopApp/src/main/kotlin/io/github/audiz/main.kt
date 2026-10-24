@@ -115,8 +115,8 @@ fun main(args: Array<String>) {
     // 5. Запуск оконного Compose UI с сохранением и восстановлением размера окна
     val minWidth = 50.dp
     val minHeight = 50.dp
-    val defaultWidth = 1100.dp
-    val defaultHeight = 780.dp
+    val defaultWidth = 330.dp
+    val defaultHeight = 603.dp
 
     val screenSize = try {
         java.awt.Toolkit.getDefaultToolkit().screenSize

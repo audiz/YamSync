@@ -64,7 +64,7 @@ data class SettingsState(
     val ynisonHost: String? = null,
     val ynisonError: String? = null,
     val storageStatusMessage: String? = null,
-    val uiMode: String = "auto",
+    val uiMode: String = "mobile",
     val crossfadeSeconds: Int = 3,
     val isUiWatchdogActive: Boolean = false,
     val hasPlusSubscription: Boolean? = null,
@@ -518,21 +518,24 @@ fun SettingsDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clickable { actions.onSaveUiMode("mobile") }
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                ) {
                                     RadioButton(
-                                        selected = state.uiMode == "auto",
-                                        onClick = { actions.onSaveUiMode("auto") }
-                                    )
-                                    Text("Авто", style = MaterialTheme.typography.bodyMedium)
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    RadioButton(
-                                        selected = state.uiMode == "mobile",
+                                        selected = state.uiMode != "desktop",
                                         onClick = { actions.onSaveUiMode("mobile") }
                                     )
                                     Text("Мобильный", style = MaterialTheme.typography.bodyMedium)
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clickable { actions.onSaveUiMode("desktop") }
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                ) {
                                     RadioButton(
                                         selected = state.uiMode == "desktop",
                                         onClick = { actions.onSaveUiMode("desktop") }

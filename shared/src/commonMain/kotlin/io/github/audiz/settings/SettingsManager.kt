@@ -69,15 +69,16 @@ class SettingsManager(
     var accentColor by mutableStateOf(loadAppConfig(AppConfigKeys.ACCENT_COLOR) ?: "purple")
         private set
 
-    // 📱 Режим интерфейса (auto, mobile, desktop)
-    var uiMode by mutableStateOf(loadAppConfig(AppConfigKeys.UI_MODE) ?: "auto")
+    // 📱 Режим интерфейса (mobile, desktop - по умолчанию mobile)
+    var uiMode by mutableStateOf(
+        loadAppConfig(AppConfigKeys.UI_MODE)?.takeIf { it == "mobile" || it == "desktop" } ?: "mobile"
+    )
         private set
 
     val isMobileUi: Boolean
         get() = when (uiMode) {
-            "mobile" -> true
             "desktop" -> false
-            else -> getPlatform().isMobile
+            else -> true
         }
 
     // 📂 Путь хранения музыки (настраиваемый)

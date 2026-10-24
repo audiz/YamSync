@@ -1,7 +1,11 @@
 package io.github.audiz.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,12 +30,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import io.github.audiz.AppConfigKeys
 import io.github.audiz.SearchViewModel
 import io.github.audiz.isPlatformPickerSupported
@@ -85,64 +93,135 @@ fun AddToPlaylistDialog(
     var isActionInProgress by remember { mutableStateOf(false) }
     val yandexPlaylistsWithTrack = remember { mutableStateMapOf<Long, Boolean>() }
 
+    val coroutineScope = rememberCoroutineScope()
+    var dragOffsetY by remember { mutableStateOf(0f) }
+    val animatedOffsetY = remember { Animatable(0f) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 16.dp)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
+            val isCompact = maxWidth < 380.dp
+            val horizontalPadding = if (isCompact) 10.dp else 16.dp
+            val cardPadding = if (isCompact) 4.dp else 6.dp
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .offset { IntOffset(0, (dragOffsetY + animatedOffsetY.value).roundToInt()) }
+                    .padding(horizontal = cardPadding, vertical = 16.dp)
             ) {
-                // Заголовок
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontalPadding)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    // 🔝 Шапка с Drag Handle, кнопкой закрытия и жестом свайпа вниз
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures(
+                                    onVerticalDrag = { change, dragAmount ->
+                                        if (dragAmount > 0 || dragOffsetY > 0) {
+                                            dragOffsetY = (dragOffsetY + dragAmount).coerceAtLeast(0f)
+                                            change.consume()
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        if (dragOffsetY > 80f) {
+                                            onDismiss()
+                                        } else {
+                                            coroutineScope.launch {
+                                                animatedOffsetY.snapTo(dragOffsetY)
+                                                dragOffsetY = 0f
+                                                animatedOffsetY.animateTo(0f, tween(150, easing = FastOutSlowInEasing))
+                                            }
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        dragOffsetY = 0f
+                                    }
+                                )
+                            }
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        // Полоска-индикатор (Drag Handle)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp, bottom = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(36.dp)
+                                    .height(4.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(2.dp)
+                                    )
+                            )
+                        }
+
+                        // Заголовок
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text(
+                                    text = "Добавить в плейлист",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(
+                                onClick = onDismiss,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Закрыть")
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Информация о треке
                         Text(
-                            text = "Добавить в плейлист",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            text = "${track.artists.joinToString { it.name }} — ${track.title}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Filled.Close, contentDescription = "Закрыть")
-                    }
-                }
 
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Информация о треке
-                Text(
-                    text = "${track.artists.joinToString { it.name }} — ${track.title}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                 // Переключатель вкладок: Локальные / Яндекс Музыка
                 TabRow(
@@ -751,4 +830,5 @@ fun AddToPlaylistDialog(
             }
         }
     }
+}
 }
