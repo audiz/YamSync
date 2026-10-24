@@ -59,11 +59,11 @@ object AudioVisualizer {
     const val SPECTRUM_BAND_COUNT = 30
     const val RESTING_LEVEL = 0.04f
 
-    // Константы физики: органичный плавный отклик столбиков без нервной дрожи
-    private const val BAR_HOLD_SEC = 0.035f       // 35 мс стабилизация пика (устраняет межпокадровую нервную дрожь)
-    private const val BAR_DECAY_RATE = 3.8f       // Мягкий, упругий экспоненциальный спад
-    private const val PEAK_CAP_HOLD_SEC = 0.250f  // 250 мс парение пиковой засечки Winamp
-    private const val PEAK_CAP_GRAVITY = 2.4f     // Плавное гравитационное падение засечки
+    // Константы физики: плавный, размеренный спад столбиков и красивое парение пиков
+    private const val BAR_HOLD_SEC = 0.070f       // 70 мс удержание пика (спокойная фиксация)
+    private const val BAR_DECAY_RATE = 1.9f       // Плавный, медленный экспоненциальный спад
+    private const val PEAK_CAP_HOLD_SEC = 0.400f  // 400 мс парение пиковой засечки Winamp
+    private const val PEAK_CAP_GRAVITY = 1.3f     // Мягкое гравитационное падение засечки
 
     // Трекер пиковой громкости трека
     @Volatile

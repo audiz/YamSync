@@ -521,7 +521,7 @@ actual class AudioPlayer actual constructor() {
 
     private fun setupAudioSpectrum(player: javafx.scene.media.MediaPlayer, sessionId: Long) {
         try {
-            player.audioSpectrumInterval = 0.020 // ~50 кадров/сек: плавная кинематика без микро-дрожи
+            player.audioSpectrumInterval = 0.025 // ~40 кадров/сек: размеренная, плавная анимация
             player.audioSpectrumNumBands = 128
             player.audioSpectrumThreshold = -68 // сбалансированный порог: захватывает интро, отсекая цифровой шум
             player.setAudioSpectrumListener { _, _, magnitudes, _ ->
@@ -536,7 +536,7 @@ actual class AudioPlayer actual constructor() {
                         val volCompDb = volLossDb * 0.45f
 
                         // Функция расчета линейной энергии полосы (0.0 .. 1.0): сбалансированный peak/RMS
-                        fun calcBandEnergy(start: Int, end: Int, tiltDb: Float, peakWeight: Float = 0.50f): Float {
+                        fun calcBandEnergy(start: Int, end: Int, tiltDb: Float, peakWeight: Float = 0.40f): Float {
                             val s = start.coerceIn(0, magnitudes.size - 1)
                             val e = end.coerceIn(0, magnitudes.size - 1)
                             if (s > e) return 0f
@@ -566,7 +566,7 @@ actual class AudioPlayer actual constructor() {
                             val (startBin, endBin) = bandRanges30[k]
                             val progress = k.toFloat() / 29f
                             val tilt = -2.0f + progress * 14.0f
-                            spectrum30[k] = calcBandEnergy(startBin, endBin, tiltDb = tilt, peakWeight = 0.50f)
+                            spectrum30[k] = calcBandEnergy(startBin, endBin, tiltDb = tilt, peakWeight = 0.40f)
                         }
 
                         // 5 полос для микро-иконок

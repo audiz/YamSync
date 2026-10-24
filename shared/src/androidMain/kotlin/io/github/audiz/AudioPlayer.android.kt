@@ -869,7 +869,7 @@ actual class AudioPlayer actual constructor() {
         }
 
         val threshold = -68f
-        fun calcBandEnergy(fStart: Float, fEnd: Float, tiltDb: Float, peakWeight: Float = 0.50f): Float {
+        fun calcBandEnergy(fStart: Float, fEnd: Float, tiltDb: Float, peakWeight: Float = 0.40f): Float {
             val startBin = (fStart / binHz).toInt().coerceIn(1, numBins - 1)
             val endBin = (fEnd / binHz).toInt().coerceIn(startBin, numBins - 1)
             var sum = 0f
@@ -890,7 +890,7 @@ actual class AudioPlayer actual constructor() {
             val progress = k.toFloat() / 29f
             val tilt = -2.0f + progress * 14.0f
             val (fStart, fEnd) = FREQ_RANGES_30[k]
-            spectrum30[k] = calcBandEnergy(fStart, fEnd, tiltDb = tilt, peakWeight = 0.50f)
+            spectrum30[k] = calcBandEnergy(fStart, fEnd, tiltDb = tilt, peakWeight = 0.40f)
         }
 
         // 5 полос для кнопок плеера и микро-иконок
