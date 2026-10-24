@@ -311,9 +311,14 @@ object AudioVisualizer {
                     val cohesive = rawInterp[k] * 0.80f + (prev + next) * 0.10f
                     val norm = (cohesive * autoGain).coerceIn(0f, 1f)
                     val newLvl = norm.pow(dynamicExp).coerceIn(0f, 1f)
-                    // 🌊 Временное сглаживание микродрожания (Temporal EMA): убирает тремор на вершинах
                     val prevTarget = targetSpectrumLevels[k]
-                    targetSpectrumLevels[k] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.40f + newLvl * 0.60f
+                    val delta = newLvl - prevTarget
+                    // ⚡ Мгновенный пропуск транзиентов (zero lag на бите) + фильтрация шума на вершинах
+                    targetSpectrumLevels[k] = if (delta > 0.05f || prevTarget <= RESTING_LEVEL * 1.2f) {
+                        newLvl
+                    } else {
+                        prevTarget + delta * 0.35f
+                    }
                 }
             }
 
@@ -396,9 +401,14 @@ object AudioVisualizer {
                 val cohesive = rawLevels[i] * 0.80f + (prev + next) * 0.10f
                 val normalized = (cohesive * autoGain).coerceIn(0f, 1f)
                 val newLvl = normalized.pow(dynamicExp).coerceIn(0f, 1f)
-                // 🌊 Временное сглаживание микродрожания FFT (Temporal EMA): убирает тремор на вершинах
                 val prevTarget = targetSpectrumLevels[i]
-                targetSpectrumLevels[i] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.40f + newLvl * 0.60f
+                val delta = newLvl - prevTarget
+                // ⚡ Мгновенный пропуск транзиентов (zero lag на бите) + фильтрация шума на вершинах
+                targetSpectrumLevels[i] = if (delta > 0.05f || prevTarget <= RESTING_LEVEL * 1.2f) {
+                    newLvl
+                } else {
+                    prevTarget + delta * 0.35f
+                }
             }
 
             lastUpdateTimeMs = currentTime()
@@ -652,8 +662,8 @@ object AudioVisualizer {
             // 🎶 ДИНАМИЧЕСКАЯ АДАПТАЦИЯ БАЛЛИСТИКИ ПОД ТЕМП ТРЕКА:
             // 0.0 = медленный/медитативный трек, 1.0 = быстрый ритмичный трек/EDM/рок
             val activityNormalized = (trackActivityEma / 0.18f).coerceIn(0f, 1f)
-            val dynamicDecayRate = 1.35f + activityNormalized * 0.85f   // от 1.35 (плавно) до 2.20 (динамично)
-            val dynamicAttackRate = 26.0f + activityNormalized * 16.0f  // от 26 (мягкий взлет ~38мс) до 42 (быстрый ~24мс)
+            val dynamicDecayRate = 4.2f + activityNormalized * 2.8f   // 4.2 (спокойный) .. 7.0 (быстрый, ритмичный бит)
+            val dynamicAttackRate = 38.0f + activityNormalized * 20.0f // 38.0 (мягкая атака ~25мс) .. 58.0 (мгновенный панч ~16мс)
 
             // ==================== РАСЧЕТ БАЛЛИСТИКИ 25 СТОЛБИКОВ ====================
             for (i in 0 until SPECTRUM_BAND_COUNT) {
@@ -661,13 +671,13 @@ object AudioVisualizer {
                 var current = currentSpectrumLevels[i]
 
                 if (target > current) {
-                    // Асимметричный аналоговый IIR-фильтр: упругая непрерывная атака
+                    // Хлёсткая, упругая атака
                     val attackAlpha = 1f - exp(-dynamicAttackRate * safeDt)
                     current += (target - current) * attackAlpha
                 } else {
-                    // Асимметричный аналоговый IIR-фильтр: бархатный непрерывный спад (без подскоков и дребезга)
-                    val decayAlpha = 1f - exp(-dynamicDecayRate * safeDt)
-                    current += (target - current) * decayAlpha
+                    // Быстрый динамичный спад: освобождает место под следующий бит
+                    val expDecay = exp(-dynamicDecayRate * safeDt)
+                    current = max(target, current * expDecay)
                 }
 
                 currentSpectrumLevels[i] = current.coerceIn(RESTING_LEVEL, 1f)
