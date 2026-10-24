@@ -20,6 +20,8 @@ import io.github.audiz.stream.LocalStreamProxy
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.models.DownloadedTrackAudio
 import io.github.audiz.models.FullTrackInfo
+import io.github.audiz.ui.CoverImageLoader
+import io.github.audiz.util.AudioMetadataTagger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -680,7 +682,8 @@ class PlaybackManager(
                 isCurrentTrackHQ = (selectedQuality == "2")
 
                 if (isRecordToDisk() && musicStoragePath.isNotBlank()) {
-                    saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+                    val taggedBytes = prepareTaggedAudioBytes(targetTrackId, cleanTitle, cleanArtist, extension, audioData.result)
+                    saveTrackFile(basePath, cleanArtist, fullFileName, taggedBytes)
                     localTrackResolver.invalidateCache()
                     onTrackSavedToDisk?.invoke()
                     val resolvedFile = localTrackResolver.findLocalTrackFile(
@@ -885,7 +888,8 @@ class PlaybackManager(
                 isCurrentTrackHQ = false
 
                 if (isRecordToDisk() && musicStoragePath.isNotBlank()) {
-                    saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+                    val taggedBytes = prepareTaggedAudioBytes(targetTrackId, cleanTitle, cleanArtist, extension, audioData.result)
+                    saveTrackFile(basePath, cleanArtist, fullFileName, taggedBytes)
                     onTrackSavedToDisk?.invoke()
                     val resolvedFile = localTrackResolver.findLocalTrackFile(
                         trackId = targetTrackId,
@@ -1114,7 +1118,8 @@ class PlaybackManager(
                 isCurrentTrackHQ = (selectedQuality == "2")
 
                 if (isRecordToDisk()) {
-                    saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+                    val taggedBytes = prepareTaggedAudioBytes(currentId, cleanTitle, cleanArtist, extension, audioData.result)
+                    saveTrackFile(basePath, cleanArtist, fullFileName, taggedBytes)
                     onTrackSavedToDisk?.invoke()
                     val filePath = "$basePath/$sanitizedArtist/$fullFileName"
                     currentPlayingFilePath = filePath
@@ -1573,7 +1578,8 @@ class PlaybackManager(
                     } else {
                         "$cleanTitle.$extension"
                     })
-                    saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+                    val taggedBytes = prepareTaggedAudioBytes(targetTrackId, cleanTitle, cleanArtist, extension, audioData.result)
+                    saveTrackFile(basePath, cleanArtist, fullFileName, taggedBytes)
                     localTrackResolver.invalidateCache()
                     onTrackSavedToDisk?.invoke()
                     val filePath = "$basePath/$sanitizedArtist/$fullFileName"
@@ -1597,6 +1603,34 @@ class PlaybackManager(
                 println("⚡ [Предзагрузка] Не удалось предзагрузить трек: ${e.message}")
             }
         }
+    }
+
+    private suspend fun prepareTaggedAudioBytes(
+        targetTrackId: String,
+        cleanTitle: String,
+        cleanArtist: String,
+        extension: String,
+        rawAudioBytes: ByteArray
+    ): ByteArray {
+        val info = findTrackInfo(targetTrackId)
+        val effectiveCoverUri = coverUri ?: info?.coverUri
+        val effectiveAlbum = info?.albums?.firstOrNull()?.title
+        val effectiveYear = info?.albums?.firstOrNull()?.year?.toString()
+
+        val coverBytes = effectiveCoverUri?.let { uri ->
+            val url = CoverImageLoader.formatCoverUrl(uri, 600)
+            if (url != null) repository.fetchImageBytes(url) else null
+        }
+
+        return AudioMetadataTagger.embedMetadata(
+            audioBytes = rawAudioBytes,
+            extension = extension,
+            title = cleanTitle,
+            artist = cleanArtist,
+            album = effectiveAlbum,
+            year = effectiveYear,
+            coverBytes = coverBytes
+        )
     }
 
     /**

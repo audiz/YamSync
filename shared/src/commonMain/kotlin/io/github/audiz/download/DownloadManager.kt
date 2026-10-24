@@ -13,8 +13,11 @@ import io.github.audiz.localFileExists
 import io.github.audiz.player.LocalTrackResolver
 import io.github.audiz.saveAppConfig
 import io.github.audiz.saveTrackFile
+import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.trackFileExists
+import io.github.audiz.ui.CoverImageLoader
+import io.github.audiz.util.AudioMetadataTagger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,7 +45,9 @@ class DownloadManager(
     private val onTrackDeleted: ((trackId: String, wasPlaying: Boolean) -> Unit)? = null,
     private val onAllTracksCleared: (() -> Unit)? = null,
     private val onError: (String) -> Unit = {},
-    private val onStatusMessage: (String) -> Unit = {}
+    private val onStatusMessage: (String) -> Unit = {},
+    private val findTrackInfo: ((String) -> FullTrackInfo?)? = null,
+    private val getPlayingTrackCoverUrl: (() -> String?)? = null
 ) {
     /**
      * Вторичный конструктор для 100% обратной совместимости.
@@ -61,7 +66,9 @@ class DownloadManager(
         onTrackDeleted: ((trackId: String, wasPlaying: Boolean) -> Unit)? = null,
         onAllTracksCleared: (() -> Unit)? = null,
         onError: (String) -> Unit = {},
-        onStatusMessage: (String) -> Unit = {}
+        onStatusMessage: (String) -> Unit = {},
+        findTrackInfo: ((String) -> FullTrackInfo?)? = null,
+        getPlayingTrackCoverUrl: (() -> String?)? = null
     ) : this(
         scope = scope,
         repository = repository,
@@ -76,7 +83,9 @@ class DownloadManager(
         onTrackDeleted = onTrackDeleted,
         onAllTracksCleared = onAllTracksCleared,
         onError = onError,
-        onStatusMessage = onStatusMessage
+        onStatusMessage = onStatusMessage,
+        findTrackInfo = findTrackInfo,
+        getPlayingTrackCoverUrl = getPlayingTrackCoverUrl
     )
 
     private val getMusicStoragePath: () -> String get() = localTrackResolver.getMusicStoragePath
@@ -147,9 +156,16 @@ class DownloadManager(
     }
 
     /**
-     * 🔥 Скачивание трека по клику
+     * 🔥 Скачивание трека по клику (с автоматическим встраиванием обложки и метаданных)
      */
-    fun downloadTrack(trackId: String, trackTitle: String, artistName: String) {
+    fun downloadTrack(
+        trackId: String,
+        trackTitle: String,
+        artistName: String,
+        albumTitle: String? = null,
+        year: String? = null,
+        coverUri: String? = null
+    ) {
         if (isTrackDownloading) return
         if (isLocalTrackId(trackId)) {
             onError("✅ Файл уже находится на диске: $trackTitle")
@@ -183,8 +199,19 @@ class DownloadManager(
                     return@launch
                 }
 
-                println("Saving to: $basePath / $cleanArtist / $fullFileName")
-                saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+                val taggedBytes = prepareAndTagAudio(
+                    trackId = trackId,
+                    cleanTitle = cleanTitle,
+                    cleanArtist = cleanArtist,
+                    extension = extension,
+                    rawAudioBytes = audioData.result,
+                    albumTitle = albumTitle,
+                    year = year,
+                    coverUri = coverUri
+                )
+
+                println("Saving to: $basePath / $cleanArtist / $fullFileName (size: ${taggedBytes.size} bytes)")
+                saveTrackFile(basePath, cleanArtist, fullFileName, taggedBytes)
                 downloadVersion++
 
                 if (getPlayingTrackId() == trackId) {
@@ -335,9 +362,16 @@ class DownloadManager(
     }
 
     /**
-     * Гарантирует наличие файла трека на диске (находит существующий или скачивает его)
+     * Гарантирует наличие файла трека на диске (находит существующий или скачивает его с встраиванием тегов)
      */
-    suspend fun ensureTrackFile(trackId: String, trackTitle: String, artistName: String): String? {
+    suspend fun ensureTrackFile(
+        trackId: String,
+        trackTitle: String,
+        artistName: String,
+        albumTitle: String? = null,
+        year: String? = null,
+        coverUri: String? = null
+    ): String? {
         if (trackId.startsWith("local:")) {
             val localPath = trackId.removePrefix("local:")
             if (localFileExists(localPath)) return localPath
@@ -366,7 +400,18 @@ class DownloadManager(
             val sanitizedArtist = sanitizeKeepSpaces(cleanArtist.ifBlank { "Unknown Artist" }).trim()
             val targetPath = "$basePath/$sanitizedArtist/$fullFileName"
 
-            saveTrackFile(basePath, cleanArtist, fullFileName, audioData.result)
+            val taggedBytes = prepareAndTagAudio(
+                trackId = trackId,
+                cleanTitle = cleanTitle,
+                cleanArtist = cleanArtist,
+                extension = extension,
+                rawAudioBytes = audioData.result,
+                albumTitle = albumTitle,
+                year = year,
+                coverUri = coverUri
+            )
+
+            saveTrackFile(basePath, cleanArtist, fullFileName, taggedBytes)
             downloadVersion++
 
             if (getPlayingTrackId() == trackId) {
@@ -377,5 +422,52 @@ class DownloadManager(
             println("DownloadManager: Ошибка при подготовке файла трека: ${e.message}")
             null
         }
+    }
+
+    private suspend fun prepareAndTagAudio(
+        trackId: String,
+        cleanTitle: String,
+        cleanArtist: String,
+        extension: String,
+        rawAudioBytes: ByteArray,
+        albumTitle: String? = null,
+        year: String? = null,
+        coverUri: String? = null
+    ): ByteArray {
+        val info = findTrackInfo?.invoke(trackId)
+        var effectiveCoverUri = coverUri ?: info?.coverUri
+        var effectiveAlbum = albumTitle ?: info?.albums?.firstOrNull()?.title
+        var effectiveYear = year ?: info?.albums?.firstOrNull()?.year?.toString()
+
+        if (effectiveCoverUri == null && getPlayingTrackId() == trackId) {
+            effectiveCoverUri = getPlayingTrackCoverUrl?.invoke()
+        }
+
+        if (effectiveCoverUri == null && !isLocalTrackId(trackId)) {
+            try {
+                val details = repository.getTracksDetails(listOf(trackId))
+                val fetched = details.result.firstOrNull()
+                if (fetched != null) {
+                    effectiveCoverUri = fetched.coverUri
+                    if (effectiveAlbum == null) effectiveAlbum = fetched.albums.firstOrNull()?.title
+                    if (effectiveYear == null) effectiveYear = fetched.albums.firstOrNull()?.year?.toString()
+                }
+            } catch (_: Exception) {}
+        }
+
+        val coverBytes = effectiveCoverUri?.let { uri ->
+            val url = CoverImageLoader.formatCoverUrl(uri, 600)
+            if (url != null) repository.fetchImageBytes(url) else null
+        }
+
+        return AudioMetadataTagger.embedMetadata(
+            audioBytes = rawAudioBytes,
+            extension = extension,
+            title = cleanTitle,
+            artist = cleanArtist,
+            album = effectiveAlbum,
+            year = effectiveYear,
+            coverBytes = coverBytes
+        )
     }
 }

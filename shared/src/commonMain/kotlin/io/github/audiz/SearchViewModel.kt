@@ -482,7 +482,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             stopPlayback()
         },
         onError = { errorMessage = it },
-        onStatusMessage = { storageStatusMessage = it }
+        onStatusMessage = { storageStatusMessage = it },
+        findTrackInfo = { playbackManager.findTrackInfo(it) },
+        getPlayingTrackCoverUrl = { playerCoverUri }
     )
 
     // 💾 МЕНЕДЖЕР СЕССИИ ВОСПРОИЗВЕДЕНИЯ (Восстановление плейлиста или Волны при рестарте)
@@ -2042,8 +2044,23 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 }
                 val fileName = sanitizeKeepSpaces(rawName)
 
+                val coverBytes = track.coverUri?.let { uri ->
+                    val url = io.github.audiz.ui.CoverImageLoader.formatCoverUrl(uri, 600)
+                    if (url != null) repository.fetchImageBytes(url) else null
+                }
+
+                val taggedBytes = io.github.audiz.util.AudioMetadataTagger.embedMetadata(
+                    audioBytes = audioData.result,
+                    extension = extension,
+                    title = cleanTitle,
+                    artist = cleanArtist,
+                    album = track.albums.firstOrNull()?.title,
+                    year = track.albums.firstOrNull()?.year?.toString(),
+                    coverBytes = coverBytes
+                )
+
                 val saved = withContext(DispatcherIO) {
-                    saveTrackToFolder(targetDirectory, fileName, audioData.result)
+                    saveTrackToFolder(targetDirectory, fileName, taggedBytes)
                 }
 
                 if (saved != null) {
@@ -2128,8 +2145,23 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     "$targetFilePath.$extension"
                 }
 
+                val coverBytes = track.coverUri?.let { uri ->
+                    val url = io.github.audiz.ui.CoverImageLoader.formatCoverUrl(uri, 600)
+                    if (url != null) repository.fetchImageBytes(url) else null
+                }
+
+                val taggedBytes = io.github.audiz.util.AudioMetadataTagger.embedMetadata(
+                    audioBytes = audioData.result,
+                    extension = extension,
+                    title = cleanTitle,
+                    artist = cleanArtist,
+                    album = track.albums.firstOrNull()?.title,
+                    year = track.albums.firstOrNull()?.year?.toString(),
+                    coverBytes = coverBytes
+                )
+
                 val saved = withContext(DispatcherIO) {
-                    saveFileToDirectPath(normalizedPath, audioData.result)
+                    saveFileToDirectPath(normalizedPath, taggedBytes)
                 }
 
                 if (saved != null) {
