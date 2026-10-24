@@ -310,7 +310,10 @@ object AudioVisualizer {
                     val next = if (k < SPECTRUM_BAND_COUNT - 1) rawInterp[k + 1] else rawInterp[k]
                     val cohesive = rawInterp[k] * 0.80f + (prev + next) * 0.10f
                     val norm = (cohesive * autoGain).coerceIn(0f, 1f)
-                    targetSpectrumLevels[k] = norm.pow(dynamicExp).coerceIn(0f, 1f)
+                    val newLvl = norm.pow(dynamicExp).coerceIn(0f, 1f)
+                    // 🌊 Временное сглаживание микродрожания (Temporal EMA): убирает тремор на вершинах
+                    val prevTarget = targetSpectrumLevels[k]
+                    targetSpectrumLevels[k] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.30f + newLvl * 0.70f
                 }
             }
 
@@ -392,7 +395,10 @@ object AudioVisualizer {
                 val next = if (i < SPECTRUM_BAND_COUNT - 1) rawLevels[i + 1] else rawLevels[i]
                 val cohesive = rawLevels[i] * 0.80f + (prev + next) * 0.10f
                 val normalized = (cohesive * autoGain).coerceIn(0f, 1f)
-                targetSpectrumLevels[i] = normalized.pow(dynamicExp).coerceIn(0f, 1f)
+                val newLvl = normalized.pow(dynamicExp).coerceIn(0f, 1f)
+                // 🌊 Временное сглаживание микродрожания FFT (Temporal EMA): убирает тремор на вершинах
+                val prevTarget = targetSpectrumLevels[i]
+                targetSpectrumLevels[i] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.30f + newLvl * 0.70f
             }
 
             lastUpdateTimeMs = currentTime()
@@ -647,38 +653,21 @@ object AudioVisualizer {
             // 0.0 = медленный/медитативный трек, 1.0 = быстрый ритмичный трек/EDM/рок
             val activityNormalized = (trackActivityEma / 0.18f).coerceIn(0f, 1f)
             val dynamicDecayRate = 1.35f + activityNormalized * 0.85f   // от 1.35 (плавно) до 2.20 (динамично)
-            val dynamicHoldSec = 0.090f - activityNormalized * 0.035f   // от 90 мс (задержка) до 55 мс
-            val dynamicAttackRate = 28.0f + activityNormalized * 17.0f  // от 28 (мягкий взлет ~35мс) до 45 (быстрый ~20мс)
+            val dynamicAttackRate = 26.0f + activityNormalized * 16.0f  // от 26 (мягкий взлет ~38мс) до 42 (быстрый ~24мс)
 
             // ==================== РАСЧЕТ БАЛЛИСТИКИ 25 СТОЛБИКОВ ====================
             for (i in 0 until SPECTRUM_BAND_COUNT) {
                 val target = targetSpectrumLevels[i]
                 var current = currentSpectrumLevels[i]
 
-                if (target >= current) {
-                    // Мягкая упругая аналоговая атака (вместо мгновенного цифрового шага в 0 мс)
+                if (target > current + 0.006f) {
+                    // Мягкая упругая аналоговая атака при реальном росте уровня
                     val attackAlpha = 1f - exp(-dynamicAttackRate * safeDt)
                     current += (target - current) * attackAlpha
-                    if (target - current < 0.012f) {
-                        current = target
-                    }
-                    spectrumHoldTimers[i] = dynamicHoldSec
                 } else {
-                    var remainingDt = safeDt
-                    if (spectrumHoldTimers[i] > 0f) {
-                        if (remainingDt <= spectrumHoldTimers[i]) {
-                            spectrumHoldTimers[i] -= remainingDt
-                            remainingDt = 0f
-                        } else {
-                            remainingDt -= spectrumHoldTimers[i]
-                            spectrumHoldTimers[i] = 0f
-                        }
-                    }
-
-                    if (remainingDt > 0f) {
-                        val expDecay = exp(-dynamicDecayRate * remainingDt)
-                        current = max(target, current * expDecay)
-                    }
+                    // Плавный непрерывный спад: нет искусственного зависания и микро-вибрации на вершинах
+                    val expDecay = exp(-dynamicDecayRate * safeDt)
+                    current = max(target, current * expDecay)
                 }
 
                 currentSpectrumLevels[i] = current.coerceIn(RESTING_LEVEL, 1f)
