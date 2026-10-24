@@ -1268,14 +1268,15 @@ fun CoverSpectrumVisualizer(
                 }
 
                 // 2. Парящая пиковая засечка (Winamp Peak Cap, прямоугольная)
-                val capLevel = if (i < capLevels.size) capLevels[i].coerceAtLeast(level) else level
-                val targetPeakY = (maxH - (maxH * capLevel.coerceIn(0.03f, 1f))).coerceIn(0f, maxH - peakH)
-                val peakY = targetPeakY.coerceAtMost(y - 1.5f.dp.toPx()).coerceAtLeast(0f)
-                drawRect(
-                    color = Color.White.copy(alpha = 0.88f),
-                    topLeft = Offset(x, peakY),
-                    size = Size(barW, peakH)
-                )
+                if (i < capLevels.size) {
+                    val capLevel = capLevels[i].coerceAtLeast(level)
+                    val peakY = (maxH - (maxH * capLevel.coerceIn(0.03f, 1f))).coerceIn(0f, maxH - peakH)
+                    drawRect(
+                        color = Color.White.copy(alpha = 0.88f),
+                        topLeft = Offset(x, peakY),
+                        size = Size(barW, peakH)
+                    )
+                }
             }
         }
     }

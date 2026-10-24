@@ -313,7 +313,7 @@ object AudioVisualizer {
                     val newLvl = norm.pow(dynamicExp).coerceIn(0f, 1f)
                     // 🌊 Временное сглаживание микродрожания (Temporal EMA): убирает тремор на вершинах
                     val prevTarget = targetSpectrumLevels[k]
-                    targetSpectrumLevels[k] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.30f + newLvl * 0.70f
+                    targetSpectrumLevels[k] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.40f + newLvl * 0.60f
                 }
             }
 
@@ -398,7 +398,7 @@ object AudioVisualizer {
                 val newLvl = normalized.pow(dynamicExp).coerceIn(0f, 1f)
                 // 🌊 Временное сглаживание микродрожания FFT (Temporal EMA): убирает тремор на вершинах
                 val prevTarget = targetSpectrumLevels[i]
-                targetSpectrumLevels[i] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.30f + newLvl * 0.70f
+                targetSpectrumLevels[i] = if (prevTarget <= RESTING_LEVEL * 1.2f) newLvl else prevTarget * 0.40f + newLvl * 0.60f
             }
 
             lastUpdateTimeMs = currentTime()
@@ -660,14 +660,14 @@ object AudioVisualizer {
                 val target = targetSpectrumLevels[i]
                 var current = currentSpectrumLevels[i]
 
-                if (target > current + 0.006f) {
-                    // Мягкая упругая аналоговая атака при реальном росте уровня
+                if (target > current) {
+                    // Асимметричный аналоговый IIR-фильтр: упругая непрерывная атака
                     val attackAlpha = 1f - exp(-dynamicAttackRate * safeDt)
                     current += (target - current) * attackAlpha
                 } else {
-                    // Плавный непрерывный спад: нет искусственного зависания и микро-вибрации на вершинах
-                    val expDecay = exp(-dynamicDecayRate * safeDt)
-                    current = max(target, current * expDecay)
+                    // Асимметричный аналоговый IIR-фильтр: бархатный непрерывный спад (без подскоков и дребезга)
+                    val decayAlpha = 1f - exp(-dynamicDecayRate * safeDt)
+                    current += (target - current) * decayAlpha
                 }
 
                 currentSpectrumLevels[i] = current.coerceIn(RESTING_LEVEL, 1f)
