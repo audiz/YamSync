@@ -956,7 +956,7 @@ class PlaylistManager(
             }
         }
 
-        if (isLocalTrackId(trackId)) return
+        if (isLocalTrackId(trackId) || getAccessToken().isBlank()) return
 
         launchSafe {
             if (wasLiked) {
@@ -1018,7 +1018,7 @@ class PlaylistManager(
             }
         }
 
-        if (!isLocalTrackId(trackId)) {
+        if (!isLocalTrackId(trackId) && getAccessToken().isNotBlank()) {
             launchSafe {
                 if (wasDisliked) {
                     val success = repository.undislikeTrack(trackKey)
@@ -1075,7 +1075,7 @@ class PlaylistManager(
                 likedTrackIds.removeAll(legacyLikes)
             }
 
-            if (!isLocalTrackId(trackId)) {
+            if (!isLocalTrackId(trackId) && getAccessToken().isNotBlank()) {
                 launchSafe {
                     if (wasLiked) {
                         repository.unlikeTrack(trackKey)

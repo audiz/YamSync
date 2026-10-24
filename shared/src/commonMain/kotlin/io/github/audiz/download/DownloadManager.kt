@@ -7,12 +7,16 @@ import io.github.audiz.DispatcherIO
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.clearAllDownloadedMusic
 import io.github.audiz.clearPlaylistsCache
+import io.github.audiz.copyFileToDirectPath
+import io.github.audiz.copyFileToFolder
 import io.github.audiz.deleteTrackFile
 import io.github.audiz.loadAppConfig
 import io.github.audiz.localFileExists
 import io.github.audiz.player.LocalTrackResolver
 import io.github.audiz.saveAppConfig
+import io.github.audiz.saveFileToDirectPath
 import io.github.audiz.saveTrackFile
+import io.github.audiz.saveTrackToFolder
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.trackFileExists
@@ -421,6 +425,203 @@ class DownloadManager(
         } catch (e: Exception) {
             println("DownloadManager: Ошибка при подготовке файла трека: ${e.message}")
             null
+        }
+    }
+
+    /**
+     * 💾 Сохранить трек в указанную папку
+     */
+    fun saveTrackToCustomFolder(
+        track: FullTrackInfo,
+        targetDirectory: String,
+        customFileName: String? = null,
+        onComplete: ((String?) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val cleanArtist = track.artists.joinToString(", ") { it.name }.trim()
+                val cleanTitle = track.title.trim()
+                val defaultBaseTitle = if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle" else cleanTitle
+                val chosenBaseTitle = customFileName?.trim()?.ifBlank { null } ?: defaultBaseTitle
+
+                onStatusMessage("⏳ Сохранение '$chosenBaseTitle' в папку...")
+
+                // 1. Проверяем, есть ли трек уже локально на диске
+                var localSrcPath: String? = null
+                if (track.id.startsWith("local:")) {
+                    val p = track.id.removePrefix("local:")
+                    if (localFileExists(p)) localSrcPath = p
+                }
+                if (localSrcPath == null) {
+                    val downloaded = getDownloadedTrackPath(cleanArtist, cleanTitle)
+                    if (downloaded != null && localFileExists(downloaded)) {
+                        localSrcPath = downloaded
+                    }
+                }
+                if (localSrcPath == null) {
+                    val currentPlayPath = getPlayingFilePath()?.removePrefix("local:")
+                    if (currentPlayPath != null && (getPlayingTrackId() == track.id || getPlayingTrackId() == track.realId) && localFileExists(currentPlayPath)) {
+                        localSrcPath = currentPlayPath
+                    }
+                }
+
+                if (localSrcPath != null) {
+                    val ext = localSrcPath.substringAfterLast('.', "mp3")
+                    val rawName = if (chosenBaseTitle.endsWith(".$ext", ignoreCase = true)) {
+                        chosenBaseTitle
+                    } else {
+                        "$chosenBaseTitle.$ext"
+                    }
+                    val fileName = sanitizeKeepSpaces(rawName)
+                    val saved = withContext(DispatcherIO) {
+                        copyFileToFolder(localSrcPath, targetDirectory, fileName)
+                    }
+                    if (saved != null) {
+                        onStatusMessage("✅ Файл сохранён: $fileName")
+                        onComplete?.invoke(saved)
+                    } else {
+                        onStatusMessage("❌ Ошибка копирования файла")
+                        onComplete?.invoke(null)
+                    }
+                    return@launch
+                }
+
+                // 2. Если трека нет на диске — скачиваем аудиопоток из Яндекс Музыки
+                val quality = getSelectedQuality()
+                val audioData = repository.downloadTrackAudio(track.id, quality = quality)
+                val rawExtension = audioData.type.substringBefore("-")
+                val extension = if (rawExtension.equals("aac", ignoreCase = true)) "m4a" else rawExtension
+                val rawName = if (chosenBaseTitle.endsWith(".$extension", ignoreCase = true)) {
+                    chosenBaseTitle
+                } else {
+                    "$chosenBaseTitle.$extension"
+                }
+                val fileName = sanitizeKeepSpaces(rawName)
+
+                val taggedBytes = prepareAndTagAudio(
+                    trackId = track.id,
+                    cleanTitle = cleanTitle,
+                    cleanArtist = cleanArtist,
+                    extension = extension,
+                    rawAudioBytes = audioData.result,
+                    albumTitle = track.albums.firstOrNull()?.title,
+                    year = track.albums.firstOrNull()?.year?.toString(),
+                    coverUri = track.coverUri
+                )
+
+                val saved = withContext(DispatcherIO) {
+                    saveTrackToFolder(targetDirectory, fileName, taggedBytes)
+                }
+
+                if (saved != null) {
+                    onStatusMessage("✅ Трек скачан и сохранён: $fileName")
+                    onComplete?.invoke(saved)
+                } else {
+                    onStatusMessage("❌ Ошибка сохранения трека на диск")
+                    onComplete?.invoke(null)
+                }
+            } catch (e: Exception) {
+                onStatusMessage("❌ Ошибка: ${e.message ?: e.toString()}")
+                onComplete?.invoke(null)
+            }
+        }
+    }
+
+    /**
+     * 💾 Сохранить трек по конкретному выбранному пути файла (из системного Save As диалога)
+     */
+    fun saveTrackToFilePath(
+        track: FullTrackInfo,
+        targetFilePath: String,
+        onComplete: ((String?) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val cleanArtist = track.artists.joinToString(", ") { it.name }.trim()
+                val cleanTitle = track.title.trim()
+                val baseTitle = if (cleanArtist.isNotEmpty()) "$cleanArtist — $cleanTitle" else cleanTitle
+
+                onStatusMessage("⏳ Сохранение '$baseTitle'...")
+
+                // 1. Проверяем, есть ли трек уже локально на диске
+                var localSrcPath: String? = null
+                if (track.id.startsWith("local:")) {
+                    val p = track.id.removePrefix("local:")
+                    if (localFileExists(p)) localSrcPath = p
+                }
+                if (localSrcPath == null) {
+                    val downloaded = getDownloadedTrackPath(cleanArtist, cleanTitle)
+                    if (downloaded != null && localFileExists(downloaded)) {
+                        localSrcPath = downloaded
+                    }
+                }
+                if (localSrcPath == null) {
+                    val currentPlayPath = getPlayingFilePath()?.removePrefix("local:")
+                    if (currentPlayPath != null && (getPlayingTrackId() == track.id || getPlayingTrackId() == track.realId) && localFileExists(currentPlayPath)) {
+                        localSrcPath = currentPlayPath
+                    }
+                }
+
+                if (localSrcPath != null) {
+                    val ext = localSrcPath.substringAfterLast('.', "mp3")
+                    val normalizedPath = if (targetFilePath.substringAfterLast('/', "").contains('.')) {
+                        targetFilePath
+                    } else {
+                        "$targetFilePath.$ext"
+                    }
+                    val saved = withContext(DispatcherIO) {
+                        copyFileToDirectPath(localSrcPath, normalizedPath)
+                    }
+                    if (saved != null) {
+                        val fileName = saved.substringAfterLast('/', saved.substringAfterLast('\\', saved))
+                        onStatusMessage("✅ Файл сохранён: $fileName")
+                        onComplete?.invoke(saved)
+                    } else {
+                        onStatusMessage("❌ Ошибка копирования файла")
+                        onComplete?.invoke(null)
+                    }
+                    return@launch
+                }
+
+                // 2. Если трека нет на диске — скачиваем аудиопоток из Яндекс Музыки
+                val quality = getSelectedQuality()
+                val audioData = repository.downloadTrackAudio(track.id, quality = quality)
+                val rawExtension = audioData.type.substringBefore("-")
+                val extension = if (rawExtension.equals("aac", ignoreCase = true)) "m4a" else rawExtension
+
+                val normalizedPath = if (targetFilePath.substringAfterLast('/', "").contains('.')) {
+                    targetFilePath
+                } else {
+                    "$targetFilePath.$extension"
+                }
+
+                val taggedBytes = prepareAndTagAudio(
+                    trackId = track.id,
+                    cleanTitle = cleanTitle,
+                    cleanArtist = cleanArtist,
+                    extension = extension,
+                    rawAudioBytes = audioData.result,
+                    albumTitle = track.albums.firstOrNull()?.title,
+                    year = track.albums.firstOrNull()?.year?.toString(),
+                    coverUri = track.coverUri
+                )
+
+                val saved = withContext(DispatcherIO) {
+                    saveFileToDirectPath(normalizedPath, taggedBytes)
+                }
+
+                if (saved != null) {
+                    val fileName = saved.substringAfterLast('/', saved.substringAfterLast('\\', saved))
+                    onStatusMessage("✅ Трек скачан и сохранён: $fileName")
+                    onComplete?.invoke(saved)
+                } else {
+                    onStatusMessage("❌ Ошибка сохранения трека на диск")
+                    onComplete?.invoke(null)
+                }
+            } catch (e: Exception) {
+                onStatusMessage("❌ Ошибка: ${e.message ?: e.toString()}")
+                onComplete?.invoke(null)
+            }
         }
     }
 
