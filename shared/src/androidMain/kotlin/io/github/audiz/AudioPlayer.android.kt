@@ -862,14 +862,14 @@ actual class AudioPlayer actual constructor() {
             val i = fft[2 * k + 1].toFloat()
             val mag = hypot(r, i)
             magnitudesDb[k] = if (mag > 0.01f) {
-                (20f * log10(mag / 128f)).coerceIn(-75f, 0f)
+                (20f * log10(mag / 128f)).coerceIn(-68f, 0f)
             } else {
-                -75f
+                -68f
             }
         }
 
-        val threshold = -75f
-        fun calcBandEnergy(fStart: Float, fEnd: Float, tiltDb: Float, peakWeight: Float = 0.85f): Float {
+        val threshold = -68f
+        fun calcBandEnergy(fStart: Float, fEnd: Float, tiltDb: Float, peakWeight: Float = 0.50f): Float {
             val startBin = (fStart / binHz).toInt().coerceIn(1, numBins - 1)
             val endBin = (fEnd / binHz).toInt().coerceIn(startBin, numBins - 1)
             var sum = 0f
@@ -888,22 +888,22 @@ actual class AudioPlayer actual constructor() {
         val spectrum30 = FloatArray(30)
         for (k in 0 until 30) {
             val progress = k.toFloat() / 29f
-            val tilt = -1.5f + progress * 19.5f
+            val tilt = -2.0f + progress * 14.0f
             val (fStart, fEnd) = FREQ_RANGES_30[k]
-            spectrum30[k] = calcBandEnergy(fStart, fEnd, tiltDb = tilt, peakWeight = 0.85f)
+            spectrum30[k] = calcBandEnergy(fStart, fEnd, tiltDb = tilt, peakWeight = 0.50f)
         }
 
         // 5 полос для кнопок плеера и микро-иконок
-        // 1. Sub-bass / Kick (~30 - 170 Гц): -1.5 дБ
-        val b1 = calcBandEnergy(30f, 170f, tiltDb = -1.5f, peakWeight = 0.90f)
-        // 2. Bass & Mid-bass (~170 - 680 Гц): +4.5 дБ (85% пик)
-        val b2 = calcBandEnergy(170f, 680f, tiltDb = 4.5f, peakWeight = 0.85f)
-        // 3. Mids (~680 - 2200 Гц): +4.0 дБ
-        val b3 = calcBandEnergy(680f, 2200f, tiltDb = 4.0f, peakWeight = 0.85f)
-        // 4. High-Mids (~2200 - 6500 Гц): +9.5 дБ
-        val b4 = calcBandEnergy(2200f, 6500f, tiltDb = 9.5f, peakWeight = 0.85f)
-        // 5. Treble (~6500 - 15000 Гц): +16.0 дБ
-        val b5 = calcBandEnergy(6500f, 15000f, tiltDb = 16.0f, peakWeight = 0.85f)
+        // 1. Sub-bass / Kick (~30 - 170 Гц): -2.0 дБ
+        val b1 = calcBandEnergy(30f, 170f, tiltDb = -2.0f, peakWeight = 0.65f)
+        // 2. Bass & Mid-bass (~170 - 680 Гц): +3.5 дБ
+        val b2 = calcBandEnergy(170f, 680f, tiltDb = 3.5f, peakWeight = 0.55f)
+        // 3. Mids (~680 - 2200 Гц): +3.0 дБ
+        val b3 = calcBandEnergy(680f, 2200f, tiltDb = 3.0f, peakWeight = 0.50f)
+        // 4. High-Mids (~2200 - 6500 Гц): +7.0 дБ
+        val b4 = calcBandEnergy(2200f, 6500f, tiltDb = 7.0f, peakWeight = 0.50f)
+        // 5. Treble (~6500 - 15000 Гц): +11.5 дБ
+        val b5 = calcBandEnergy(6500f, 15000f, tiltDb = 11.5f, peakWeight = 0.50f)
 
         AudioVisualizer.updateBands(b1, b2, b3, b4, b5)
         AudioVisualizer.updateSpectrum(spectrum30)
