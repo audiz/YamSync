@@ -1228,10 +1228,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     /**
-     * 🗑️ Удалить локальный плейлист (файлы треков на диске не удаляются)
+     * 🗑️ Удалить локальный плейлист
      */
-    fun deleteLocalPlaylist(playlistId: String) {
-        playlistManager.deleteLocalPlaylist(playlistId)
+    fun deleteLocalPlaylist(playlistId: String, deleteDownloadedTracks: Boolean = true) {
+        playlistManager.deleteLocalPlaylist(playlistId, deleteDownloadedTracks)
     }
 
     /**

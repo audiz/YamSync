@@ -28,6 +28,10 @@ import io.github.audiz.models.YandexPlaylistDetails
 import io.github.audiz.saveLocalPlaylists
 import io.github.audiz.savePersonalPlaylistsCache
 import io.github.audiz.saveUserPlaylistsCache
+import io.github.audiz.deleteTrackFile
+import io.github.audiz.localFileExists
+import io.github.audiz.resolveLocalPath
+import io.github.audiz.player.LocalTrackResolver
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -280,17 +284,102 @@ class PlaylistManager(
     }
 
     /**
-     * 🗑️ Удалить локальный плейлист (файлы треков на диске не удаляются)
+     * 🗑️ Удалить локальный плейлист.
+     * При [deleteDownloadedTracks] = true удаляет скачанные треки этого плейлиста с диска,
+     * но СТРОГО только те, которые находятся в директории приложения (закачки),
+     * исключая пользовательскую медиатеку и файлы, используемые в других локальных плейлистах.
      */
-    fun deleteLocalPlaylist(playlistId: String) {
-        val removed = localPlaylists.removeAll { it.id == playlistId }
-        if (removed) {
-            val storagePath = getMusicStoragePath()
-            scope.launch(DispatcherIO) {
-                saveLocalPlaylists(storagePath, localPlaylists.toList())
-                notifyLocalPlaylistsChanged()
+    fun deleteLocalPlaylist(playlistId: String, deleteDownloadedTracks: Boolean = true) {
+        val targetPlaylist = localPlaylists.firstOrNull { it.id == playlistId } ?: return
+        localPlaylists.removeAll { it.id == playlistId }
+        val storagePath = getMusicStoragePath()
+        scope.launch(DispatcherIO) {
+            saveLocalPlaylists(storagePath, localPlaylists.toList())
+            notifyLocalPlaylistsChanged()
+
+            if (deleteDownloadedTracks && targetPlaylist.trackPaths.isNotEmpty()) {
+                val rawStorage = storagePath.trim()
+                if (rawStorage.isNotBlank()) {
+                    val normalizedStorage = resolveLocalPath(rawStorage).replace('\\', '/').trimEnd('/')
+
+                    // 🛡️ Защита: собираем пути треков остальных локальных плейлистов
+                    val otherPlaylistsTracks = localPlaylists
+                        .flatMap { it.trackPaths }
+                        .mapNotNull { path ->
+                            val clean = path.trim()
+                                .removePrefix("local:")
+                                .removePrefix("file://")
+                                .removePrefix("file:")
+                                .removeSurrounding("\"")
+                                .removeSurrounding("'")
+                            val res = resolveLocalPath(clean).replace('\\', '/')
+                            if (res.isNotBlank()) res.lowercase() else null
+                        }
+                        .toSet()
+
+                    var deletedFilesCount = 0
+
+                    for (rawTrackPath in targetPlaylist.trackPaths.distinct()) {
+                        try {
+                            val cleanTrack = rawTrackPath.trim()
+                                .removePrefix("local:")
+                                .removePrefix("file://")
+                                .removePrefix("file:")
+                                .removeSurrounding("\"")
+                                .removeSurrounding("'")
+
+                            val resolved = resolveLocalPath(cleanTrack).replace('\\', '/')
+
+                            // Ищем реальный путь файла на диске:
+                            val candidatePath = when {
+                                localFileExists(resolved) -> resolved
+                                localFileExists("$normalizedStorage/$cleanTrack") -> "$normalizedStorage/$cleanTrack"
+                                else -> null
+                            }
+
+                            if (candidatePath != null) {
+                                val normCandidate = resolveLocalPath(candidatePath).replace('\\', '/')
+
+                                // 🔒 КРИТИЧЕСКАЯ ЗАЩИТА:
+                                // Файл удаляется ТОЛЬКО если он расположен внутри папки закачек приложения!
+                                // Файлы из внешней медиатеки пользователя (папки устройства, личная музыка) НИКОГДА не удаляются.
+                                val isInsideAppStorage = normCandidate.startsWith("$normalizedStorage/", ignoreCase = true) ||
+                                        normCandidate.startsWith("$normalizedStorage\\", ignoreCase = true)
+
+                                // Также не удаляем файл, если он используется в другом оставшемся плейлисте
+                                val isUsedInAnotherPlaylist = normCandidate.lowercase() in otherPlaylistsTracks
+
+                                if (isInsideAppStorage && !isUsedInAnotherPlaylist) {
+                                    val deleted = deleteTrackFile(
+                                        basePath = normalizedStorage,
+                                        artist = "",
+                                        trackTitle = "",
+                                        localFilePath = normCandidate
+                                    )
+                                    if (deleted) {
+                                        deletedFilesCount++
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.e("PlaylistManager", "Ошибка при удалении трека плейлиста: ${e.message}")
+                        }
+                    }
+
+                    if (deletedFilesCount > 0) {
+                        LocalTrackResolver.invalidateAllCaches()
+                        downloadManager.incrementDownloadVersion()
+                        withContext(Dispatchers.Main) {
+                            onStatusMessage("🗑️ Плейлист и $deletedFilesCount скачанных треков удалены")
+                        }
+                        return@launch
+                    }
+                }
             }
-            onStatusMessage("🗑️ Плейлист удален")
+
+            withContext(Dispatchers.Main) {
+                onStatusMessage("🗑️ Плейлист удален")
+            }
         }
     }
 

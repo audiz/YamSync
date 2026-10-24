@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -73,6 +74,7 @@ fun PlaylistsDialog(
     }
 
     var playlistToRename by remember { mutableStateOf<LocalPlaylist?>(null) }
+    var playlistToDelete by remember { mutableStateOf<LocalPlaylist?>(null) }
     var yandexPlaylistToRename by remember { mutableStateOf<PlaylistInfo?>(null) }
     var isRenamingYandex by remember { mutableStateOf(false) }
     var renameTitle by remember { mutableStateOf("") }
@@ -258,6 +260,9 @@ fun PlaylistsDialog(
                                 onRenameClick = {
                                     playlistToRename = it
                                     renameTitle = it.title
+                                },
+                                onDeleteClick = {
+                                    playlistToDelete = it
                                 },
                                 onOpenPlaylist = {
                                     viewModel.openLocalPlaylist(it, autoPlayFirst = true)
@@ -561,6 +566,65 @@ fun PlaylistsDialog(
         )
     }
 
+    // Всплывающее окно подтверждения удаления локального плейлиста
+    if (playlistToDelete != null) {
+        val targetPlaylist = playlistToDelete!!
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Filled.DeleteForever,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Удалить плейлист?",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Вы действительно хотите удалить плейлист «${targetPlaylist.title}»?",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Скачанные треки этого плейлиста также будут удалены с устройства. Файлы из вашей личной медиатеки устройства затронуты не будут.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteLocalPlaylist(targetPlaylist.id, deleteDownloadedTracks = true)
+                        playlistToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                ) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { playlistToDelete = null },
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                ) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
     // Всплывающее окно переименования плейлиста Яндекс Музыки
     if (yandexPlaylistToRename != null) {
         AlertDialog(
@@ -638,6 +702,7 @@ private fun LocalPlaylistsTab(
     onBrowseFolder: (CustomMediaSource) -> Unit,
     onCreateClick: () -> Unit,
     onRenameClick: (LocalPlaylist) -> Unit,
+    onDeleteClick: (LocalPlaylist) -> Unit,
     onOpenPlaylist: (LocalPlaylist) -> Unit,
     onOpenSync: (() -> Unit)? = null,
     onDismiss: () -> Unit
@@ -925,125 +990,137 @@ private fun LocalPlaylistsTab(
                                     }
                                 }
 
-                                IconButton(
-                                    onClick = { onOpenPlaylist(playlist) },
-                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayCircle,
-                                        contentDescription = "Слушать",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp)
-                                    )
+                                    // Кнопка переименования (редактирования)
+                                    IconButton(
+                                        onClick = { onRenameClick(playlist) },
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                                shape = CircleShape
+                                            )
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = "Редактировать плейлист",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    // Кнопка удаления плейлиста
+                                    IconButton(
+                                        onClick = { onDeleteClick(playlist) },
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(
+                                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                                                shape = CircleShape
+                                            )
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.DeleteOutline,
+                                            contentDescription = "Удалить плейлист",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    // Кнопка воспроизведения
+                                    IconButton(
+                                        onClick = { onOpenPlaylist(playlist) },
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayCircle,
+                                            contentDescription = "Слушать",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            // Нижний ряд: Экспорт .m3u8, Переименовать, Удалить
-                            Row(
+                            // Нижний ряд: Экспорт .m3u8, YamSync, Кнопка разворачивания треков
+                            FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                OutlinedButton(
+                                    onClick = { viewModel.exportLocalPlaylist(playlist.id) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.FileDownload,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "M3U8",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                if (!isFullyAvailable && onOpenSync != null) {
                                     OutlinedButton(
-                                        onClick = { viewModel.exportLocalPlaylist(playlist.id) },
+                                        onClick = {
+                                            onDismiss()
+                                            onOpenSync()
+                                        },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                         shape = RoundedCornerShape(8.dp),
                                         modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Filled.FileDownload,
+                                            imageVector = Icons.Filled.CloudDownload,
                                             contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(14.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "M3U8",
+                                            text = "YamSync",
                                             style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
                                             maxLines = 1
-                                        )
-                                    }
-
-                                    if (!isFullyAvailable && onOpenSync != null) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                onDismiss()
-                                                onOpenSync()
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.CloudDownload,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "YamSync",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                maxLines = 1
-                                            )
-                                        }
-                                    }
-
-                                    TextButton(
-                                        onClick = {
-                                            val next = if (expandedPlaylistId == playlist.id) null else playlist.id
-                                            expandedPlaylistId = next
-                                            saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (expandedPlaylistId == playlist.id) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(2.dp))
-                                        Text(
-                                            text = "Треки (${playlist.trackCount})",
-                                            style = MaterialTheme.typography.labelSmall
                                         )
                                     }
                                 }
 
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                TextButton(
+                                    onClick = {
+                                        val next = if (expandedPlaylistId == playlist.id) null else playlist.id
+                                        expandedPlaylistId = next
+                                        saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
                                 ) {
-                                    IconButton(
-                                        onClick = { onRenameClick(playlist) },
-                                        modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Edit,
-                                            contentDescription = "Переименовать",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-
-                                    IconButton(
-                                        onClick = { viewModel.deleteLocalPlaylist(playlist.id) },
-                                        modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.DeleteOutline,
-                                            contentDescription = "Удалить плейлист",
-                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = if (expandedPlaylistId == playlist.id) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = "Треки (${playlist.trackCount})",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
                                 }
                             }
 
