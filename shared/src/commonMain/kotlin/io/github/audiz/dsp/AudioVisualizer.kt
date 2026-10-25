@@ -39,6 +39,10 @@ object AudioVisualizer {
         twentyFiveBand.onDrainFallback = { now ->
             fiveBand.drainMatured5(now)
         }
+        // Трекинг активности данных из 5-полосного анализатора для 25-полосного
+        twentyFiveBand.hasPendingData = { now ->
+            fiveBand.hasRecentData(now)
+        }
     }
 
     var timeProvider: () -> Long = { io.github.audiz.currentTimeMillis() }

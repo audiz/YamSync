@@ -114,6 +114,12 @@ class FiveBandVisualizer(
         }
     }
 
+    fun hasRecentData(now: Long = currentTime()): Boolean {
+        synchronized(currentLevels) {
+            return delayQueue5.isNotEmpty() || (lastUpdateTimeMs > 0L && (now - lastUpdateTimeMs < (350L + latencyCompensationMs)))
+        }
+    }
+
     /**
      * 🎚 Обновить 5 полос из нормализованных значений энергии (0.0 .. 1.0).
      */
@@ -304,12 +310,9 @@ class FiveBandVisualizer(
             trackPeakEma = max(0.18f, trackPeakEma * peakDecay)
 
             if (!isDataRecent) {
-                val t = (now % 10000L).toFloat() / 1000f
-                targetLevels[0] = RESTING_LEVEL + 0.55f * ((sin(t * 6.5f) + 1f) / 2f)
-                targetLevels[1] = RESTING_LEVEL + 0.45f * ((sin(t * 7.5f + 1.2f) + 1f) / 2f)
-                targetLevels[2] = RESTING_LEVEL + 0.65f * ((sin(t * 8.5f + 2.4f) + 1f) / 2f)
-                targetLevels[3] = RESTING_LEVEL + 0.48f * ((sin(t * 9.8f + 3.6f) + 1f) / 2f)
-                targetLevels[4] = RESTING_LEVEL + 0.60f * ((sin(t * 11.2f + 4.8f) + 1f) / 2f)
+                for (j in 0 until BAND_COUNT) {
+                    targetLevels[j] = RESTING_LEVEL
+                }
             }
 
             for (i in 0 until BAND_COUNT) {

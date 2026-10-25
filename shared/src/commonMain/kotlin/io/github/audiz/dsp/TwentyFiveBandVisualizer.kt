@@ -74,6 +74,7 @@ class TwentyFiveBandVisualizer(
     private val peakCapSpectrumHoldTimers = FloatArray(SPECTRUM_BAND_COUNT) { 0f }
 
     var onDrainFallback: ((now: Long) -> Unit)? = null
+    var hasPendingData: ((now: Long) -> Boolean)? = null
 
     private fun currentTime(): Long = timeProvider()
 
@@ -260,6 +261,23 @@ class TwentyFiveBandVisualizer(
             }
             updateTempoTrackerFromSpectrum(synthesized)
             applyTargetsWithSpatialCohesion(synthesized)
+
+            for (k in 0 until SPECTRUM_BAND_COUNT) {
+                val lvl = targetSpectrumLevels[k]
+                if (lvl > currentSpectrumLevels[k]) {
+                    currentSpectrumLevels[k] = lvl
+                    spectrumVelocities[k] = 0f
+                    spectrumHoldTimers[k] = VisualizerConstants.BAR_HOLD_SEC
+                }
+
+                if (lvl > peakCapSpectrumLevels[k]) {
+                    peakCapSpectrumLevels[k] = lvl
+                    peakCapSpectrumVelocities[k] = 0f
+                    peakCapSpectrumHoldTimers[k] = VisualizerConstants.PEAK_CAP_HOLD_SEC
+                }
+            }
+
+            lastUpdateTimeMs = currentTime()
         }
     }
 
@@ -292,19 +310,16 @@ class TwentyFiveBandVisualizer(
             if (delayQueue19.isEmpty()) {
                 onDrainFallback?.invoke(now)
             }
-            val isDataRecent = (now - lastUpdateTimeMs) < (350L + latencyCompensationMs) || delayQueue19.isNotEmpty()
+            val isDataRecent = (lastUpdateTimeMs > 0L && (now - lastUpdateTimeMs) < (350L + latencyCompensationMs)) ||
+                delayQueue19.isNotEmpty() ||
+                (hasPendingData?.invoke(now) == true)
 
             val peakDecay = exp(-safeDt / 4.0f)
             trackPeakEma = max(0.18f, trackPeakEma * peakDecay)
 
             if (!isDataRecent) {
-                val t = (now % 10000L).toFloat() / 1000f
                 for (k in 0 until SPECTRUM_BAND_COUNT) {
-                    val phase = k * 0.45f
-                    val speed = 6.0f + k * 0.35f
-                    val wave = (sin(t * speed + phase) + 1f) / 2f
-                    val rollOff = 1f - 0.30f * (k.toFloat() / (SPECTRUM_BAND_COUNT - 1))
-                    targetSpectrumLevels[k] = (RESTING_LEVEL + 0.55f * wave * rollOff).coerceIn(RESTING_LEVEL, 1f)
+                    targetSpectrumLevels[k] = RESTING_LEVEL
                 }
             }
 

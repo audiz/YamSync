@@ -180,4 +180,34 @@ class AudioVisualizerTest {
         assertEquals(25, frameMatured.levels.size, "Spectrum frame should contain 25 bands")
         assertTrue(frameMatured.levels[8] > 0.70f, "Band 8 should trigger after 120ms latency")
     }
+
+    @Test
+    fun testNoSoundRestsAtBottomWithoutSineWave() {
+        AudioVisualizer.reset()
+        // При отсутствии звука оба визуализатора должны лежать на дне RESTING_LEVEL
+        repeat(10) {
+            val frame5 = AudioVisualizer.advanceFrame(0.033f, isPlaying = true)
+            val frame25 = AudioVisualizer.advanceSpectrumFrame(0.033f, isPlaying = true)
+            assertTrue(frame5.levels.all { it == AudioVisualizer.RESTING_LEVEL }, "5-полосный визуализатор должен лежать внизу без синусоиды")
+            assertTrue(frame25.levels.all { it == AudioVisualizer.RESTING_LEVEL }, "25-полосный визуализатор должен лежать внизу без синусоиды")
+        }
+    }
+
+    @Test
+    fun testSynthesisFrom5BandsTo25Bands() {
+        AudioVisualizer.reset()
+        AudioVisualizer.latencyCompensationMs = 0L
+
+        // Подаем 5-полосный сигнал (например, бочка и бас)
+        AudioVisualizer.updateBands(1.0f, 0.8f, 0.2f, 0.1f, 0.05f)
+
+        // 25-полосный спектроанализатор должен получить синтезированные уровни
+        val frame = AudioVisualizer.advanceSpectrumFrame(0.016f, isPlaying = true)
+        assertEquals(25, frame.levels.size)
+        // Низкочастотные полосы (0..6) должны подняться выше RESTING_LEVEL
+        assertTrue(frame.levels[0] > 0.50f, "Полоса 0 в 25-полосном спектре должна реагировать на бочку: ${frame.levels[0]}")
+        assertTrue(frame.levels[2] > 0.40f, "Полоса 2 в 25-полосном спектре должна реагировать на бас: ${frame.levels[2]}")
+        // Высокочастотные полосы должны оставаться низкими
+        assertTrue(frame.levels[24] < frame.levels[0], "Высокие частоты должны быть ниже баса")
+    }
 }
