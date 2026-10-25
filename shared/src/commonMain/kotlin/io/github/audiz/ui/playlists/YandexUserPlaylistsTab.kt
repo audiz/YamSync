@@ -91,67 +91,45 @@ internal fun YandexUserPlaylistsTab(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .padding(horizontal = 12.dp, vertical = 9.dp)
                 ) {
+                    // Верхняя строка: Название плейлиста (вся свободная ширина!) + Правый блок кнопок
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 1. Компактная обложка 44x44 dp с бейджем облачка
-                        val cover = playlist.coverUri
-                        PlaylistArtwork(
-                            coverUri = cover,
-                            fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
-                            badgeText = "☁️",
-                            size = 44.dp
+                        Text(
+                            text = playlist.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
 
-                        // 2. Название и единая строка метаданных
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = playlist.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${playlist.trackCount} треков • Яндекс Музыка",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // 3. Правый блок действий в одну гармоничную строку
+                        // Правый ряд действий: [⬇ Скачать / ✕ Отмена] [⋮ Меню] [▶ Играть]
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // Кнопка скачивания / отмены
                             if (isThisDownloading) {
                                 IconButton(
                                     onClick = { viewModel.cancelPlaylistDownload() },
-                                    modifier = Modifier.size(30.dp).pointerHoverIcon(PointerIcon.Hand)
+                                    modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "Отменить скачивание",
                                         tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(17.dp)
                                     )
                                 }
                             } else {
                                 IconButton(
                                     onClick = { viewModel.downloadYandexPlaylistToLocal(playlist) },
                                     enabled = !isAnyDownloading,
-                                    modifier = Modifier.size(30.dp).then(
+                                    modifier = Modifier.size(28.dp).then(
                                         if (!isAnyDownloading) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier
                                     )
                                 ) {
@@ -159,33 +137,48 @@ internal fun YandexUserPlaylistsTab(
                                         imageVector = Icons.Filled.Download,
                                         contentDescription = "Скачать плейлист в оффлайн",
                                         tint = if (!isAnyDownloading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(17.dp)
                                     )
                                 }
                             }
 
-                            // Компактная кнопка раскрытия треков
-                            PlaylistTracksPill(
-                                trackCount = playlist.trackCount,
-                                isExpanded = isExpanded,
-                                onClick = {
-                                    expandedPlaylistKind = if (isExpanded) null else kind
-                                }
-                            )
-
-                            // Контекстное меню действий (Переименовать)
                             if (kind != null) {
                                 PlaylistMoreMenu(
                                     onRename = { onRenameClick(playlist) }
                                 )
                             }
 
-                            // Кнопка воспроизведения
                             PlaylistPlayButton(
                                 onClick = { onOpenPlaylist(playlist) },
                                 buttonSize = 34.dp
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Нижняя строка: Интерактивная плашка [40 треков ⌄] + "• Яндекс Музыка"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        PlaylistMetaTracksPill(
+                            trackCount = playlist.trackCount,
+                            isExpanded = isExpanded,
+                            onClick = {
+                                expandedPlaylistKind = if (isExpanded) null else kind
+                            }
+                        )
+
+                        Text(
+                            text = "• Яндекс Музыка",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     // 📥 Статус-бар скачивания плейлиста в оффлайн (если активен)
