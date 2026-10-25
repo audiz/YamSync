@@ -248,17 +248,10 @@ internal fun YandexUserPlaylistsTab(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (kind != null) {
-                                IconButton(
-                                    onClick = { onRenameClick(playlist) },
-                                    modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Edit,
-                                        contentDescription = "Переименовать",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
+                                PlaylistActionGroup(
+                                    onEdit = { onRenameClick(playlist) },
+                                    compact = !viewModel.isMobileUi
+                                )
                             }
 
                             if (isThisDownloading) {

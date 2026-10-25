@@ -1,11 +1,9 @@
 package io.github.audiz.ui.playlists
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -149,7 +147,8 @@ internal fun LocalPlaylistsTab(
                     source = source,
                     onOpen = { onOpenSource(source) },
                     onBrowse = if (source.type == LocalSourceType.FOLDER) { { onBrowseFolder(source) } } else null,
-                    onDelete = { viewModel.removeCustomSource(source.id) }
+                    onDelete = { viewModel.removeCustomSource(source.id) },
+                    compactActions = !viewModel.isMobileUi
                 )
             }
         }
@@ -331,45 +330,14 @@ internal fun LocalPlaylistsTab(
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // Кнопка переименования (редактирования)
-                                IconButton(
-                                    onClick = { onRenameClick(playlist) },
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .background(
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                                            shape = CircleShape
-                                        )
-                                        .pointerHoverIcon(PointerIcon.Hand)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Edit,
-                                        contentDescription = "Редактировать плейлист",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                // Кнопка удаления плейлиста
-                                IconButton(
-                                    onClick = { onDeleteClick(playlist) },
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .background(
-                                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
-                                            shape = CircleShape
-                                        )
-                                        .pointerHoverIcon(PointerIcon.Hand)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.DeleteOutline,
-                                        contentDescription = "Удалить плейлист",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                // Группа действий: редактировать + удалить
+                                PlaylistActionGroup(
+                                    onEdit = { onRenameClick(playlist) },
+                                    onDelete = { onDeleteClick(playlist) },
+                                    compact = !viewModel.isMobileUi
+                                )
 
                                 // Кнопка воспроизведения
                                 IconButton(

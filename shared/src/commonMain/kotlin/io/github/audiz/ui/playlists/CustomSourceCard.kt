@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayCircle
@@ -30,7 +29,8 @@ internal fun CustomSourceCard(
     source: CustomMediaSource,
     onOpen: () -> Unit,
     onBrowse: (() -> Unit)? = null,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    compactActions: Boolean = true
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -143,17 +143,10 @@ internal fun CustomSourceCard(
                     )
                 }
 
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.DeleteOutline,
-                        contentDescription = "Удалить источник",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                PlaylistActionGroup(
+                    onDelete = onDelete,
+                    compact = compactActions
+                )
             }
         }
     }
