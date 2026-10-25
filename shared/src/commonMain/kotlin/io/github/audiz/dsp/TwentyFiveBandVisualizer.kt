@@ -90,16 +90,18 @@ class TwentyFiveBandVisualizer(
     internal fun drainMatured19(now: Long) {
         val latency = latencyCompensationMs
         if (latency <= 0L) return
-        while (delayQueue19.isNotEmpty()) {
-            val first = delayQueue19.first()
-            val age = now - first.timeMs
-            if (age >= latency) {
-                delayQueue19.removeFirst()
-                if (age <= latency + 1000L) {
-                    applySpectrumDirect(first.spectrum)
+        synchronized(currentSpectrumLevels) {
+            while (delayQueue19.isNotEmpty()) {
+                val first = delayQueue19.firstOrNull() ?: break
+                val age = now - first.timeMs
+                if (age >= latency) {
+                    delayQueue19.removeFirstOrNull() ?: break
+                    if (age <= latency + 1000L) {
+                        applySpectrumDirect(first.spectrum)
+                    }
+                } else {
+                    break
                 }
-            } else {
-                break
             }
         }
     }

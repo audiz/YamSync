@@ -100,16 +100,18 @@ class FiveBandVisualizer(
     internal fun drainMatured5(now: Long) {
         val latency = latencyCompensationMs
         if (latency <= 0L) return
-        while (delayQueue5.isNotEmpty()) {
-            val first = delayQueue5.first()
-            val age = now - first.timeMs
-            if (age >= latency) {
-                delayQueue5.removeFirst()
-                if (age <= latency + 1000L) {
-                    applyBandsDirect(first.b1, first.b2, first.b3, first.b4, first.b5)
+        synchronized(currentLevels) {
+            while (delayQueue5.isNotEmpty()) {
+                val first = delayQueue5.firstOrNull() ?: break
+                val age = now - first.timeMs
+                if (age >= latency) {
+                    delayQueue5.removeFirstOrNull() ?: break
+                    if (age <= latency + 1000L) {
+                        applyBandsDirect(first.b1, first.b2, first.b3, first.b4, first.b5)
+                    }
+                } else {
+                    break
                 }
-            } else {
-                break
             }
         }
     }
