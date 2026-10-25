@@ -91,8 +91,6 @@ internal fun YandexUserPlaylistsTab(
                     PlaylistCardHeader(
                         title = playlist.title,
                         subtitle = playlist.description,
-                        coverUris = listOfNotNull(playlist.coverUri),
-                        coverSize = if (viewModel.isMobileUi) 52.dp else 56.dp,
                         badges = {
                             PlaylistBadge(text = "☁️ Яндекс")
                             PlaylistBadge(
@@ -199,16 +197,17 @@ internal fun YandexUserPlaylistsTab(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    FlowRow(
+                    // Нижний ряд: разворачивание треков слева, скачивание справа
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         TextButton(
                             onClick = {
                                 expandedPlaylistKind = if (isExpanded) null else kind
                             },
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
                         ) {
                             Icon(
@@ -219,43 +218,39 @@ internal fun YandexUserPlaylistsTab(
                             Spacer(modifier = Modifier.width(2.dp))
                             Text(
                                 text = "Треки (${playlist.trackCount})",
-                                style = MaterialTheme.typography.labelSmall
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            if (isThisDownloading) {
-                                OutlinedButton(
-                                    onClick = { viewModel.cancelPlaylistDownload() },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.error
-                                    ),
-                                    modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                                ) {
-                                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Отмена", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = { viewModel.downloadYandexPlaylistToLocal(playlist) },
-                                    enabled = !isAnyDownloading,
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(28.dp).then(
-                                        if (!isAnyDownloading) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier
-                                    )
-                                ) {
-                                    Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Скачать в оффлайн", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                                }
+                        if (isThisDownloading) {
+                            OutlinedButton(
+                                onClick = { viewModel.cancelPlaylistDownload() },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                ),
+                                modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Отмена", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { viewModel.downloadYandexPlaylistToLocal(playlist) },
+                                enabled = !isAnyDownloading,
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp).then(
+                                    if (!isAnyDownloading) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier
+                                )
+                            ) {
+                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Скачать в оффлайн", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                             }
                         }
                     }

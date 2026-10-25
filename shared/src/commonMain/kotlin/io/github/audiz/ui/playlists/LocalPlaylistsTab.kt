@@ -272,11 +272,6 @@ internal fun LocalPlaylistsTab(
                 val isFullyAvailable = availableCount != null && availableCount == playlist.trackCount
                 val isNoneAvailable = availableCount == 0 && playlist.trackCount > 0
                 val isExpanded = expandedPlaylistId == playlist.id
-                val coverUris = produceState(initialValue = emptyList<String>(), playlist.trackPaths) {
-                    value = withContext(DispatcherIO) {
-                        playlist.trackPaths.take(4).map { "local:${resolveLocalPath(it)}" }
-                    }
-                }.value
 
                 PlaylistCardSurface(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -287,9 +282,6 @@ internal fun LocalPlaylistsTab(
                         PlaylistCardHeader(
                             title = playlist.title,
                             subtitle = playlist.description.takeIf { it.isNotBlank() },
-                            coverUris = coverUris,
-                            coverSize = if (viewModel.isMobileUi) 52.dp else 56.dp,
-                            coverIcon = Icons.AutoMirrored.Filled.QueueMusic,
                             badges = {
                                 PlaylistBadge(
                                     text = "${playlist.trackCount} треков",
@@ -326,37 +318,43 @@ internal fun LocalPlaylistsTab(
                             }
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                        // Нижний ряд: YamSync (при нехватке файлов) и разворачивание треков
-                        FlowRow(
+                        // Нижний ряд: действия слева, разворачивание треков справа
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (availableCount != null && !isFullyAvailable && onOpenSync != null) {
-                                OutlinedButton(
-                                    onClick = {
-                                        onDismiss()
-                                        onOpenSync()
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.CloudDownload,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "YamSync",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1
-                                    )
+                            FlowRow(
+                                modifier = Modifier.weight(1f, fill = false),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (availableCount != null && !isFullyAvailable && onOpenSync != null) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onDismiss()
+                                            onOpenSync()
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.CloudDownload,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "YamSync",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1
+                                        )
+                                    }
                                 }
                             }
 
@@ -366,7 +364,7 @@ internal fun LocalPlaylistsTab(
                                     expandedPlaylistId = next
                                     saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
                                 },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                 modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
                             ) {
                                 Icon(
@@ -377,7 +375,9 @@ internal fun LocalPlaylistsTab(
                                 Spacer(modifier = Modifier.width(2.dp))
                                 Text(
                                     text = "Треки (${playlist.trackCount})",
-                                    style = MaterialTheme.typography.labelSmall
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }

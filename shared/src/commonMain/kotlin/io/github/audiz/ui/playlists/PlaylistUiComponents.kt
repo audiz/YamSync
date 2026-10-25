@@ -1,21 +1,18 @@
 package io.github.audiz.ui.playlists
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,105 +22,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.audiz.ui.rememberCoverBitmap
 
 /**
- * 🖼 Обложка плейлиста: одна картинка или мозаика 2×2 из первых треков.
- * Если обложек нет — мягкий градиент с тематической иконкой.
- */
-@Composable
-internal fun PlaylistCover(
-    coverUris: List<String>,
-    modifier: Modifier = Modifier,
-    size: Dp = 60.dp,
-    corner: Dp = 12.dp,
-    fallbackIcon: ImageVector = Icons.AutoMirrored.Filled.QueueMusic
-) {
-    val uris = coverUris.filter { it.isNotBlank() }.take(4)
-
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(RoundedCornerShape(corner))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
-                    )
-                )
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        when {
-            uris.isEmpty() -> Icon(
-                imageVector = fallbackIcon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                modifier = Modifier.size(size * 0.42f)
-            )
-
-            uris.size == 1 -> CoverCell(uris[0], Modifier.fillMaxSize())
-
-            uris.size == 2 -> Row(modifier = Modifier.fillMaxSize()) {
-                CoverCell(uris[0], Modifier.weight(1f).fillMaxSize())
-                CoverCell(uris[1], Modifier.weight(1f).fillMaxSize())
-            }
-
-            uris.size == 3 -> Row(modifier = Modifier.fillMaxSize()) {
-                CoverCell(uris[0], Modifier.weight(1f).fillMaxSize())
-                Column(modifier = Modifier.weight(1f).fillMaxSize()) {
-                    CoverCell(uris[1], Modifier.weight(1f).fillMaxSize())
-                    CoverCell(uris[2], Modifier.weight(1f).fillMaxSize())
-                }
-            }
-
-            else -> Column(modifier = Modifier.fillMaxSize()) {
-                Row(modifier = Modifier.weight(1f).fillMaxSize()) {
-                    CoverCell(uris.getOrNull(0), Modifier.weight(1f).fillMaxSize())
-                    CoverCell(uris.getOrNull(1), Modifier.weight(1f).fillMaxSize())
-                }
-                Row(modifier = Modifier.weight(1f).fillMaxSize()) {
-                    CoverCell(uris.getOrNull(2), Modifier.weight(1f).fillMaxSize())
-                    CoverCell(uris.getOrNull(3), Modifier.weight(1f).fillMaxSize())
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CoverCell(uri: String?, modifier: Modifier = Modifier) {
-    val bitmap = rememberCoverBitmap(uri, size = 160)
-    Box(
-        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        contentAlignment = Alignment.Center
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        }
-    }
-}
-
-/**
- * 🏷 Компактный бейдж-подпись под названием плейлиста.
+ * 🏷 Компактный бейдж-подпись с метаданными плейлиста.
  */
 @Composable
 internal fun PlaylistBadge(
@@ -199,39 +109,47 @@ internal fun PlaylistCardSurface(
 }
 
 /**
- * Шапка карточки плейлиста: обложка + название + описание + бейджи + действия.
+ * Шапка карточки плейлиста: иконка, название и описание слева, действия справа.
+ * Метаданные (бейджи) идут третьей строкой в той же колонке, чтобы ничего не обрезалось.
  */
 @Composable
 internal fun PlaylistCardHeader(
     title: String,
     subtitle: String?,
     modifier: Modifier = Modifier,
-    coverUris: List<String> = emptyList(),
-    coverSize: Dp = 56.dp,
-    coverIcon: ImageVector = Icons.AutoMirrored.Filled.QueueMusic,
+    leadingIcon: ImageVector? = null,
     trailing: @Composable (() -> Unit)? = null,
     badges: @Composable (() -> Unit)? = null
 ) {
     Row(
-        modifier = modifier,
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        PlaylistCover(
-            coverUris = coverUris,
-            size = coverSize,
-            corner = 10.dp,
-            fallbackIcon = coverIcon
-        )
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                if (leadingIcon != null) {
+                    Icon(
+                        imageVector = leadingIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
@@ -243,7 +161,7 @@ internal fun PlaylistCardHeader(
                 )
             }
             if (badges != null) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(3.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
