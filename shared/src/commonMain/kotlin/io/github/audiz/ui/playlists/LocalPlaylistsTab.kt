@@ -275,29 +275,62 @@ internal fun LocalPlaylistsTab(
 
                 PlaylistCardSurface(modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 9.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Верхняя строка: Название плейлиста (вся свободная ширина!) + Правый ряд кнопок
+                        // Верхняя строка: Название и бейджи слева + вертикально отцентрированные действия справа
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = playlist.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(
+                                    text = playlist.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    PlaylistTracksPill(
+                                        trackCount = playlist.trackCount,
+                                        isExpanded = isExpanded,
+                                        onClick = {
+                                            val next = if (isExpanded) null else playlist.id
+                                            expandedPlaylistId = next
+                                            saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
+                                        }
+                                    )
+
+                                    PlaylistSourceBadge(isOffline = true)
+
+                                    if (availableCount != null && !isFullyAvailable) {
+                                        val missingText = if (isNoneAvailable) "нет файлов" else "$availableCount/${playlist.trackCount}"
+                                        Text(
+                                            text = "• $missingText",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
 
                             // Правый ряд действий: [YamSync (если нужен)] [⋮ Меню] [▶ Играть]
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 if (availableCount != null && !isFullyAvailable && onOpenSync != null) {
                                     IconButton(
@@ -329,46 +362,11 @@ internal fun LocalPlaylistsTab(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Нижняя строка: Интерактивная плашка [17 треков ⌄] + статус доступности
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            PlaylistMetaTracksPill(
-                                trackCount = playlist.trackCount,
-                                isExpanded = isExpanded,
-                                onClick = {
-                                    val next = if (isExpanded) null else playlist.id
-                                    expandedPlaylistId = next
-                                    saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
-                                }
-                            )
-
-                            val metaStatus = when {
-                                availableCount == null -> "Оффлайн"
-                                isFullyAvailable -> "Оффлайн"
-                                isNoneAvailable -> "☁️ Нет файлов"
-                                else -> "💾 $availableCount/${playlist.trackCount}"
-                            }
-                            Text(
-                                text = "• $metaStatus",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (isNoneAvailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-
                         // 📜 Разворачивающийся список треков с возможностью удаления
                         if (expandedPlaylistId == playlist.id) {
-                            Spacer(modifier = Modifier.height(8.dp))
                             HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                modifier = Modifier.padding(horizontal = 14.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
                                 thickness = 1.dp
                             )
                             Spacer(modifier = Modifier.height(6.dp))
@@ -378,12 +376,14 @@ internal fun LocalPlaylistsTab(
                                     text = "В плейлисте пока нет треков. Добавьте их из поиска или плеера!",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    modifier = Modifier.padding(vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                                 )
                             } else {
                                 Column(
                                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
                                 ) {
                                     playlist.trackPaths.forEach { trackPath ->
                                         val filename = trackPath
@@ -403,7 +403,7 @@ internal fun LocalPlaylistsTab(
 
                                         Surface(
                                             shape = RoundedCornerShape(8.dp),
-                                            color = MaterialTheme.colorScheme.surface.copy(alpha = if (isFileAvailable) 0.6f else 0.35f),
+                                            color = MaterialTheme.colorScheme.surface.copy(alpha = if (isFileAvailable) 0.55f else 0.3f),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
@@ -427,20 +427,20 @@ internal fun LocalPlaylistsTab(
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    .padding(horizontal = 10.dp, vertical = 5.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                     modifier = Modifier.weight(1f)
                                                 ) {
                                                     Icon(
                                                         imageVector = if (isFileAvailable) Icons.Filled.MusicNote else Icons.Filled.CloudOff,
                                                         contentDescription = null,
                                                         tint = if (isFileAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                                        modifier = Modifier.size(16.dp)
+                                                        modifier = Modifier.size(15.dp)
                                                     )
                                                     Text(
                                                         text = filename,
@@ -463,13 +463,13 @@ internal fun LocalPlaylistsTab(
                                                     onClick = {
                                                         viewModel.removeTrackFromLocalPlaylist(playlist.id, trackPath)
                                                     },
-                                                    modifier = Modifier.size(26.dp).pointerHoverIcon(PointerIcon.Hand)
+                                                    modifier = Modifier.size(24.dp).pointerHoverIcon(PointerIcon.Hand)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Filled.Close,
                                                         contentDescription = "Убрать из плейлиста",
                                                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                                        modifier = Modifier.size(16.dp)
+                                                        modifier = Modifier.size(15.dp)
                                                     )
                                                 }
                                             }

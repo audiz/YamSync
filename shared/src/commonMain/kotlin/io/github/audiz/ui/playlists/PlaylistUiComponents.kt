@@ -92,7 +92,21 @@ internal fun PlaylistArtwork(
 }
 
 /**
- * 🏷 Компактная кнопка-чип с количеством треков и шевроном разворачивания.
+ * Склонение числительных (1 трек, 2..4 трека, 5..19 треков).
+ */
+internal fun formatTrackPlural(count: Int): String {
+    val rem10 = count % 10
+    val rem100 = count % 100
+    return when {
+        rem100 in 11..19 -> "$count треков"
+        rem10 == 1 -> "$count трек"
+        rem10 in 2..4 -> "$count трека"
+        else -> "$count треков"
+    }
+}
+
+/**
+ * 🏷 Интерактивная плашка раскрытия треков в стиле макета: [🎵 17 треков ⌄]
  */
 @Composable
 internal fun PlaylistTracksPill(
@@ -103,28 +117,37 @@ internal fun PlaylistTracksPill(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
         modifier = modifier
-            .height(28.dp)
+            .height(24.dp)
             .pointerHoverIcon(PointerIcon.Hand)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            Icon(
+                imageVector = Icons.Filled.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(13.dp)
+            )
             Text(
-                text = "$trackCount",
+                text = formatTrackPlural(trackCount),
                 style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                fontWeight = FontWeight.Medium,
+                fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                softWrap = false
             )
             Icon(
                 imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                 contentDescription = if (isExpanded) "Свернуть треки" else "Развернуть треки",
-                tint = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(14.dp)
             )
         }
@@ -132,44 +155,38 @@ internal fun PlaylistTracksPill(
 }
 
 /**
- * 🏷 Интерактивная плашка раскрытия треков внутри строки подзаголовка карточки.
+ * 🏷 Бейдж источника: [☁️ Оффлайн] / [☁️ Яндекс]
  */
 @Composable
-internal fun PlaylistMetaTracksPill(
-    trackCount: Int,
-    isExpanded: Boolean,
-    onClick: () -> Unit,
+internal fun PlaylistSourceBadge(
+    isOffline: Boolean,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        onClick = onClick,
         shape = RoundedCornerShape(6.dp),
-        color = if (isExpanded) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
-        border = BorderStroke(
-            1.dp,
-            if (isExpanded) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-        ),
-        modifier = modifier
-            .height(22.dp)
-            .pointerHoverIcon(PointerIcon.Hand)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
+        modifier = modifier.height(24.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = "$trackCount треков",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                fontSize = 11.sp,
-                color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
             Icon(
-                imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = if (isExpanded) "Свернуть треки" else "Развернуть треки",
-                tint = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                imageVector = if (isOffline) Icons.Filled.CloudOff else Icons.Filled.CloudQueue,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                 modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = if (isOffline) "Оффлайн" else "Яндекс",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Normal,
+                fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -317,11 +334,13 @@ internal fun PlaylistPlayButton(
 }
 
 /**
- * 🎴 Единый контейнер карточки плейлиста: мягкая подложка + тонкая рамка.
+ * 🎴 Единый контейнер карточки плейлиста: мягкая подложка + изумрудная полоска слева + тонкая рамка.
  */
 @Composable
 internal fun PlaylistCardSurface(
     modifier: Modifier = Modifier,
+    hasAccentStripe: Boolean = true,
+    stripeColor: Color = MaterialTheme.colorScheme.primary,
     content: @Composable () -> Unit
 ) {
     Surface(
@@ -331,9 +350,26 @@ internal fun PlaylistCardSurface(
         border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
-        ),
-        content = content
-    )
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            if (hasAccentStripe) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(12.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.5.dp)
+                            .fillMaxHeight()
+                            .background(stripeColor)
+                    )
+                }
+            }
+            content()
+        }
+    }
 }
 
 /**

@@ -89,40 +89,58 @@ internal fun YandexUserPlaylistsTab(
 
             PlaylistCardSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Верхняя строка: Название плейлиста (вся свободная ширина!) + Правый блок кнопок
+                    // Верхняя строка: Название и бейджи слева + вертикально отцентрированные действия справа
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = playlist.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                text = playlist.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
 
-                        // Правый ряд действий: [⬇ Скачать / ✕ Отмена] [⋮ Меню] [▶ Играть]
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                PlaylistTracksPill(
+                                    trackCount = playlist.trackCount,
+                                    isExpanded = isExpanded,
+                                    onClick = {
+                                        expandedPlaylistKind = if (isExpanded) null else kind
+                                    }
+                                )
+
+                                PlaylistSourceBadge(isOffline = false)
+                            }
+                        }
+
+                        // Правый ряд действий: [⬇ Скачать / Спиннер] [⋮ Меню] [▶ Играть]
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             if (isThisDownloading) {
-                                IconButton(
-                                    onClick = { viewModel.cancelPlaylistDownload() },
-                                    modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand)
+                                Box(
+                                    modifier = Modifier.size(28.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Close,
-                                        contentDescription = "Отменить скачивание",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(17.dp)
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             } else {
@@ -137,7 +155,7 @@ internal fun YandexUserPlaylistsTab(
                                         imageVector = Icons.Filled.Download,
                                         contentDescription = "Скачать плейлист в оффлайн",
                                         tint = if (!isAnyDownloading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                                        modifier = Modifier.size(17.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
@@ -155,39 +173,14 @@ internal fun YandexUserPlaylistsTab(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Нижняя строка: Интерактивная плашка [40 треков ⌄] + "• Яндекс Музыка"
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        PlaylistMetaTracksPill(
-                            trackCount = playlist.trackCount,
-                            isExpanded = isExpanded,
-                            onClick = {
-                                expandedPlaylistKind = if (isExpanded) null else kind
-                            }
-                        )
-
-                        Text(
-                            text = "• Яндекс Музыка",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
                     // 📥 Статус-бар скачивания плейлиста в оффлайн (если активен)
                     if (downloadProgress != null && isThisDownloading) {
-                        Spacer(modifier = Modifier.height(8.dp))
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
                         ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
@@ -260,9 +253,9 @@ internal fun YandexUserPlaylistsTab(
 
                     // 📜 Разворачивающийся список треков облачного плейлиста
                     if (isExpanded) {
-                        Spacer(modifier = Modifier.height(8.dp))
                         HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
                             thickness = 1.dp
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -281,18 +274,20 @@ internal fun YandexUserPlaylistsTab(
                                 text = "В плейлисте пока нет треков. Добавьте их из поиска или плеера!",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                             )
                         } else {
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
                             ) {
                                 cachedTracks.forEach { item ->
                                     val isDeleting = isDeletingTrackMap[item.id] == true
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clickable {
@@ -304,22 +299,22 @@ internal fun YandexUserPlaylistsTab(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                .padding(horizontal = 10.dp, vertical = 5.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                 modifier = Modifier.weight(1f)
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Filled.MusicNote,
                                                     contentDescription = null,
                                                     tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(16.dp)
+                                                    modifier = Modifier.size(15.dp)
                                                 )
-                                                Column {
+                                                Column(modifier = Modifier.weight(1f)) {
                                                     Text(
                                                         text = item.title.ifBlank { "Трек #${item.id}" },
                                                         style = MaterialTheme.typography.bodySmall,
@@ -364,13 +359,13 @@ internal fun YandexUserPlaylistsTab(
                                                             }
                                                         }
                                                     },
-                                                    modifier = Modifier.size(26.dp).pointerHoverIcon(PointerIcon.Hand)
+                                                    modifier = Modifier.size(24.dp).pointerHoverIcon(PointerIcon.Hand)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Filled.Close,
                                                         contentDescription = "Убрать из плейлиста",
                                                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                                        modifier = Modifier.size(16.dp)
+                                                        modifier = Modifier.size(15.dp)
                                                     )
                                                 }
                                             }
