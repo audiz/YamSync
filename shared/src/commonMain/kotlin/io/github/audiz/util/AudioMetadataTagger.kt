@@ -416,7 +416,7 @@ object AudioMetadataTagger {
         var pos = start
         while (pos + 8 <= end) {
             val sizeRaw = readInt32Be(data, pos).toLong() and 0xFFFFFFFFL
-            val typeStr = String(data, pos + 4, 4, Charsets.UTF_8)
+            val typeStr = data.decodeToString(startIndex = pos + 4, endIndex = pos + 8)
             val (boxSize, headerSize) = when (sizeRaw) {
                 1L -> {
                     if (pos + 16 > end) break

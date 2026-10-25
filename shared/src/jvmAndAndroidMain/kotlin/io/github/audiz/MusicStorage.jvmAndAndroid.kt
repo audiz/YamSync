@@ -634,7 +634,9 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
                             val path = item.realId?.ifBlank { item.id.removePrefix("local:") } ?: item.id.removePrefix("local:")
                             val mf = File(path)
                             if (mf.exists() && mf.isFile) {
-                                index.putIfAbsent(name, mf)
+                                if (!index.containsKey(name)) {
+                                    index[name] = mf
+                                }
                             }
                         }
                         cachedNameIndex = index
