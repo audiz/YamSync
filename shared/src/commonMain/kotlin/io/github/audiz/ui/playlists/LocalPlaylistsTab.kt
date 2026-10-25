@@ -357,7 +357,7 @@ internal fun LocalPlaylistsTab(
 
                                 PlaylistPlayButton(
                                     onClick = { onOpenPlaylist(playlist) },
-                                    buttonSize = 34.dp
+                                    buttonSize = 28.dp
                                 )
                             }
                         }

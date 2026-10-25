@@ -80,7 +80,7 @@ internal fun CustomSourceCard(
 
                         PlaylistPlayButton(
                             onClick = onOpen,
-                            buttonSize = if (compactActions) 34.dp else 38.dp
+                            buttonSize = if (compactActions) 28.dp else 32.dp
                         )
 
                         PlaylistActionGroup(

@@ -3,6 +3,7 @@ package io.github.audiz.ui.playlists
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -312,23 +313,25 @@ internal fun PlaylistBadge(
 internal fun PlaylistPlayButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    buttonSize: Dp = 34.dp
+    buttonSize: Dp = 28.dp
 ) {
-    IconButton(
-        onClick = onClick,
+    Box(
         modifier = modifier
             .size(buttonSize)
+            .clip(CircleShape)
             .background(
                 color = MaterialTheme.colorScheme.primary,
                 shape = CircleShape
             )
-            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand),
+        contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = Icons.Filled.PlayArrow,
             contentDescription = "Слушать",
             tint = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.size(buttonSize * 0.58f)
+            modifier = Modifier.size(buttonSize * 0.55f)
         )
     }
 }
