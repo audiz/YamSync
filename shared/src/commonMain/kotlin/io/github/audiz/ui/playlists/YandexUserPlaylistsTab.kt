@@ -82,63 +82,43 @@ internal fun YandexUserPlaylistsTab(
                 }
             }
 
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            PlaylistCardSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp)
+                        .padding(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(
-                                text = playlist.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                    PlaylistCardHeader(
+                        title = playlist.title,
+                        subtitle = playlist.description,
+                        coverUris = listOfNotNull(playlist.coverUri),
+                        coverSize = if (viewModel.isMobileUi) 52.dp else 56.dp,
+                        badges = {
+                            PlaylistBadge(text = "☁️ Яндекс")
+                            PlaylistBadge(
+                                text = "${playlist.trackCount} треков",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                containerAlpha = 0.10f
                             )
-                            val desc = playlist.description
-                            if (!desc.isNullOrBlank()) {
-                                Text(
-                                    text = desc,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                        },
+                        trailing = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (kind != null) {
+                                    PlaylistActionGroup(
+                                        onEdit = { onRenameClick(playlist) },
+                                        compact = !viewModel.isMobileUi
+                                    )
+                                }
+                                PlaylistPlayButton(
+                                    onClick = { onOpenPlaylist(playlist) },
+                                    buttonSize = if (viewModel.isMobileUi) 42.dp else 38.dp
                                 )
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "☁️ Яндекс • ${playlist.trackCount} треков",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                softWrap = false
-                            )
                         }
-
-                        IconButton(
-                            onClick = { onOpenPlaylist(playlist) },
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayCircle,
-                                contentDescription = "Слушать",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-                    }
+                    )
 
                     // 📥 Статус-бар скачивания плейлиста в оффлайн
                     if (downloadProgress != null && isThisDownloading) {
@@ -219,10 +199,10 @@ internal fun YandexUserPlaylistsTab(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         TextButton(
                             onClick = {
@@ -245,15 +225,9 @@ internal fun YandexUserPlaylistsTab(
 
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f, fill = false)
                         ) {
-                            if (kind != null) {
-                                PlaylistActionGroup(
-                                    onEdit = { onRenameClick(playlist) },
-                                    compact = !viewModel.isMobileUi
-                                )
-                            }
-
                             if (isThisDownloading) {
                                 OutlinedButton(
                                     onClick = { viewModel.cancelPlaylistDownload() },

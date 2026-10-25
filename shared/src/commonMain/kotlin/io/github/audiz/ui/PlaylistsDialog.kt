@@ -37,7 +37,7 @@ fun PlaylistsDialog(
     onOpenSync: (() -> Unit)? = null
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("💾 Локальные", "☁️ Яндекс", "✨ Подборки")
+    val tabs = listOf("💾 Локальные", "☁️ Яндекс")
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var showAddSourceDialog by remember { mutableStateOf(false) }
@@ -243,13 +243,6 @@ fun PlaylistsDialog(
                                     onDismiss()
                                 },
                                 onRenameClick = { yandexPlaylistToRename = it }
-                            )
-                            2 -> YandexCuratedTab(
-                                viewModel = viewModel,
-                                onOpenPlaylist = { uuid, title ->
-                                    viewModel.loadPlaylistByUuid(uuid, title)
-                                    onDismiss()
-                                }
                             )
                         }
                     }

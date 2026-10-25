@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -19,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.audiz.AppConfigKeys
+import io.github.audiz.DispatcherIO
 import io.github.audiz.SearchViewModel
 import io.github.audiz.loadAppConfig
 import io.github.audiz.localFileExists
@@ -251,139 +253,88 @@ internal fun LocalPlaylistsTab(
             }
         } else {
             itemsIndexed(viewModel.localPlaylists, key = { index, playlist -> "playlist_${playlist.id}_$index" }) { index, playlist ->
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                // Проверка наличия файлов и путей к обложкам — вне UI-потока
+                val availability = produceState(initialValue = null as Int?, playlist.trackPaths) {
+                    value = withContext(DispatcherIO) {
+                        try {
+                            playlist.trackPaths.count { path ->
+                                localFileExists(resolveLocalPath(path)) || run {
+                                    val fn = path.substringAfterLast('/').substringAfterLast('\\')
+                                    fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
+                                }
+                            }
+                        } catch (_: Throwable) {
+                            0
+                        }
+                    }
+                }.value
+                val availableCount = availability
+                val isFullyAvailable = availableCount != null && availableCount == playlist.trackCount
+                val isNoneAvailable = availableCount == 0 && playlist.trackCount > 0
+                val isExpanded = expandedPlaylistId == playlist.id
+                val coverUris = produceState(initialValue = emptyList<String>(), playlist.trackPaths) {
+                    value = withContext(DispatcherIO) {
+                        playlist.trackPaths.take(4).map { "local:${resolveLocalPath(it)}" }
+                    }
+                }.value
+
+                PlaylistCardSurface(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp)
+                            .padding(10.dp)
                     ) {
-                        val availableCount = remember(playlist.trackPaths) {
-                            try {
-                                playlist.trackPaths.count { path ->
-                                    localFileExists(resolveLocalPath(path)) || run {
-                                        val fn = path.substringAfterLast('/').substringAfterLast('\\')
-                                        fn.isNotBlank() && localFileExists(resolveLocalPath(fn))
-                                    }
-                                }
-                            } catch (_: Throwable) {
-                                0
-                            }
-                        }
-                        val isFullyAvailable = availableCount == playlist.trackCount
-                        val isNoneAvailable = availableCount == 0 && playlist.trackCount > 0
-
-                        // Верхний ряд: Название + бэдж + кнопки действий (Редактировать, Удалить, Слушать)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                Text(
-                                    text = playlist.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                        PlaylistCardHeader(
+                            title = playlist.title,
+                            subtitle = playlist.description.takeIf { it.isNotBlank() },
+                            coverUris = coverUris,
+                            coverSize = if (viewModel.isMobileUi) 52.dp else 56.dp,
+                            coverIcon = Icons.AutoMirrored.Filled.QueueMusic,
+                            badges = {
+                                PlaylistBadge(
+                                    text = "${playlist.trackCount} треков",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    containerAlpha = 0.10f
                                 )
-                                if (playlist.description.isNotBlank()) {
-                                    Text(
-                                        text = playlist.description,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = when {
-                                        isFullyAvailable -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                        else -> MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
-                                    }
-                                ) {
-                                    Text(
+                                if (availableCount != null) {
+                                    PlaylistBadge(
                                         text = when {
-                                            isFullyAvailable -> "💾 Оффлайн: ${playlist.trackCount} треков"
-                                            isNoneAvailable -> "☁️ Файлы не скачаны (${playlist.trackCount})"
-                                            else -> "💾 Оффлайн: $availableCount/${playlist.trackCount}"
+                                            isFullyAvailable -> "💾 Оффлайн"
+                                            isNoneAvailable -> "☁️ Нет файлов"
+                                            else -> "💾 $availableCount/${playlist.trackCount}"
                                         },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = when {
-                                            isFullyAvailable -> MaterialTheme.colorScheme.primary
-                                            else -> MaterialTheme.colorScheme.error
-                                        },
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        tint = if (isFullyAvailable) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.error
                                     )
                                 }
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                // Группа действий: редактировать + удалить
-                                PlaylistActionGroup(
-                                    onEdit = { onRenameClick(playlist) },
-                                    onDelete = { onDeleteClick(playlist) },
-                                    compact = !viewModel.isMobileUi
-                                )
-
-                                // Кнопка воспроизведения
-                                IconButton(
-                                    onClick = { onOpenPlaylist(playlist) },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .pointerHoverIcon(PointerIcon.Hand)
+                            },
+                            trailing = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayCircle,
-                                        contentDescription = "Слушать",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp)
+                                    PlaylistActionGroup(
+                                        onEdit = { onRenameClick(playlist) },
+                                        onDelete = { onDeleteClick(playlist) },
+                                        compact = !viewModel.isMobileUi
+                                    )
+                                    PlaylistPlayButton(
+                                        onClick = { onOpenPlaylist(playlist) },
+                                        buttonSize = if (viewModel.isMobileUi) 42.dp else 38.dp
                                     )
                                 }
                             }
-                        }
+                        )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        // Нижний ряд: Экспорт .m3u8, YamSync, Кнопка разворачивания треков
+                        // Нижний ряд: YamSync (при нехватке файлов) и разворачивание треков
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            OutlinedButton(
-                                onClick = { viewModel.exportLocalPlaylist(playlist.id) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.FileDownload,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "M3U8",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1
-                                )
-                            }
-
-                            if (!isFullyAvailable && onOpenSync != null) {
+                            if (availableCount != null && !isFullyAvailable && onOpenSync != null) {
                                 OutlinedButton(
                                     onClick = {
                                         onDismiss()
@@ -411,7 +362,7 @@ internal fun LocalPlaylistsTab(
 
                             TextButton(
                                 onClick = {
-                                    val next = if (expandedPlaylistId == playlist.id) null else playlist.id
+                                    val next = if (isExpanded) null else playlist.id
                                     expandedPlaylistId = next
                                     saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
                                 },
@@ -419,7 +370,7 @@ internal fun LocalPlaylistsTab(
                                 modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
                             ) {
                                 Icon(
-                                    imageVector = if (expandedPlaylistId == playlist.id) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -430,6 +381,7 @@ internal fun LocalPlaylistsTab(
                                 )
                             }
                         }
+
 
                         // 📜 Разворачивающийся список треков с возможностью удаления
                         if (expandedPlaylistId == playlist.id) {
