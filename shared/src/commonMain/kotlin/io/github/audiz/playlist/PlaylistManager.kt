@@ -37,9 +37,24 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * 📥 Модель состояния активного прогресса скачивания плейлиста в оффлайн
+ */
+data class PlaylistDownloadProgress(
+    val playlistId: String,
+    val playlistTitle: String,
+    val downloadedCount: Int = 0,
+    val totalCount: Int = 0,
+    val currentTrackTitle: String = "",
+    val skippedCount: Int = 0,
+    val isIndeterminate: Boolean = false
+)
 
 /**
  * 📂 Менеджер плейлистов и пользовательских отметок (Лайки/Дизлайки).
@@ -70,6 +85,25 @@ class PlaylistManager(
                 if (t is CancellationException) throw t
                 AppLogger.e("PlaylistManager", "❌ Error in safe coroutine: ${t.message}")
             }
+        }
+    }
+
+    // 📥 Активное состояние скачивания плейлиста в оффлайн
+    var activeDownloadProgress by mutableStateOf<PlaylistDownloadProgress?>(null)
+        private set
+
+    private var activeDownloadJob: Job? = null
+
+    /**
+     * ⏹️ Отменить текущее активное скачивание плейлиста
+     */
+    fun cancelPlaylistDownload() {
+        val current = activeDownloadProgress
+        activeDownloadJob?.cancel()
+        activeDownloadJob = null
+        activeDownloadProgress = null
+        if (current != null) {
+            onStatusMessage("⏹️ Скачивание плейлиста '${current.playlistTitle}' отменено")
         }
     }
 
@@ -805,73 +839,169 @@ class PlaylistManager(
      * 💾 Скачать весь плейлист из Яндекс Музыки в локальный оффлайн-плейлист
      */
     fun downloadYandexPlaylistToLocal(playlist: PlaylistInfo) {
-        launchSafe {
-            onStatusMessage("⏳ Подготовка скачивания плейлиста '${playlist.title}'...")
-            var localPl = localPlaylists.firstOrNull { it.title.equals(playlist.title, ignoreCase = true) }
-            if (localPl == null) {
-                localPl = createLocalPlaylist(playlist.title, playlist.description ?: "")
-            }
+        if (activeDownloadJob?.isActive == true) {
+            onStatusMessage("⚠️ Уже выполняется скачивание другого плейлиста (${activeDownloadProgress?.playlistTitle})")
+            return
+        }
 
-            val trackIds = try {
-                val uuid = playlist.playlistUuid
-                if (!uuid.isNullOrBlank()) {
-                    repository.getPlaylistTrackIdsByUuid(uuid)
-                } else {
-                    val kind = playlist.kind ?: 0L
-                    repository.getPlaylistTrackIds(playlist.uid, kind)
-                }
-            } catch (e: Throwable) {
-                if (e is CancellationException) throw e
-                onStatusMessage("❌ Ошибка получения треков плейлиста: ${e.message}")
-                return@launchSafe
-            }
+        val playlistKey = playlist.kind?.toString() ?: playlist.playlistUuid ?: playlist.title
 
-            if (trackIds.isEmpty()) {
-                onStatusMessage("ℹ️ Плейлист пуст")
-                return@launchSafe
-            }
+        activeDownloadProgress = PlaylistDownloadProgress(
+            playlistId = playlistKey,
+            playlistTitle = playlist.title,
+            downloadedCount = 0,
+            totalCount = 0,
+            currentTrackTitle = "Получение списка треков...",
+            skippedCount = 0,
+            isIndeterminate = true
+        )
 
-            onStatusMessage("📥 Скачивание плейлиста: 0/${trackIds.size}")
+        activeDownloadJob = scope.launch(Dispatchers.Main + coroutineExceptionHandler) {
             var downloadedCount = 0
-            val existingPaths = localPl.trackPaths.toMutableSet()
+            var skippedCount = 0
+            try {
+                onStatusMessage("⏳ Подготовка скачивания плейлиста '${playlist.title}'...")
+                var localPl = localPlaylists.firstOrNull { it.title.equals(playlist.title, ignoreCase = true) }
+                if (localPl == null) {
+                    localPl = createLocalPlaylist(playlist.title, playlist.description ?: "")
+                }
 
-            for (chunk in trackIds.chunked(50)) {
-                try {
-                    val fullTracks = repository.getTracksDetails(chunk).result
-                    val chunkPaths = mutableListOf<String>()
-                    for (track in fullTracks) {
-                        val artist = track.artists.firstOrNull()?.name ?: "Unknown Artist"
-                        val path = downloadManager.ensureTrackFile(track.id, track.title, artist)
-                        if (path != null) {
-                            if (existingPaths.add(path)) {
-                                chunkPaths.add(path)
-                            }
-                            downloadedCount++
-                            onStatusMessage("📥 Скачивание: $downloadedCount/${trackIds.size} (${track.title})")
-                        }
-                    }
-                    if (chunkPaths.isNotEmpty()) {
-                        val idx = localPlaylists.indexOfFirst { it.id == localPl.id }
-                        if (idx >= 0) {
-                            val cur = localPlaylists[idx]
-                            localPlaylists[idx] = cur.copy(
-                                trackPaths = cur.trackPaths + chunkPaths,
-                                updatedAt = currentTimeMillis()
-                            )
-                        }
+                val rawTrackIds = try {
+                    val uuid = playlist.playlistUuid
+                    if (!uuid.isNullOrBlank()) {
+                        repository.getPlaylistTrackIdsByUuid(uuid)
+                    } else {
+                        val kind = playlist.kind ?: 0L
+                        repository.getPlaylistTrackIds(playlist.uid, kind)
                     }
                 } catch (e: Throwable) {
                     if (e is CancellationException) throw e
-                    println("PlaylistManager: Ошибка пачки скачивания: ${e.message}")
+                    onStatusMessage("❌ Ошибка получения треков плейлиста: ${e.message}")
+                    return@launch
                 }
-            }
 
-            val storagePath = getMusicStoragePath()
-            withContext(DispatcherIO) {
-                saveLocalPlaylists(storagePath, localPlaylists.toList())
-                notifyLocalPlaylistsChanged()
+                // Дедуплицируем треки по базовому ID, исключая повторы
+                val cleanTrackIdList = mutableListOf<String>()
+                val seenTrackIds = mutableSetOf<String>()
+                for (raw in rawTrackIds) {
+                    val trimmed = raw.trim()
+                    if (trimmed.isBlank()) continue
+                    val baseId = trimmed.substringBefore(":")
+                    if (seenTrackIds.add(baseId)) {
+                        cleanTrackIdList.add(trimmed)
+                    }
+                }
+
+                if (cleanTrackIdList.isEmpty()) {
+                    onStatusMessage("ℹ️ В плейлисте нет треков")
+                    return@launch
+                }
+
+                val totalTracks = cleanTrackIdList.size
+                activeDownloadProgress = activeDownloadProgress?.copy(
+                    totalCount = totalTracks,
+                    isIndeterminate = false,
+                    currentTrackTitle = ""
+                )
+                onStatusMessage("📥 Скачивание плейлиста: 0/$totalTracks")
+
+                val existingPaths = localPl.trackPaths.toMutableSet()
+
+                // Скачивание порциями строго до 10 треков за раз
+                for (chunk in cleanTrackIdList.chunked(10)) {
+                    ensureActive()
+                    try {
+                        val detailsResp = repository.getTracksDetails(chunk)
+                        val fullTracks = detailsResp.result
+                        val fullTracksMap = fullTracks.associateBy { it.id.substringBefore(":") }
+
+                        val batchInfoMap = downloadManager.getBatchTrackDownloadInfo(chunk)
+
+                        val chunkPaths = mutableListOf<String>()
+
+                        for (rawId in chunk) {
+                            ensureActive()
+                            val baseId = rawId.substringBefore(":")
+                            val track = fullTracksMap[baseId] ?: fullTracks.firstOrNull { it.id == rawId }
+
+                            if (track == null) {
+                                skippedCount++
+                                activeDownloadProgress = activeDownloadProgress?.copy(
+                                    skippedCount = skippedCount
+                                )
+                                continue
+                            }
+
+                            val artist = track.artists.firstOrNull()?.name ?: "Unknown Artist"
+                            activeDownloadProgress = activeDownloadProgress?.copy(
+                                currentTrackTitle = "$artist — ${track.title}"
+                            )
+
+                            val batchInfo = batchInfoMap[baseId] ?: batchInfoMap[rawId] ?: batchInfoMap[track.id]
+                            val path = downloadManager.ensureTrackFileWithInfo(
+                                trackId = track.id,
+                                trackTitle = track.title,
+                                artistName = artist,
+                                batchInfo = batchInfo,
+                                albumTitle = track.albums.firstOrNull()?.title,
+                                year = track.albums.firstOrNull()?.year?.toString(),
+                                coverUri = track.coverUri
+                            )
+
+                            if (path != null) {
+                                if (existingPaths.add(path)) {
+                                    chunkPaths.add(path)
+                                }
+                                downloadedCount++
+                            } else {
+                                skippedCount++
+                            }
+
+                            activeDownloadProgress = activeDownloadProgress?.copy(
+                                downloadedCount = downloadedCount,
+                                skippedCount = skippedCount
+                            )
+                            onStatusMessage("📥 Скачивание: $downloadedCount/$totalTracks ($artist — ${track.title})")
+                        }
+
+                        if (chunkPaths.isNotEmpty()) {
+                            val idx = localPlaylists.indexOfFirst { it.id == localPl.id }
+                            if (idx >= 0) {
+                                val cur = localPlaylists[idx]
+                                localPlaylists[idx] = cur.copy(
+                                    trackPaths = (cur.trackPaths + chunkPaths).distinct(),
+                                    updatedAt = currentTimeMillis()
+                                )
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
+                        AppLogger.e("PlaylistManager", "Ошибка пачки скачивания: ${e.message}")
+                    }
+                }
+
+                val statusText = if (skippedCount > 0) {
+                    "✅ Плейлист '${playlist.title}' сохранён ($downloadedCount скачано, $skippedCount недоступно)"
+                } else {
+                    "✅ Плейлист '${playlist.title}' полностью сохранён ($downloadedCount треков)!"
+                }
+                onStatusMessage(statusText)
+            } catch (e: CancellationException) {
+                AppLogger.d("PlaylistManager", "Скачивание плейлиста '${playlist.title}' прервано")
+                throw e
+            } catch (e: Throwable) {
+                onStatusMessage("❌ Ошибка при скачивании плейлиста: ${e.message}")
+            } finally {
+                withContext(NonCancellable) {
+                    val storagePath = getMusicStoragePath()
+                    withContext(DispatcherIO) {
+                        saveLocalPlaylists(storagePath, localPlaylists.toList())
+                        notifyLocalPlaylistsChanged()
+                    }
+                }
+                activeDownloadProgress = null
+                activeDownloadJob = null
             }
-            onStatusMessage("✅ Плейлист '${playlist.title}' полностью сохранён ($downloadedCount треков)!")
         }
     }
 

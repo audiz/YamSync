@@ -117,6 +117,16 @@ class MusicRepository(
     ): DownloadedTrackAudio =
         mediaStreamClient.downloadTrackAudio(trackId, quality, customTimestamp)
 
+    suspend fun getBatchTrackDownloadInfo(
+        trackIds: List<String>,
+        quality: String = "1",
+        customTimestamp: String? = null
+    ): Map<String, BatchTrackDownloadInfo> =
+        mediaStreamClient.getBatchTrackDownloadInfo(trackIds, quality, customTimestamp)
+
+    suspend fun downloadTrackAudioFromInfo(info: BatchTrackDownloadInfo): DownloadedTrackAudio =
+        mediaStreamClient.downloadTrackAudioFromInfo(info)
+
     suspend fun getTrackStreamMeta(
         trackId: String,
         quality: String = "1",

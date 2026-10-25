@@ -68,6 +68,10 @@ internal fun YandexUserPlaylistsTab(
         itemsIndexed(viewModel.userPlaylists, key = { index, playlist -> "yandex_pl_${playlist.kind ?: playlist.uid}_$index" }) { index, playlist ->
             val kind = playlist.kind
             val isExpanded = expandedPlaylistKind == kind
+            val playlistKey = playlist.kind?.toString() ?: playlist.playlistUuid ?: playlist.title
+            val downloadProgress = viewModel.activePlaylistDownloadProgress
+            val isThisDownloading = downloadProgress != null && downloadProgress.playlistId == playlistKey
+            val isAnyDownloading = downloadProgress != null
 
             LaunchedEffect(isExpanded, kind) {
                 if (isExpanded && kind != null && !yandexPlaylistTracksCache.containsKey(kind)) {
@@ -136,6 +140,83 @@ internal fun YandexUserPlaylistsTab(
                         }
                     }
 
+                    // 📥 Статус-бар скачивания плейлиста в оффлайн
+                    if (downloadProgress != null && isThisDownloading) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val progressTitle = if (downloadProgress.totalCount > 0) {
+                                        val skippedInfo = if (downloadProgress.skippedCount > 0) " (пропущено ${downloadProgress.skippedCount})" else ""
+                                        "Скачивание: ${downloadProgress.downloadedCount}/${downloadProgress.totalCount}$skippedInfo"
+                                    } else {
+                                        "Подготовка списка треков..."
+                                    }
+
+                                    Text(
+                                        text = progressTitle,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    IconButton(
+                                        onClick = { viewModel.cancelPlaylistDownload() },
+                                        modifier = Modifier.size(24.dp).pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "Отменить скачивание",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                if (downloadProgress.isIndeterminate || downloadProgress.totalCount <= 0) {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    val fraction = (downloadProgress.downloadedCount + downloadProgress.skippedCount).toFloat() / downloadProgress.totalCount.toFloat()
+                                    LinearProgressIndicator(
+                                        progress = { fraction.coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                }
+
+                                if (downloadProgress.currentTrackTitle.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = downloadProgress.currentTrackTitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Row(
@@ -180,15 +261,34 @@ internal fun YandexUserPlaylistsTab(
                                 }
                             }
 
-                            OutlinedButton(
-                                onClick = { viewModel.downloadYandexPlaylistToLocal(playlist) },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                            ) {
-                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Скачать в оффлайн", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            if (isThisDownloading) {
+                                OutlinedButton(
+                                    onClick = { viewModel.cancelPlaylistDownload() },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    ),
+                                    modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
+                                ) {
+                                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Отмена", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { viewModel.downloadYandexPlaylistToLocal(playlist) },
+                                    enabled = !isAnyDownloading,
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp).then(
+                                        if (!isAnyDownloading) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier
+                                    )
+                                ) {
+                                    Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Скачать в оффлайн", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                }
                             }
                         }
                     }

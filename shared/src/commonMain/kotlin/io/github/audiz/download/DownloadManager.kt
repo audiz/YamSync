@@ -17,6 +17,7 @@ import io.github.audiz.saveAppConfig
 import io.github.audiz.saveFileToDirectPath
 import io.github.audiz.saveTrackFile
 import io.github.audiz.saveTrackToFolder
+import io.github.audiz.models.BatchTrackDownloadInfo
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.trackFileExists
@@ -375,6 +376,27 @@ class DownloadManager(
         albumTitle: String? = null,
         year: String? = null,
         coverUri: String? = null
+    ): String? = ensureTrackFileWithInfo(
+        trackId = trackId,
+        trackTitle = trackTitle,
+        artistName = artistName,
+        batchInfo = null,
+        albumTitle = albumTitle,
+        year = year,
+        coverUri = coverUri
+    )
+
+    /**
+     * ⚡ Гарантирует наличие файла трека на диске с возможностью использования уже предзагруженного BatchTrackDownloadInfo
+     */
+    suspend fun ensureTrackFileWithInfo(
+        trackId: String,
+        trackTitle: String,
+        artistName: String,
+        batchInfo: BatchTrackDownloadInfo? = null,
+        albumTitle: String? = null,
+        year: String? = null,
+        coverUri: String? = null
     ): String? {
         if (trackId.startsWith("local:")) {
             val localPath = trackId.removePrefix("local:")
@@ -386,7 +408,11 @@ class DownloadManager(
 
         return try {
             val quality = getSelectedQuality()
-            val audioData = repository.downloadTrackAudio(trackId, quality = quality)
+            val audioData = if (batchInfo != null) {
+                repository.downloadTrackAudioFromInfo(batchInfo)
+            } else {
+                repository.downloadTrackAudio(trackId, quality = quality)
+            }
 
             val rawExtension = audioData.type.substringBefore("-")
             val extension = if (rawExtension.equals("aac", ignoreCase = true)) "m4a" else rawExtension
@@ -426,6 +452,14 @@ class DownloadManager(
             println("DownloadManager: Ошибка при подготовке файла трека: ${e.message}")
             null
         }
+    }
+
+    /**
+     * ⚡ Запрос ссылок аудиопотоков батчем (порциями до 10 треков)
+     */
+    suspend fun getBatchTrackDownloadInfo(trackIds: List<String>): Map<String, BatchTrackDownloadInfo> {
+        val quality = getSelectedQuality()
+        return repository.getBatchTrackDownloadInfo(trackIds, quality = quality)
     }
 
     /**

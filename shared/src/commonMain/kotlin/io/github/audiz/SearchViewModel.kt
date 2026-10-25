@@ -20,6 +20,7 @@ import io.github.audiz.player.PlaybackManager
 import io.github.audiz.player.PlaybackQueueSource
 import io.github.audiz.player.PlayerUiState
 import io.github.audiz.playlist.PlaylistManager
+import io.github.audiz.playlist.PlaylistDownloadProgress
 import io.github.audiz.settings.SettingsManager
 import io.github.audiz.wave.WaveManager
 import io.github.audiz.local.LocalMediaManager
@@ -1036,11 +1037,22 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         autoPlayFirst: Boolean = false
     ) = trackListCoordinator.openLocalPlaylist(playlist, restoreTrackId, autoPlayFirst)
 
+    // 📥 Активное состояние скачивания плейлиста в оффлайн
+    val activePlaylistDownloadProgress: PlaylistDownloadProgress?
+        get() = playlistManager.activeDownloadProgress
+
     /**
      * 💾 Скачать весь плейлист из Яндекс Музыки в локальный оффлайн-плейлист
      */
     fun downloadYandexPlaylistToLocal(playlist: PlaylistInfo) {
         playlistManager.downloadYandexPlaylistToLocal(playlist)
+    }
+
+    /**
+     * ⏹️ Отменить текущее скачивание плейлиста
+     */
+    fun cancelPlaylistDownload() {
+        playlistManager.cancelPlaylistDownload()
     }
 
     /**

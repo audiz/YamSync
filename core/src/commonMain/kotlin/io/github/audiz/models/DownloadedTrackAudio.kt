@@ -27,3 +27,21 @@ data class DownloadedTrackAudio(
         return res
     }
 }
+
+/**
+ * Метаданные прямого аудиопотока трека из пакетного запроса
+ */
+@kotlinx.serialization.Serializable
+data class BatchTrackDownloadInfo(
+    val trackId: String,
+    val codec: String,
+    val bitrate: Int? = null,
+    val key: String,
+    val url: String,
+    val realId: String? = null
+)
+
+@kotlinx.serialization.Serializable
+data class BatchDownloadResponse(
+    val downloadInfos: List<BatchTrackDownloadInfo> = emptyList()
+)
