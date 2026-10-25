@@ -493,6 +493,7 @@ class TrackListCoordinator(
                         try {
                             repository.getPlaylistWithTracksByUuid(uuid)
                         } catch (e: Throwable) {
+                            if (e is CancellationException) throw e
                             val fallbackKind = playlist.kind ?: 0L
                             repository.getPlaylistWithTracksByUidKind(playlist.uid, fallbackKind)
                         }

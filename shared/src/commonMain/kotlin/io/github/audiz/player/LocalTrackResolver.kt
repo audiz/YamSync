@@ -1,6 +1,7 @@
 package io.github.audiz.player
 
 import io.github.audiz.localFileExists
+import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.resolveLocalPath
 import io.github.audiz.sanitizeKeepSpaces
 import io.github.audiz.scanDownloadedTrackPaths
@@ -113,16 +114,12 @@ class LocalTrackResolver(
         title: String,
         selectedQuality: String = "1"
     ): String? {
-        if (trackId.startsWith("local:")) {
+        if (isLocalTrackId(trackId) || trackId.contains('/') || trackId.contains('\\')) {
             val candidate = trackId.removePrefix("local:")
             val resolved = resolveLocalPath(candidate)
             if (localFileExists(resolved)) {
                 return resolved
             }
-        }
-        val resolvedTrackId = resolveLocalPath(trackId)
-        if (localFileExists(resolvedTrackId)) {
-            return resolvedTrackId
         }
 
         return getDownloadedTrackPath(artist, title)

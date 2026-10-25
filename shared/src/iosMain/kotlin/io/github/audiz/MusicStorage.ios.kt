@@ -605,7 +605,7 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
     val fileManager = NSFileManager.defaultManager
     val foundTracks = mutableListOf<FullTrackInfo>()
     val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
-    var cachedScanned: List<FullTrackInfo>? = null
+    var cachedNameIndex: Map<String, String>? = null
 
     for (rawPath in paths) {
         var fullPath = resolveIosLocalPath(rawPath)
@@ -616,19 +616,23 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
                 if (fileManager.fileExistsAtPath(fallbackResolved)) {
                     fullPath = fallbackResolved
                 } else {
-                    if (cachedScanned == null) {
+                    if (cachedNameIndex == null) {
                         val baseMusic = loadMusicStoragePath() ?: getDefaultMusicDir()
-                        cachedScanned = scanDownloadedTracks(baseMusic)
-                    }
-                    val matched = cachedScanned.firstOrNull {
-                        val real = it.realId ?: it.id.removePrefix("local:")
-                        real.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
-                    }
-                    if (matched != null) {
-                        val matchedPath = matched.realId?.ifBlank { matched.id.removePrefix("local:") } ?: matched.id.removePrefix("local:")
-                        if (fileManager.fileExistsAtPath(matchedPath)) {
-                            fullPath = matchedPath
+                        val scanned = scanDownloadedTracks(baseMusic)
+                        val index = mutableMapOf<String, String>()
+                        for (item in scanned) {
+                            val real = item.realId ?: item.id.removePrefix("local:")
+                            val name = real.substringAfterLast('/').substringAfterLast('\\').lowercase()
+                            val path = item.realId?.ifBlank { item.id.removePrefix("local:") } ?: item.id.removePrefix("local:")
+                            if (fileManager.fileExistsAtPath(path)) {
+                                index.putIfAbsent(name, path)
+                            }
                         }
+                        cachedNameIndex = index
+                    }
+                    val matchedPath = cachedNameIndex[fileName.lowercase()]
+                    if (matchedPath != null) {
+                        fullPath = matchedPath
                     }
                 }
             }

@@ -32,6 +32,7 @@ import io.github.audiz.deleteTrackFile
 import io.github.audiz.localFileExists
 import io.github.audiz.resolveLocalPath
 import io.github.audiz.player.LocalTrackResolver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +67,7 @@ class PlaylistManager(
             try {
                 block()
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 AppLogger.e("PlaylistManager", "❌ Error in safe coroutine: ${t.message}")
             }
         }
@@ -819,6 +821,7 @@ class PlaylistManager(
                     repository.getPlaylistTrackIds(playlist.uid, kind)
                 }
             } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 onStatusMessage("❌ Ошибка получения треков плейлиста: ${e.message}")
                 return@launchSafe
             }
@@ -830,29 +833,35 @@ class PlaylistManager(
 
             onStatusMessage("📥 Скачивание плейлиста: 0/${trackIds.size}")
             var downloadedCount = 0
+            val existingPaths = localPl.trackPaths.toMutableSet()
 
-            for (chunk in trackIds.chunked(20)) {
+            for (chunk in trackIds.chunked(50)) {
                 try {
                     val fullTracks = repository.getTracksDetails(chunk).result
+                    val chunkPaths = mutableListOf<String>()
                     for (track in fullTracks) {
                         val artist = track.artists.firstOrNull()?.name ?: "Unknown Artist"
                         val path = downloadManager.ensureTrackFile(track.id, track.title, artist)
                         if (path != null) {
-                            val idx = localPlaylists.indexOfFirst { it.id == localPl.id }
-                            if (idx >= 0) {
-                                val cur = localPlaylists[idx]
-                                if (!cur.trackPaths.contains(path)) {
-                                    localPlaylists[idx] = cur.copy(
-                                        trackPaths = cur.trackPaths + path,
-                                        updatedAt = currentTimeMillis()
-                                    )
-                                }
+                            if (existingPaths.add(path)) {
+                                chunkPaths.add(path)
                             }
                             downloadedCount++
                             onStatusMessage("📥 Скачивание: $downloadedCount/${trackIds.size} (${track.title})")
                         }
                     }
+                    if (chunkPaths.isNotEmpty()) {
+                        val idx = localPlaylists.indexOfFirst { it.id == localPl.id }
+                        if (idx >= 0) {
+                            val cur = localPlaylists[idx]
+                            localPlaylists[idx] = cur.copy(
+                                trackPaths = cur.trackPaths + chunkPaths,
+                                updatedAt = currentTimeMillis()
+                            )
+                        }
+                    }
                 } catch (e: Throwable) {
+                    if (e is CancellationException) throw e
                     println("PlaylistManager: Ошибка пачки скачивания: ${e.message}")
                 }
             }

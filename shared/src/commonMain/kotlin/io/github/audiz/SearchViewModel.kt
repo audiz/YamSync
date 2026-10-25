@@ -31,6 +31,7 @@ import io.github.audiz.models.LastPlaybackType
 import io.github.audiz.player.PlaybackSessionManager
 import io.github.audiz.tracklist.TrackListCoordinator
 import io.github.audiz.util.AppLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             try {
                 block()
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 AppLogger.e("SearchViewModel", "❌ Error in safe coroutine: ${t.message}")
             }
         }
@@ -710,6 +712,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
             restorePlaylistSession(session, wasTracksListVisible)
         } catch (e: Throwable) {
+            if (e is CancellationException) throw e
             println("SearchViewModel: ⚠️ Ошибка восстановления последней сессии: ${e.message}")
             isTracksListVisible = false
         }

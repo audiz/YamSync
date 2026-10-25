@@ -296,12 +296,15 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
     val foundTracks = mutableListOf<FullTrackInfo>()
     val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
 
+    val fileLengths = mutableMapOf<String, Long>()
+
     try {
         val audioFiles = rootDir.walkTopDown()
             .filter { it.isFile && it.extension.lowercase() in supportedExtensions }
             .toList()
 
         for (file in audioFiles) {
+            fileLengths[file.absolutePath] = file.length()
             val meta = io.github.audiz.util.AudioHeaderParser.extractAudioMetadata(file)
             val rawName = file.nameWithoutExtension
             var artist = meta.artist?.takeIf { it.isNotBlank() } ?: ""
@@ -369,7 +372,7 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
         } else {
             group.maxWithOrNull(
                 compareBy<FullTrackInfo> { it.albums.firstOrNull()?.title?.contains("HQ") == true }
-                    .thenBy { File(it.realId ?: "").length() }
+                    .thenBy { fileLengths[it.realId ?: ""] ?: 0L }
             ) ?: group.first()
         }
     }
@@ -608,7 +611,7 @@ actual fun exportPlaylistToM3u8(basePath: String, playlist: LocalPlaylist, track
 actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
     val results = mutableListOf<FullTrackInfo>()
     val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
-    var cachedScanned: List<FullTrackInfo>? = null
+    var cachedNameIndex: Map<String, File>? = null
 
     for (p in paths) {
         val resolved = resolveLocalPath(p)
@@ -621,20 +624,24 @@ actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
                 if (fallbackFile.exists() && fallbackFile.isFile) {
                     file = fallbackFile
                 } else {
-                    if (cachedScanned == null) {
+                    if (cachedNameIndex == null) {
                         val baseMusic = loadMusicStoragePath()?.takeIf { File(it).exists() } ?: getDefaultMusicDir()
-                        cachedScanned = scanDownloadedTracks(baseMusic)
-                    }
-                    val matched = cachedScanned.firstOrNull {
-                        val real = it.realId ?: it.id.removePrefix("local:")
-                        real.substringAfterLast('/').substringAfterLast('\\').equals(fileName, ignoreCase = true)
-                    }
-                    if (matched != null) {
-                        val matchedPath = matched.realId?.ifBlank { matched.id.removePrefix("local:") } ?: matched.id.removePrefix("local:")
-                        val mf = File(matchedPath)
-                        if (mf.exists() && mf.isFile) {
-                            file = mf
+                        val scanned = scanDownloadedTracks(baseMusic)
+                        val index = mutableMapOf<String, File>()
+                        for (item in scanned) {
+                            val real = item.realId ?: item.id.removePrefix("local:")
+                            val name = real.substringAfterLast('/').substringAfterLast('\\').lowercase()
+                            val path = item.realId?.ifBlank { item.id.removePrefix("local:") } ?: item.id.removePrefix("local:")
+                            val mf = File(path)
+                            if (mf.exists() && mf.isFile) {
+                                index.putIfAbsent(name, mf)
+                            }
                         }
+                        cachedNameIndex = index
+                    }
+                    val matchedFile = cachedNameIndex[fileName.lowercase()]
+                    if (matchedFile != null) {
+                        file = matchedFile
                     }
                 }
             }

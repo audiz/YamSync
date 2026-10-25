@@ -93,16 +93,16 @@ expect fun appendLogToFile(line: String)
 /** Получить абсолютный путь к файлу логов */
 expect fun getLogFilePath(): String
 
+private val ILLEGAL_CHARS_REGEX = Regex("[\\\\/:*?\"<>|]")
+
 /** Очистка недопустимых символов в именах файлов с сохранением пробелов */
 fun sanitizeKeepSpaces(input: String): String {
-    val illegalChars = Regex("[\\\\/:*?\"<>|]")
-    return input.replace(illegalChars, "_")
+    return input.replace(ILLEGAL_CHARS_REGEX, "_")
 }
 
 /** Очистка недопустимых символов в именах папок */
 fun sanitizeDirName(name: String): String {
-    val illegalChars = Regex("[\\\\/:*?\"<>|]")
-    return name.replace(illegalChars, "_").trim().ifEmpty { "Unknown" }
+    return name.replace(ILLEGAL_CHARS_REGEX, "_").trim().ifEmpty { "Unknown" }
 }
 
 /** Получить листинг содержимого директории (подпапки и аудиофайлы) для встроенного проводника */
