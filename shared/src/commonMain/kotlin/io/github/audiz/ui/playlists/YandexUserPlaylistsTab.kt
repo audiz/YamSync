@@ -1,10 +1,12 @@
 package io.github.audiz.ui.playlists
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,7 +17,9 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.audiz.SearchViewModel
+import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.PlaylistInfo
 import io.github.audiz.models.YandexPlaylistTrackItem
 
@@ -26,7 +30,8 @@ import io.github.audiz.models.YandexPlaylistTrackItem
 internal fun YandexUserPlaylistsTab(
     viewModel: SearchViewModel,
     onOpenPlaylist: (PlaylistInfo) -> Unit,
-    onRenameClick: (PlaylistInfo) -> Unit = {}
+    onRenameClick: (PlaylistInfo) -> Unit = {},
+    onDismiss: () -> Unit = {}
 ) {
     if (viewModel.currentAccessToken.isBlank()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -86,39 +91,104 @@ internal fun YandexUserPlaylistsTab(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(10.dp)
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
                 ) {
-                    PlaylistCardHeader(
-                        title = playlist.title,
-                        subtitle = playlist.description,
-                        badges = {
-                            PlaylistBadge(text = "☁️ Яндекс")
-                            PlaylistBadge(
-                                text = "${playlist.trackCount} треков",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                containerAlpha = 0.10f
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // 1. Компактная обложка 44x44 dp с бейджем облачка
+                        val cover = playlist.coverUri
+                        PlaylistArtwork(
+                            coverUri = cover,
+                            fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
+                            badgeText = "☁️",
+                            size = 44.dp
+                        )
+
+                        // 2. Название и единая строка метаданных
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = playlist.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        },
-                        trailing = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                if (kind != null) {
-                                    PlaylistActionGroup(
-                                        onEdit = { onRenameClick(playlist) },
-                                        compact = !viewModel.isMobileUi
+                            Text(
+                                text = "${playlist.trackCount} треков • Яндекс Музыка",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        // 3. Правый блок действий в одну гармоничную строку
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Кнопка скачивания / отмены
+                            if (isThisDownloading) {
+                                IconButton(
+                                    onClick = { viewModel.cancelPlaylistDownload() },
+                                    modifier = Modifier.size(30.dp).pointerHoverIcon(PointerIcon.Hand)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Отменить скачивание",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                PlaylistPlayButton(
-                                    onClick = { onOpenPlaylist(playlist) },
-                                    buttonSize = if (viewModel.isMobileUi) 42.dp else 38.dp
+                            } else {
+                                IconButton(
+                                    onClick = { viewModel.downloadYandexPlaylistToLocal(playlist) },
+                                    enabled = !isAnyDownloading,
+                                    modifier = Modifier.size(30.dp).then(
+                                        if (!isAnyDownloading) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Download,
+                                        contentDescription = "Скачать плейлист в оффлайн",
+                                        tint = if (!isAnyDownloading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            // Компактная кнопка раскрытия треков
+                            PlaylistTracksPill(
+                                trackCount = playlist.trackCount,
+                                isExpanded = isExpanded,
+                                onClick = {
+                                    expandedPlaylistKind = if (isExpanded) null else kind
+                                }
+                            )
+
+                            // Контекстное меню действий (Переименовать)
+                            if (kind != null) {
+                                PlaylistMoreMenu(
+                                    onRename = { onRenameClick(playlist) }
                                 )
                             }
-                        }
-                    )
 
-                    // 📥 Статус-бар скачивания плейлиста в оффлайн
+                            // Кнопка воспроизведения
+                            PlaylistPlayButton(
+                                onClick = { onOpenPlaylist(playlist) },
+                                buttonSize = 34.dp
+                            )
+                        }
+                    }
+
+                    // 📥 Статус-бар скачивания плейлиста в оффлайн (если активен)
                     if (downloadProgress != null && isThisDownloading) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Surface(
@@ -195,66 +265,6 @@ internal fun YandexUserPlaylistsTab(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Нижний ряд: разворачивание треков слева, скачивание справа
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(
-                            onClick = {
-                                expandedPlaylistKind = if (isExpanded) null else kind
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                        ) {
-                            Icon(
-                                imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "Треки (${playlist.trackCount})",
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-
-                        if (isThisDownloading) {
-                            OutlinedButton(
-                                onClick = { viewModel.cancelPlaylistDownload() },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.error
-                                ),
-                                modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                            ) {
-                                Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Отмена", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = { viewModel.downloadYandexPlaylistToLocal(playlist) },
-                                enabled = !isAnyDownloading,
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(28.dp).then(
-                                    if (!isAnyDownloading) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier
-                                )
-                            ) {
-                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Скачать в оффлайн", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                            }
-                        }
-                    }
-
                     // 📜 Разворачивающийся список треков облачного плейлиста
                     if (isExpanded) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -290,7 +300,13 @@ internal fun YandexUserPlaylistsTab(
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
                                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                viewModel.loadPlaylist(playlist, restoreTrackId = item.id)
+                                                onDismiss()
+                                            }
+                                            .pointerHoverIcon(PointerIcon.Hand)
                                     ) {
                                         Row(
                                             modifier = Modifier
@@ -339,7 +355,7 @@ internal fun YandexUserPlaylistsTab(
                                                 IconButton(
                                                     onClick = {
                                                         isDeletingTrackMap[item.id] = true
-                                                        val fullTrack = io.github.audiz.models.FullTrackInfo(
+                                                        val fullTrack = FullTrackInfo(
                                                             id = item.id,
                                                             realId = item.id,
                                                             title = item.title

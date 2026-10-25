@@ -242,7 +242,8 @@ fun PlaylistsDialog(
                                     viewModel.loadPlaylist(it)
                                     onDismiss()
                                 },
-                                onRenameClick = { yandexPlaylistToRename = it }
+                                onRenameClick = { yandexPlaylistToRename = it },
+                                onDismiss = onDismiss
                             )
                         }
                     }

@@ -205,13 +205,13 @@ internal fun LocalPlaylistsTab(
                 }
                 Button(
                     onClick = onCreateClick,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier.wrapContentWidth().pointerHoverIcon(PointerIcon.Hand)
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(30.dp).pointerHoverIcon(PointerIcon.Hand)
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Создать", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                    Text("Создать", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
                 }
             }
         }
@@ -277,107 +277,92 @@ internal fun LocalPlaylistsTab(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(10.dp)
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
-                        PlaylistCardHeader(
-                            title = playlist.title,
-                            subtitle = playlist.description.takeIf { it.isNotBlank() },
-                            badges = {
-                                PlaylistBadge(
-                                    text = "${playlist.trackCount} треков",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    containerAlpha = 0.10f
-                                )
-                                if (availableCount != null) {
-                                    PlaylistBadge(
-                                        text = when {
-                                            isFullyAvailable -> "💾 Оффлайн"
-                                            isNoneAvailable -> "☁️ Нет файлов"
-                                            else -> "💾 $availableCount/${playlist.trackCount}"
-                                        },
-                                        tint = if (isFullyAvailable) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            },
-                            trailing = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    PlaylistActionGroup(
-                                        onEdit = { onRenameClick(playlist) },
-                                        onDelete = { onDeleteClick(playlist) },
-                                        compact = !viewModel.isMobileUi
-                                    )
-                                    PlaylistPlayButton(
-                                        onClick = { onOpenPlaylist(playlist) },
-                                        buttonSize = if (viewModel.isMobileUi) 42.dp else 38.dp
-                                    )
-                                }
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // Нижний ряд: действия слева, разворачивание треков справа
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            FlowRow(
-                                modifier = Modifier.weight(1f, fill = false),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            // 1. Компактная обложка 44x44 dp со значком оффлайна
+                            val firstTrackCover = playlist.trackPaths.firstOrNull()?.let { "local:$it" }
+                            PlaylistArtwork(
+                                coverUri = firstTrackCover,
+                                fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
+                                badgeText = "💾",
+                                size = 44.dp
+                            )
+
+                            // 2. Название и единая строка метаданных
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = playlist.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                val metaText = when {
+                                    availableCount == null -> "${playlist.trackCount} треков • Оффлайн"
+                                    isFullyAvailable -> "${playlist.trackCount} треков • Оффлайн"
+                                    isNoneAvailable -> "${playlist.trackCount} треков • ☁️ Нет файлов"
+                                    else -> "${playlist.trackCount} треков • 💾 $availableCount/${playlist.trackCount}"
+                                }
+                                Text(
+                                    text = metaText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isNoneAvailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            // 3. Правый блок действий в одну гармоничную строку
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 if (availableCount != null && !isFullyAvailable && onOpenSync != null) {
-                                    OutlinedButton(
+                                    IconButton(
                                         onClick = {
                                             onDismiss()
                                             onOpenSync()
                                         },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
+                                        modifier = Modifier.size(30.dp).pointerHoverIcon(PointerIcon.Hand)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Filled.CloudDownload,
-                                            contentDescription = null,
+                                            contentDescription = "Синхронизировать YamSync",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "YamSync",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
-                            }
 
-                            TextButton(
-                                onClick = {
-                                    val next = if (isExpanded) null else playlist.id
-                                    expandedPlaylistId = next
-                                    saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-                            ) {
-                                Icon(
-                                    imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
+                                PlaylistTracksPill(
+                                    trackCount = playlist.trackCount,
+                                    isExpanded = isExpanded,
+                                    onClick = {
+                                        val next = if (isExpanded) null else playlist.id
+                                        expandedPlaylistId = next
+                                        saveAppConfig(AppConfigKeys.EXPANDED_PLAYLIST_ID, next ?: "")
+                                    }
                                 )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(
-                                    text = "Треки (${playlist.trackCount})",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                    softWrap = false
+
+                                PlaylistMoreMenu(
+                                    onRename = { onRenameClick(playlist) },
+                                    onExportM3u = { viewModel.exportLocalPlaylist(playlist.id) },
+                                    onDelete = { onDeleteClick(playlist) }
+                                )
+
+                                PlaylistPlayButton(
+                                    onClick = { onOpenPlaylist(playlist) },
+                                    buttonSize = 34.dp
                                 )
                             }
                         }
