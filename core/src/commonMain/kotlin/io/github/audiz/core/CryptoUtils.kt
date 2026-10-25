@@ -5,7 +5,7 @@ package io.github.audiz.core
  */
 fun constantTimeEquals(a: String?, b: String?): Boolean {
     if (a == null || b == null) {
-        return a === b
+        return a == b
     }
     val aBytes = a.encodeToByteArray()
     val bBytes = b.encodeToByteArray()

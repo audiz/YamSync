@@ -83,7 +83,7 @@ class ApiSessionContext(
      * 👤 Получить UID аккаунта из эндпоинта /account/status
      */
     suspend fun getAccountUid(): String? {
-        val auth = getAuthHeader() ?: return null
+        getAuthHeader() ?: return null
         return try {
             val response: HttpResponse = client.get("https://api.music.yandex.net/account/status") {
                 applyAuthHeaders()
@@ -107,7 +107,7 @@ class ApiSessionContext(
      * 👑 Проверить наличие подписки Плюс
      */
     suspend fun getAccountPlusInfo(): Boolean {
-        val auth = getAuthHeader() ?: return false
+        getAuthHeader() ?: return false
         return try {
             val response: HttpResponse = client.get("https://api.music.yandex.net/account/status") {
                 applyAuthHeaders()
