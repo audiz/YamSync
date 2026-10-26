@@ -63,14 +63,6 @@ object AudioVisualizer {
         twentyFiveBand.latencyCompensationMs = latencyCompensationMs
     }
 
-    // --- Трекер темпа и динамики ---
-    val currentPaceFactor: Float
-        get() = twentyFiveBand.currentPaceFactor
-
-    // --- Трекер спектрального центроида ---
-    val spectralCentroidEma: Float
-        get() = twentyFiveBand.spectralCentroidEma
-
     // --- 5 полос для микро-иконок ---
     val levels: StateFlow<FloatArray>
         get() = fiveBand.levels
@@ -150,8 +142,6 @@ object AudioVisualizer {
         fiveBand.updateBands(b1, b2, b3, b4, b5)
     }
 
-    fun updateSpectrum19(spectrum: FloatArray) = updateSpectrum(spectrum)
-
     /**
      * Агрегация полос спектра с взвешиванием пика и среднего
      */
@@ -193,13 +183,9 @@ object AudioVisualizer {
      */
     fun advanceSpectrumFrame(dtSeconds: Float, isPlaying: Boolean): VisualizerFrame {
         val frame = twentyFiveBand.advanceFrame(dtSeconds, isPlaying)
-        fiveBand.currentPaceFactor = twentyFiveBand.currentPaceFactor
         fiveBand.trackPeakEma = twentyFiveBand.trackPeakEma
         return frame
     }
-
-    fun advanceSpectrum19Frame(dtSeconds: Float, isPlaying: Boolean): VisualizerFrame =
-        advanceSpectrumFrame(dtSeconds, isPlaying)
 
     /**
      * 🛑 Сброс уровней в состояние покоя при остановке или паузе

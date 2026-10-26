@@ -35,9 +35,6 @@ class FiveBandVisualizer(
     var latencyCompensationMs: Long = 0L
 
     @Volatile
-    var currentPaceFactor: Float = 0.35f
-
-    @Volatile
     var trackPeakEma: Float = 0.5f
 
     var onAudibleEnergyDetected: (() -> Unit)? = null
@@ -292,7 +289,6 @@ class FiveBandVisualizer(
                 prevRaw5[j] = 0f
             }
             trackPeakEma = 0.5f
-            currentPaceFactor = 0.35f
             lastUpdateTimeMs = 0L
             val frame = FloatArray(BAND_COUNT) { RESTING_LEVEL }
             _levels.value = frame

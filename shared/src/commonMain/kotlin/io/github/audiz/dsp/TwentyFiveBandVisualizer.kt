@@ -34,14 +34,8 @@ class TwentyFiveBandVisualizer(
     @Volatile
     var trackPeakEma: Float = 0.5f
 
-    // --- Трекер темпа и динамики (Adaptive Tempo / Pace Engine) ---
-    @Volatile
-    var currentPaceFactor: Float = 0.35f
-        private set
-
-    @Volatile
-    var spectralCentroidEma: Float = 0.42f
-        private set
+    // --- Трекер темпа и динамики для пространственной связности полос ---
+    private var currentPaceFactor: Float = 0.35f
 
     private var onsetDensityEma = 0f
     private var rmsEnergyEma = 0f
@@ -56,12 +50,12 @@ class TwentyFiveBandVisualizer(
     var lastUpdateTimeMs: Long = 0L
         private set
 
-    private class Spectrum19Snapshot(
+    private class Spectrum25Snapshot(
         val timeMs: Long,
         val spectrum: FloatArray
     )
 
-    private val delayQueue19 = ArrayDeque<Spectrum19Snapshot>()
+    private val delayQueue25 = ArrayDeque<Spectrum25Snapshot>()
 
     // Состояние 25 полос
     private val targetSpectrumLevels = FloatArray(SPECTRUM_BAND_COUNT) { RESTING_LEVEL }
@@ -79,19 +73,19 @@ class TwentyFiveBandVisualizer(
      */
     fun clearDelayQueue() {
         synchronized(currentSpectrumLevels) {
-            delayQueue19.clear()
+            delayQueue25.clear()
         }
     }
 
-    internal fun drainMatured19(now: Long) {
+    internal fun drainMatured25(now: Long) {
         val latency = latencyCompensationMs
         if (latency <= 0L) return
         synchronized(currentSpectrumLevels) {
-            while (delayQueue19.isNotEmpty()) {
-                val first = delayQueue19.firstOrNull() ?: break
+            while (delayQueue25.isNotEmpty()) {
+                val first = delayQueue25.firstOrNull() ?: break
                 val age = now - first.timeMs
                 if (age >= latency) {
-                    delayQueue19.removeFirstOrNull() ?: break
+                    delayQueue25.removeFirstOrNull() ?: break
                     if (age <= latency + 1000L) {
                         applySpectrumDirect(first.spectrum)
                     }
@@ -175,10 +169,10 @@ class TwentyFiveBandVisualizer(
             if (latency <= 0L) {
                 applySpectrumDirect(spectrum)
             } else {
-                while (delayQueue19.size >= 50) {
-                    delayQueue19.removeFirst()
+                while (delayQueue25.size >= 50) {
+                    delayQueue25.removeFirst()
                 }
-                delayQueue19.addLast(Spectrum19Snapshot(currentTime(), spectrum.copyOf()))
+                delayQueue25.addLast(Spectrum25Snapshot(currentTime(), spectrum.copyOf()))
             }
         }
     }
@@ -265,9 +259,9 @@ class TwentyFiveBandVisualizer(
             }
 
             val now = currentTime()
-            drainMatured19(now)
+            drainMatured25(now)
             val isDataRecent = (lastUpdateTimeMs > 0L && (now - lastUpdateTimeMs) < (350L + latencyCompensationMs)) ||
-                delayQueue19.isNotEmpty()
+                delayQueue25.isNotEmpty()
 
             val peakDecay = exp(-safeDt / 4.0f)
             trackPeakEma = max(0.18f, trackPeakEma * peakDecay)
