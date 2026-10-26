@@ -253,7 +253,6 @@ class JavaFxAudioBackend(
                         val b4 = calcBandEnergy(13, 37, tiltDb = 9.0f)
                         val b5 = calcBandEnergy(38, 87, tiltDb = 15.5f)
 
-                        AudioVisualizer.updateBands(b1, b2, b3, b4, b5)
                         AudioVisualizer.updateSpectrum(spectrum25)
                     }
                 }

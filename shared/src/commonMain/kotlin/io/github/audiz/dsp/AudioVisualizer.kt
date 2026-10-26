@@ -8,11 +8,12 @@ import kotlin.concurrent.Volatile
 /**
  * 🎵 Координатор и фасад спектрального анализа и кинетической визуализации Winamp Pro.
  *
- * Объединяет:
- * - [FiveBandVisualizer]: 5-полосный микро-анализатор для иконок и кнопок плеера
- * - [TwentyFiveBandVisualizer]: 25-полосный спектроанализатор для обложек альбомов
- * - Синхронизацию времени и компенсацию задержки (Latency Compensation)
- * - Детектор тишины и слышимости трека для системы автопропуска
+ * Архитектура данных:
+ * 1. Первичный источник спектра — 25 логарифмических полос FFT ([TwentyFiveBandVisualizer]).
+ * 2. Для PCM потока (Desktop FFmpeg / JLayer) 25 полос рассчитываются в реальном времени через [PcmSpectrumAnalyzer].
+ * 3. 5-полосный микро-анализатор [FiveBandVisualizer] формируется нисходящей агрегацией (downsampling) из 25 полос.
+ * 4. Единая компенсация задержки (Latency Compensation) и синхронизация времени.
+ * 5. Детектор тишины и слышимости трека для системы автопропуска.
  */
 object AudioVisualizer {
 
@@ -23,25 +24,18 @@ object AudioVisualizer {
 
     val fiveBand: FiveBandVisualizer = FiveBandVisualizer()
     val twentyFiveBand: TwentyFiveBandVisualizer = TwentyFiveBandVisualizer()
+    val pcmAnalyzer: PcmSpectrumAnalyzer = PcmSpectrumAnalyzer()
 
     init {
-        // Связываем синтез 25 полос из 5 полос при отсутствии прямого FFT
-        fiveBand.onBandsUpdated = { raw5, autoGain, dynamicExp ->
-            twentyFiveBand.trackPeakEma = fiveBand.trackPeakEma
-            twentyFiveBand.synthesizeFrom5Bands(raw5, autoGain, dynamicExp)
+        // Подключаем честный FFT-анализатор PCM: результат сразу передается в общий пайплайн
+        pcmAnalyzer.onSpectrumReady = { spectrum25 ->
+            updateSpectrum(spectrum25)
         }
-        // Трекинг слышимости для детектора тишины в хвосте трека
+        pcmAnalyzer.onAudibleEnergyDetected = {
+            markAudible()
+        }
         fiveBand.onAudibleEnergyDetected = {
-            hasHeardAudioInCurrentTrack = true
-            lastAudiblePcmTimeMs = currentTime()
-        }
-        // Fallback дренажа очередей
-        twentyFiveBand.onDrainFallback = { now ->
-            fiveBand.drainMatured5(now)
-        }
-        // Трекинг активности данных из 5-полосного анализатора для 25-полосного
-        twentyFiveBand.hasPendingData = { now ->
-            fiveBand.hasRecentData(now)
+            markAudible()
         }
     }
 
@@ -73,7 +67,7 @@ object AudioVisualizer {
     val currentPaceFactor: Float
         get() = twentyFiveBand.currentPaceFactor
 
-    // --- Трекер динамической частотной группировки ---
+    // --- Трекер спектрального центроида ---
     val spectralCentroidEma: Float
         get() = twentyFiveBand.spectralCentroidEma
 
@@ -87,6 +81,11 @@ object AudioVisualizer {
 
     @Volatile
     private var hasHeardAudioInCurrentTrack: Boolean = false
+
+    private fun markAudible() {
+        hasHeardAudioInCurrentTrack = true
+        lastAudiblePcmTimeMs = currentTime()
+    }
 
     fun resetTrackAudibility() {
         lastAudiblePcmTimeMs = 0L
@@ -112,33 +111,72 @@ object AudioVisualizer {
     }
 
     /**
-     * 🎚 Обновить 5 полос из нормализованных значений энергии (0.0 .. 1.0).
+     * 🎚 Обновить 5 полос напрямую (для платформ/источников с готовыми 5 полосами)
      */
     fun updateBands(b1: Float, b2: Float, b3: Float, b4: Float, b5: Float) {
         val maxEnergy = maxOf(b1, b2, b3, b4, b5)
         if (maxEnergy > 0.02f) {
-            hasHeardAudioInCurrentTrack = true
-            lastAudiblePcmTimeMs = currentTime()
+            markAudible()
         }
         fiveBand.updateBands(b1, b2, b3, b4, b5)
-        twentyFiveBand.trackPeakEma = fiveBand.trackPeakEma
     }
 
     /**
-     * 🎚 Обновить полосы спектроанализатора напрямую из FFT.
+     * 🎚 Обновить 25 полос напрямую из FFT (Android, JavaFX, либо [PcmSpectrumAnalyzer]).
+     *
+     * 25 полос являются первичным источником истины:
+     * 5 полос для иконок автоматически выводятся нисходящей агрегацией.
      */
     fun updateSpectrum(spectrum: FloatArray) {
         twentyFiveBand.updateSpectrum(spectrum)
         fiveBand.trackPeakEma = twentyFiveBand.trackPeakEma
+
+        // Формируем 5 полос из 25 полос:
+        // 1. Sub-bass / Kick (~20 - 184 Гц, полосы 0..6)
+        val b1 = groupEnergy(spectrum, 0, 6, peakWeight = 0.85f)
+        // 2. Bass & Low-Mids (~184 - 736 Гц, полосы 7..11)
+        val b2 = groupEnergy(spectrum, 7, 11, peakWeight = 0.80f)
+        // 3. Mids / Vocals (~736 - 2232 Гц, полосы 12..16)
+        val b3 = groupEnergy(spectrum, 12, 16, peakWeight = 0.75f)
+        // 4. High-Mids (~2232 - 6766 Гц, полосы 17..20)
+        val b4 = groupEnergy(spectrum, 17, 20, peakWeight = 0.75f)
+        // 5. Treble / Air (~6766 - 20500 Гц, полосы 21..24)
+        val b5 = groupEnergy(spectrum, 21, 24, peakWeight = 0.75f)
+
+        val maxEnergy = maxOf(b1, b2, b3, b4, b5)
+        if (maxEnergy > 0.02f) {
+            markAudible()
+        }
+        fiveBand.updateBands(b1, b2, b3, b4, b5)
     }
 
     fun updateSpectrum19(spectrum: FloatArray) = updateSpectrum(spectrum)
 
     /**
-     * 📊 Обработать сырой 16-битный PCM-буфер (LE Stereo или Mono)
+     * Агрегация полос спектра с взвешиванием пика и среднего
+     */
+    private fun groupEnergy(spectrum: FloatArray, start: Int, end: Int, peakWeight: Float = 0.75f): Float {
+        val size = spectrum.size
+        if (size == 0) return RESTING_LEVEL
+        val s = start.coerceIn(0, size - 1)
+        val e = end.coerceIn(s, size - 1)
+        var maxVal = 0f
+        var sum = 0f
+        val count = e - s + 1
+        for (i in s..e) {
+            val v = spectrum[i]
+            if (v > maxVal) maxVal = v
+            sum += v
+        }
+        val avg = sum / count.toFloat()
+        return (maxVal * peakWeight + avg * (1f - peakWeight)).coerceIn(0f, 1f)
+    }
+
+    /**
+     * 📊 Обработать сырой 16-битный PCM-буфер (LE Stereo или Mono) через прецизионный FFT-анализатор
      */
     fun processPcmChunk(buffer: ByteArray, readBytes: Int) {
-        fiveBand.processPcmChunk(buffer, readBytes)
+        pcmAnalyzer.processPcmChunk(buffer, readBytes)
     }
 
     /**
@@ -167,6 +205,7 @@ object AudioVisualizer {
      * 🛑 Сброс уровней в состояние покоя при остановке или паузе
      */
     fun reset() {
+        pcmAnalyzer.reset()
         fiveBand.reset()
         twentyFiveBand.reset()
         resetTrackAudibility()

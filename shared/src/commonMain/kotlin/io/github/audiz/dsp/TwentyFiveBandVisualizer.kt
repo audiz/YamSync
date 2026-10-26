@@ -14,11 +14,10 @@ import kotlin.math.sin
  * 🌊 25-полосный спектральный анализатор Winamp Pro для обложки альбома.
  *
  * Отвечает за:
- * - 25 аппаратных спектральных полос (20 Гц .. 20 кГц)
+ * - 25 спектральных полос (20 Гц .. 20.5 кГц)
  * - Трекинг спектрального потока (Spectral Flux) и адаптивную подстройку темпа (Pace Factor)
  * - Межполосную связность (Neighbor Cohesion)
  * - Студийную баллистику Winamp Pro (Hold + Gravity)
- * - Синтез 25 полос из 5 полос при отсутствии прямого FFT
  * - Очередь компенсации задержки аудио (Latency Compensation)
  */
 class TwentyFiveBandVisualizer(
@@ -72,9 +71,6 @@ class TwentyFiveBandVisualizer(
     private val peakCapSpectrumLevels = FloatArray(SPECTRUM_BAND_COUNT) { RESTING_LEVEL }
     private val peakCapSpectrumVelocities = FloatArray(SPECTRUM_BAND_COUNT) { 0f }
     private val peakCapSpectrumHoldTimers = FloatArray(SPECTRUM_BAND_COUNT) { 0f }
-
-    var onDrainFallback: ((now: Long) -> Unit)? = null
-    var hasPendingData: ((now: Long) -> Boolean)? = null
 
     private fun currentTime(): Long = timeProvider()
 
@@ -245,45 +241,6 @@ class TwentyFiveBandVisualizer(
     }
 
     /**
-     * 🎼 Синтезировать 25 полос из 5 полос при отсутствии прямого FFT-сигнала
-     */
-    fun synthesizeFrom5Bands(raw5: FloatArray, autoGain: Float, dynamicExp: Float) {
-        synchronized(currentSpectrumLevels) {
-            if (currentTime() - lastSpectrumUpdateTimeMs <= 350L) return
-
-            val synthesized = FloatArray(SPECTRUM_BAND_COUNT)
-            for (k in 0 until SPECTRUM_BAND_COUNT) {
-                val t = (k.toFloat() / (SPECTRUM_BAND_COUNT - 1)) * 4f
-                val idx = t.toInt().coerceIn(0, 3)
-                val frac = t - idx
-                val smoothFrac = (1f - cos(frac * PI.toFloat())) / 2f
-                val interp = raw5[idx] * (1f - smoothFrac) + raw5[idx + 1] * smoothFrac
-                val norm = (interp * autoGain).coerceIn(0f, 1f)
-                synthesized[k] = norm.pow(dynamicExp).coerceIn(0f, 1f)
-            }
-            updateTempoTrackerFromSpectrum(synthesized)
-            applyTargetsWithSpatialCohesion(synthesized)
-
-            for (k in 0 until SPECTRUM_BAND_COUNT) {
-                val lvl = targetSpectrumLevels[k]
-                if (lvl > currentSpectrumLevels[k]) {
-                    currentSpectrumLevels[k] = lvl
-                    spectrumVelocities[k] = 0f
-                    spectrumHoldTimers[k] = VisualizerConstants.BAR_HOLD_SEC
-                }
-
-                if (lvl > peakCapSpectrumLevels[k]) {
-                    peakCapSpectrumLevels[k] = lvl
-                    peakCapSpectrumVelocities[k] = 0f
-                    peakCapSpectrumHoldTimers[k] = VisualizerConstants.PEAK_CAP_HOLD_SEC
-                }
-            }
-
-            lastUpdateTimeMs = currentTime()
-        }
-    }
-
-    /**
      * ⏱ Рассчитать следующий кадр физики 25 полос спектроанализатора
      */
     fun advanceFrame(dtSeconds: Float, isPlaying: Boolean): VisualizerFrame {
@@ -309,12 +266,8 @@ class TwentyFiveBandVisualizer(
 
             val now = currentTime()
             drainMatured19(now)
-            if (delayQueue19.isEmpty()) {
-                onDrainFallback?.invoke(now)
-            }
             val isDataRecent = (lastUpdateTimeMs > 0L && (now - lastUpdateTimeMs) < (350L + latencyCompensationMs)) ||
-                delayQueue19.isNotEmpty() ||
-                (hasPendingData?.invoke(now) == true)
+                delayQueue19.isNotEmpty()
 
             val peakDecay = exp(-safeDt / 4.0f)
             trackPeakEma = max(0.18f, trackPeakEma * peakDecay)

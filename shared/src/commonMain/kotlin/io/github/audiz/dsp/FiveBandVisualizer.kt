@@ -29,13 +29,6 @@ class FiveBandVisualizer(
     companion object {
         const val BAND_COUNT = 5
         const val RESTING_LEVEL = VisualizerConstants.RESTING_LEVEL
-
-        // Частотные срезы для 44.1 kHz (alpha = 2 * pi * fc / 44100):
-        private const val ALPHA_SUBCUT = 0.0057f   // ~40 Hz (Sub-cut)
-        private const val ALPHA_KICK = 0.0157f     // ~110 Hz (Kick Drum)
-        private const val ALPHA_BASS = 0.050f      // ~350 Hz (Bass Guitar)
-        private const val ALPHA_MID = 0.22f        // ~1800 Hz (Mids / Vocals)
-        private const val ALPHA_HIGH_MID = 0.50f   // ~6000 Hz (High Mids / Snare)
     }
 
     @Volatile
@@ -47,7 +40,6 @@ class FiveBandVisualizer(
     @Volatile
     var trackPeakEma: Float = 0.5f
 
-    var onBandsUpdated: ((raw5: FloatArray, autoGain: Float, dynamicExp: Float) -> Unit)? = null
     var onAudibleEnergyDetected: (() -> Unit)? = null
 
     private class Bands5Snapshot(
@@ -77,14 +69,6 @@ class FiveBandVisualizer(
 
     private val _levels = MutableStateFlow(FloatArray(BAND_COUNT) { RESTING_LEVEL })
     val levels: StateFlow<FloatArray> = _levels.asStateFlow()
-
-    // IIR-фильтры PCM
-    private val pcmLock = Any()
-    @Volatile private var subCutFilter: Float = 0f
-    @Volatile private var kickFilter: Float = 0f
-    @Volatile private var bassFilter: Float = 0f
-    @Volatile private var midFilter: Float = 0f
-    @Volatile private var highMidFilter: Float = 0f
 
     private fun currentTime(): Long = timeProvider()
 
@@ -185,97 +169,9 @@ class FiveBandVisualizer(
                 }
             }
 
-            onBandsUpdated?.invoke(raw, autoGain, dynamicExp)
-
             lastUpdateTimeMs = currentTime()
             _levels.value = currentLevels.copyOf()
         }
-    }
-
-    /**
-     * 📊 Обработать сырой 16-битный PCM-буфер (LE Stereo или Mono)
-     */
-    fun processPcmChunk(buffer: ByteArray, readBytes: Int) {
-        if (readBytes < 4) return
-
-        var b1 = 0f
-        var b2 = 0f
-        var b3 = 0f
-        var b4 = 0f
-        var b5 = 0f
-
-        synchronized(pcmLock) {
-            var sumKick = 0f
-            var sumBass = 0f
-            var sumMid = 0f
-            var sumHighMid = 0f
-            var sumTreble = 0f
-            var sampleCount = 0
-
-            var i = 0
-            var localSubCut = subCutFilter
-            var localKick = kickFilter
-            var localBass = bassFilter
-            var localMid = midFilter
-            var localHighMid = highMidFilter
-
-            while (i + 1 < readBytes) {
-                val s1 = ((buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)).toShort()
-                val sample = s1 / 32768f
-                i += 2
-
-                val mono = if (i + 1 < readBytes) {
-                    val s2 = ((buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)).toShort()
-                    i += 2
-                    (sample + (s2 / 32768f)) * 0.5f
-                } else {
-                    sample
-                }
-
-                localSubCut += ALPHA_SUBCUT * (mono - localSubCut)
-                val cleanMono = mono - localSubCut
-
-                localKick += ALPHA_KICK * (cleanMono - localKick)
-                localBass += ALPHA_BASS * (cleanMono - localBass)
-                localMid += ALPHA_MID * (cleanMono - localMid)
-                localHighMid += ALPHA_HIGH_MID * (cleanMono - localHighMid)
-
-                val kickEnergy = abs(localKick)
-                val bassEnergy = abs(localBass - localKick)
-                val midEnergy = abs(localMid - localBass)
-                val highMidEnergy = abs(localHighMid - localMid)
-                val trebleEnergy = abs(cleanMono - localHighMid)
-
-                sumKick += kickEnergy
-                sumBass += bassEnergy
-                sumMid += midEnergy
-                sumHighMid += highMidEnergy
-                sumTreble += trebleEnergy
-                sampleCount++
-            }
-
-            subCutFilter = localSubCut
-            kickFilter = localKick
-            bassFilter = localBass
-            midFilter = localMid
-            highMidFilter = localHighMid
-
-            if (sampleCount == 0) return
-
-            val avgKick = sumKick / sampleCount
-            val avgBass = sumBass / sampleCount
-            val avgMid = sumMid / sampleCount
-            val avgHighMid = sumHighMid / sampleCount
-            val avgTreble = sumTreble / sampleCount
-
-            b1 = (avgKick * 3.0f).coerceIn(0f, 1f)
-            b2 = (avgBass * 5.6f).coerceIn(0f, 1f)
-            b3 = (avgMid * 6.5f).coerceIn(0f, 1f)
-            b4 = (avgHighMid * 11.0f).coerceIn(0f, 1f)
-            b5 = (avgTreble * 17.5f).coerceIn(0f, 1f)
-        }
-
-        updateBands(b1, b2, b3, b4, b5)
     }
 
     /**
@@ -394,13 +290,6 @@ class FiveBandVisualizer(
                 peakCapVelocities[j] = 0f
                 peakCapHoldTimers[j] = 0f
                 prevRaw5[j] = 0f
-            }
-            synchronized(pcmLock) {
-                subCutFilter = 0f
-                kickFilter = 0f
-                bassFilter = 0f
-                midFilter = 0f
-                highMidFilter = 0f
             }
             trackPeakEma = 0.5f
             currentPaceFactor = 0.35f

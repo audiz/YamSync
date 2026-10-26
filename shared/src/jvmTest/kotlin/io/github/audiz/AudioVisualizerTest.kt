@@ -194,20 +194,32 @@ class AudioVisualizerTest {
     }
 
     @Test
-    fun testSynthesisFrom5BandsTo25Bands() {
+    fun testDerivationOf5BandsFrom25Bands() {
         AudioVisualizer.reset()
         AudioVisualizer.latencyCompensationMs = 0L
 
-        // Подаем 5-полосный сигнал (например, бочка и бас)
-        AudioVisualizer.updateBands(1.0f, 0.8f, 0.2f, 0.1f, 0.05f)
+        // 1. Подаем 25-полосный спектральный сигнал с сильным суб-басом/бочкой (полосы 0..3)
+        val bassSpectrum = FloatArray(25) { if (it in 0..3) 0.95f else 0.05f }
+        AudioVisualizer.updateSpectrum(bassSpectrum)
 
-        // 25-полосный спектроанализатор должен получить синтезированные уровни
-        val frame = AudioVisualizer.advanceSpectrumFrame(0.016f, isPlaying = true)
-        assertEquals(25, frame.levels.size)
-        // Низкочастотные полосы (0..6) должны подняться выше RESTING_LEVEL
-        assertTrue(frame.levels[0] > 0.50f, "Полоса 0 в 25-полосном спектре должна реагировать на бочку: ${frame.levels[0]}")
-        assertTrue(frame.levels[2] > 0.40f, "Полоса 2 в 25-полосном спектре должна реагировать на бас: ${frame.levels[2]}")
-        // Высокочастотные полосы должны оставаться низкими
-        assertTrue(frame.levels[24] < frame.levels[0], "Высокие частоты должны быть ниже баса")
+        val frame25 = AudioVisualizer.advanceSpectrumFrame(0.016f, isPlaying = true)
+        assertEquals(25, frame25.levels.size)
+        assertTrue(frame25.levels[0] > 0.50f, "Полоса 0 в 25-полосном спектре активна: ${frame25.levels[0]}")
+
+        // 5-полосный визуализатор должен автоматически вывестись из 25 полос:
+        // b1 (Sub-bass/Kick) должен быть высоким, а b5 (Treble) — значительно ниже
+        val derivedLevels = AudioVisualizer.levels.value
+        assertEquals(5, derivedLevels.size)
+        assertTrue(derivedLevels[0] > 0.60f, "Полоса 0 (Sub-bass) в 5-полосном индикаторе должна вывестись из спектра: ${derivedLevels[0]}")
+        assertTrue(derivedLevels[4] < derivedLevels[0], "Высокие частоты в 5-полосном индикаторе должны быть значительно ниже баса: ${derivedLevels[4]}")
+
+        // 2. Подаем высокочастотный спектральный сигнал (полосы 21..24)
+        AudioVisualizer.reset()
+        val trebleSpectrum = FloatArray(25) { if (it in 21..24) 0.95f else 0.05f }
+        AudioVisualizer.updateSpectrum(trebleSpectrum)
+
+        val derivedTrebleLevels = AudioVisualizer.levels.value
+        assertTrue(derivedTrebleLevels[4] > 0.60f, "Полоса 4 (Treble) в 5-полосном индикаторе должна вывестись из высоких частот: ${derivedTrebleLevels[4]}")
+        assertTrue(derivedTrebleLevels[0] < derivedTrebleLevels[4], "Низкие частоты должны быть ниже высоких: ${derivedTrebleLevels[0]} vs ${derivedTrebleLevels[4]}")
     }
 }
