@@ -29,7 +29,11 @@ class VisualizerProbeTest {
             var nextFrameMs = 0.0
             val frameDt = 1000.0 / 60.0
             var prev: FloatArray? = null
+            var bpmSum = 0.0; var confSum = 0.0
+            val bpmTrace = StringBuilder()
             var speedSum = 0.0; var levelSum = 0.0; var paceSum = 0.0; var frames = 0
+            val meanSeries = ArrayList<Float>()
+            val barSum = DoubleArray(25); val barSqSum = DoubleArray(25)
             val rising = BooleanArray(25); val lastExtreme = FloatArray(25) { 0.15f }; var peaks = 0
             while (input.readNBytes(buffer, 0, chunk) == chunk) {
                 analyzer.processPcmChunk(buffer, chunk)
@@ -49,6 +53,11 @@ class VisualizerProbeTest {
                             else if (!rising[i] && l[i] < lastExtreme[i]) lastExtreme[i] = l[i]
                         }
                         paceSum += viz.paceFactor; frames++
+                        bpmSum += viz.detectedBpm; confSum += viz.beatConfidence
+                        if (frames % 300 == 0) bpmTrace.append(" %.0f/%.1f".format(viz.detectedBpm, viz.beatConfidence))
+                        var m = 0f
+                        for (i in 0 until 25) { m += l[i]; barSum[i] += l[i]; barSqSum[i] += l[i] * l[i] }
+                        meanSeries.add(m / 25f)
                     }
                     prev = l
                     nextFrameMs += frameDt
@@ -57,8 +66,33 @@ class VisualizerProbeTest {
             }
             input.close()
             val secs = frames / 60.0
-            println("PROBE %-6s level=%.2f speed=%.2f/s peaks/bar/s=%.2f pace=%.2f".format(
-                f.nameWithoutExtension, levelSum / frames / 25, speedSum / frames / 25, peaks / secs / 25, paceSum / frames))
+            // Когерентность: дисперсия среднего уровня относительно средней дисперсии отдельных столбиков
+            val mAvg = meanSeries.average()
+            val mVar = meanSeries.sumOf { (it - mAvg) * (it - mAvg) } / meanSeries.size
+            var barVar = 0.0
+            for (i in 0 until 25) { val a = barSum[i] / frames; barVar += barSqSum[i] / frames - a * a }
+            barVar /= 25
+            // Ритмичность: пик нормированной автокорреляции среднего уровня на лагах 0.33..2 с
+            // Высокочастотная составляющая: убираем медленный дрейф громкости (EMA ~0.5 с)
+            val x = DoubleArray(meanSeries.size)
+            var ema = meanSeries.firstOrNull()?.toDouble() ?: 0.0
+            for (t in meanSeries.indices) { ema += (meanSeries[t] - ema) / 30.0; x[t] = meanSeries[t] - ema }
+            var r0 = 0.0; for (v in x) r0 += v * v
+            val acf = DoubleArray(122)
+            for (lag in 19..121) {
+                var r = 0.0
+                for (t in 0 until x.size - lag) r += x[t] * x[t + lag]
+                acf[lag] = r / r0
+            }
+            var bestR = 0.0; var bestLag = 0
+            for (lag in 20..120) {
+                if (acf[lag] > acf[lag - 1] && acf[lag] >= acf[lag + 1] && acf[lag] > bestR) { bestR = acf[lag]; bestLag = lag }
+            }
+            if (bestLag == 0) bestLag = 1
+            println("PROBE %-8s level=%.2f speed=%.2f/s peaks/bar/s=%.2f pace=%.2f coherence=%.2f rhythm=%.2f@%.0fbpm tracker=%.0fbpm/%.2f".format(
+                f.nameWithoutExtension, levelSum / frames / 25, speedSum / frames / 25, peaks / secs / 25, paceSum / frames,
+                mVar / barVar, bestR, 3600.0 / bestLag, bpmSum / frames, confSum / frames))
+            println("TRACE ${f.nameWithoutExtension}:$bpmTrace")
         }
     }
 }

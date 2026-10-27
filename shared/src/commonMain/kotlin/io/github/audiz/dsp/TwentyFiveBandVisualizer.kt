@@ -19,6 +19,8 @@ import kotlin.math.sin
  * - Межполосную связность (Neighbor Cohesion)
  * - Поканальную автоматическую регулировку усиления (Per-band AGC): каждая полоса использует
  *   полную высоту относительно своей собственной недавней динамики
+ * - Привязку к долям: трекер бита ([BeatTracker]) даёт общий импульс на каждую долю, а столбики
+ *   рисуются как сглаженная форма спектра × огибающая импульса, поэтому вся линейка «дышит» в такт
  * - Баллистику, зависящую от темпа трека: сглаженная атака, удержание и экспоненциальный спад столбиков,
  *   гравитационное падение пиковых засечек
  * - Очередь компенсации задержки аудио (Latency Compensation)
@@ -43,6 +45,25 @@ class TwentyFiveBandVisualizer(
         private const val AGC_FLOOR_ATTACK_SEC = 0.4f
         private const val AGC_FLOOR_RELEASE_SEC = 2.5f
         private const val AGC_LOCAL_EXP = 1.25f
+
+        // Форма спектра: медленно меняющийся контур, который модулируется импульсом доли
+        private const val SHAPE_ATTACK_SEC = 0.06f
+        private const val SHAPE_RELEASE_SEC = 0.30f
+        // Глубина модуляции долей: базовая (без уверенного темпа) + добавка от уверенности
+        private const val BEAT_DEPTH_BASE = 0.35f
+        private const val BEAT_DEPTH_CONFIDENT = 0.35f
+        // Насколько импульс доли поднимает столбик над формой спектра
+        private const val BEAT_BOOST = 1.6f
+        // Доля мгновенного спектра поверх модуляции: сохраняет мелкую живую детализацию
+        private const val INSTANT_MIX = 0.15f
+        // Итоговое усиление модулированной формы, чтобы удары доходили до верхней трети
+        private const val OUTPUT_GAIN = 1.3f
+        // Спад импульса доли как доля её длительности
+        private const val BEAT_DECAY_PERIOD_RATIO = 0.32f
+        private const val ACCENT_DECAY_SEC = 0.09f
+        private const val BASS_BAND_END = 7
+        private const val MIN_BPM_PACE = 70f
+        private const val MAX_BPM_PACE = 160f
     }
 
     @Volatile
@@ -66,6 +87,12 @@ class TwentyFiveBandVisualizer(
     private val preparedSpectrum = FloatArray(SPECTRUM_BAND_COUNT)
     // Уровни до AGC: трекер темпа должен видеть реальную динамику, а не усиленные колебания
     private val globalSpectrum = FloatArray(SPECTRUM_BAND_COUNT)
+
+    // --- Привязка к долям ---
+    private val beatTracker = BeatTracker()
+    private val shapeLevels = FloatArray(SPECTRUM_BAND_COUNT) { RESTING_LEVEL }
+    private var beatPulse = 0f
+    private var accentPulse = 0f
 
     @Volatile
     var lastSpectrumUpdateTimeMs: Long = 0L
@@ -91,6 +118,10 @@ class TwentyFiveBandVisualizer(
 
     internal val paceFactor: Float
         get() = currentPaceFactor
+    internal val detectedBpm: Float
+        get() = beatTracker.bpm
+    internal val beatConfidence: Float
+        get() = beatTracker.confidence
 
     private class Spectrum25Snapshot(
         val timeMs: Long,
@@ -173,7 +204,10 @@ class TwentyFiveBandVisualizer(
         val energyAlpha = 1f - exp(-dtSec / 0.80f)
         rmsEnergyEma += energyAlpha * (avgEnergy - rmsEnergyEma)
 
-        val targetPace = (onsetDensityEma * 2.4f + rmsEnergyEma * 0.35f).coerceIn(0f, 1f)
+        val heuristicPace = (onsetDensityEma * 2.4f + rmsEnergyEma * 0.35f).coerceIn(0f, 1f)
+        // При уверенном темпе скорость баллистики определяется реальным BPM
+        val bpmPace = ((beatTracker.bpm - MIN_BPM_PACE) / (MAX_BPM_PACE - MIN_BPM_PACE)).coerceIn(0f, 1f)
+        val targetPace = lerp(heuristicPace, bpmPace, beatTracker.confidence)
         val paceSmoothAlpha = if (targetPace > currentPaceFactor) {
             1f - exp(-dtSec / 0.22f)
         } else {
@@ -256,9 +290,6 @@ class TwentyFiveBandVisualizer(
 
             val inSize = spectrum.size
             val prepared = preparedSpectrum
-            val holdSec = barHoldSec
-            val capHoldSec = peakHoldSec
-
             for (i in 0 until SPECTRUM_BAND_COUNT) {
                 val rawVal = if (inSize == SPECTRUM_BAND_COUNT) {
                     spectrum[i].coerceIn(0f, 1f)
@@ -279,19 +310,21 @@ class TwentyFiveBandVisualizer(
                 val local = applyBandAgc(i, rawVal, dtSec)
                 val t = (local * AGC_MIX + global * (1f - AGC_MIX)).coerceIn(0f, 1f)
                 prepared[i] = t
-                targetSpectrumLevels[i] = t
-
-
-                if (t > peakCapSpectrumLevels[i]) {
-                    peakCapSpectrumLevels[i] = t
-                    peakCapSpectrumVelocities[i] = 0f
-                    peakCapSpectrumHoldTimers[i] = capHoldSec
-                }
             }
             agcInitialized = true
 
             updateTempoTrackerFromSpectrum(globalSpectrum, dtSec)
             applyTargetsWithSpatialCohesion(prepared)
+
+            for (i in 0 until SPECTRUM_BAND_COUNT) {
+                val instant = targetSpectrumLevels[i]
+                val tau = if (instant > shapeLevels[i]) SHAPE_ATTACK_SEC else SHAPE_RELEASE_SEC
+                shapeLevels[i] += (1f - exp(-dtSec / tau)) * (instant - shapeLevels[i])
+            }
+
+            val beatStrength = beatTracker.process(globalSpectrum, dtSec)
+            if (beatStrength > 0f) beatPulse = max(beatPulse, beatStrength)
+            accentPulse = max(accentPulse, beatTracker.lastOnsetStrength)
 
             lastSpectrumUpdateTimeMs = currentTime()
             lastUpdateTimeMs = currentTime()
@@ -317,7 +350,10 @@ class TwentyFiveBandVisualizer(
                     peakCapSpectrumVelocities[j] = 0f
                     peakCapSpectrumHoldTimers[j] = 0f
                     targetSpectrumLevels[j] = RESTING_LEVEL
+                    shapeLevels[j] = RESTING_LEVEL
                 }
+                beatPulse = 0f
+                accentPulse = 0f
                 return VisualizerFrame(currentSpectrumLevels.copyOf(), peakCapSpectrumLevels.copyOf())
             }
 
@@ -332,8 +368,15 @@ class TwentyFiveBandVisualizer(
             if (!isDataRecent) {
                 for (k in 0 until SPECTRUM_BAND_COUNT) {
                     targetSpectrumLevels[k] = RESTING_LEVEL
+                    shapeLevels[k] = RESTING_LEVEL
                 }
+                beatPulse = 0f
+                accentPulse = 0f
             }
+
+            beatPulse *= exp(-safeDt / max(0.06f, beatTracker.beatPeriodSec * BEAT_DECAY_PERIOD_RATIO))
+            accentPulse *= exp(-safeDt / ACCENT_DECAY_SEC)
+            val depth = BEAT_DEPTH_BASE + BEAT_DEPTH_CONFIDENT * beatTracker.confidence
 
             val holdSec = barHoldSec
             val releaseSec = barReleaseSec
@@ -342,7 +385,11 @@ class TwentyFiveBandVisualizer(
             val capGravity = peakGravity
 
             for (i in 0 until SPECTRUM_BAND_COUNT) {
-                val target = targetSpectrumLevels[i]
+                // Бас идёт строго по долям, середина и верх дополнительно откликаются на акценты
+                val envelope = if (i <= BASS_BAND_END) beatPulse else max(beatPulse * 0.85f, accentPulse * 0.8f)
+                val pulsed = OUTPUT_GAIN * shapeLevels[i] * ((1f - depth) + depth * BEAT_BOOST * envelope)
+                val target = (pulsed * (1f - INSTANT_MIX) + targetSpectrumLevels[i] * INSTANT_MIX)
+                    .coerceIn(RESTING_LEVEL, 1f)
                 var current = currentSpectrumLevels[i]
 
                 if (target >= current) {
@@ -368,8 +415,8 @@ class TwentyFiveBandVisualizer(
                 currentSpectrumLevels[i] = current.coerceIn(RESTING_LEVEL, 1f)
 
                 var cap = peakCapSpectrumLevels[i]
-                if (target >= cap) {
-                    cap = target
+                if (currentSpectrumLevels[i] >= cap) {
+                    cap = currentSpectrumLevels[i]
                     peakCapSpectrumVelocities[i] = 0f
                     peakCapSpectrumHoldTimers[i] = capHoldSec
                 } else {
@@ -417,6 +464,10 @@ class TwentyFiveBandVisualizer(
                 agcCeil[j] = 0f
             }
             agcInitialized = false
+            shapeLevels.fill(RESTING_LEVEL)
+            beatTracker.reset()
+            beatPulse = 0f
+            accentPulse = 0f
             trackPeakEma = 0.5f
             currentPaceFactor = 0.35f
             onsetDensityEma = 0f
