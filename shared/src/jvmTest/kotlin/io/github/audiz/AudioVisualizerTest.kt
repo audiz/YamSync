@@ -4,6 +4,8 @@ import io.github.audiz.dsp.AudioVisualizer
 import io.github.audiz.dsp.PcmSpectrumAnalyzer
 import io.github.audiz.dsp.TwentyFiveBandVisualizer
 import kotlin.math.PI
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -180,7 +182,7 @@ class AudioVisualizerTest {
         simTime = 2120L
         val frameMatured = AudioVisualizer.advanceSpectrumFrame(0.060f, isPlaying = true)
         assertEquals(25, frameMatured.levels.size, "Spectrum frame should contain 25 bands")
-        assertTrue(frameMatured.levels[8] > 0.70f, "Band 8 should trigger after 120ms latency")
+        assertTrue(frameMatured.levels[8] > AudioVisualizer.RESTING_LEVEL + 0.3f, "Band 8 should trigger after 120ms latency: ${frameMatured.levels[8]}")
     }
 
     @Test
@@ -204,7 +206,8 @@ class AudioVisualizerTest {
         val bassSpectrum = FloatArray(25) { if (it in 0..3) 0.95f else 0.05f }
         AudioVisualizer.updateSpectrum(bassSpectrum)
 
-        val frame25 = AudioVisualizer.advanceSpectrumFrame(0.016f, isPlaying = true)
+        // Атака сглажена: даём столбику несколько кадров на подъём
+        val frame25 = AudioVisualizer.advanceSpectrumFrame(0.080f, isPlaying = true)
         assertEquals(25, frame25.levels.size)
         assertTrue(frame25.levels[0] > 0.50f, "Полоса 0 в 25-полосном спектре активна: ${frame25.levels[0]}")
 
@@ -264,7 +267,7 @@ class AudioVisualizerTest {
 
         // Ровный фон 0.55 во всех полосах и удары до 0.75 в полосе 3 каждые ~500 мс
         var kickLevel = 0f
-        var gapLevel = 0f
+        var gapLevel = 1f
         repeat(200) { step ->
             simTime += 23L
             val isKick = step % 22 == 0
@@ -273,12 +276,12 @@ class AudioVisualizerTest {
             viz.updateSpectrum(spectrum)
             val frame = viz.advanceFrame(0.023f, isPlaying = true)
             if (step > 150) {
-                if (isKick) kickLevel = frame.levels[3]
-                if (step % 22 == 11) gapLevel = frame.levels[3]
+                if (step % 22 in 0..4) kickLevel = max(kickLevel, frame.levels[3])
+                if (step % 22 == 21) gapLevel = min(gapLevel, frame.levels[3])
             }
         }
-        assertTrue(kickLevel > 0.75f, "Удар должен подниматься почти до верха: $kickLevel")
-        assertTrue(kickLevel - gapLevel > 0.4f, "Между ударами столбик должен опускаться: kick=$kickLevel gap=$gapLevel")
+        assertTrue(kickLevel > 0.55f, "Удар должен подниматься высоко: $kickLevel")
+        assertTrue(kickLevel - gapLevel > 0.15f, "Между ударами столбик должен опускаться: kick=$kickLevel gap=$gapLevel")
     }
 
     @Test

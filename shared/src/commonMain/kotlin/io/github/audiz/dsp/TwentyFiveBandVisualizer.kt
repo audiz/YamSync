@@ -19,7 +19,7 @@ import kotlin.math.sin
  * - Межполосную связность (Neighbor Cohesion)
  * - Поканальную автоматическую регулировку усиления (Per-band AGC): каждая полоса использует
  *   полную высоту относительно своей собственной недавней динамики
- * - Баллистику, зависящую от темпа трека: мгновенная атака, удержание и экспоненциальный спад столбиков,
+ * - Баллистику, зависящую от темпа трека: сглаженная атака, удержание и экспоненциальный спад столбиков,
  *   гравитационное падение пиковых засечек
  * - Очередь компенсации задержки аудио (Latency Compensation)
  */
@@ -31,9 +31,9 @@ class TwentyFiveBandVisualizer(
         const val RESTING_LEVEL = VisualizerConstants.RESTING_LEVEL
 
         // Per-band AGC: доля локальной (поканальной) нормализации в итоговом уровне
-        private const val AGC_MIX = 0.6f
+        private const val AGC_MIX = 0.45f
         // Минимальный рабочий диапазон полосы: не даёт раздувать шум в тихих полосах
-        private const val AGC_MIN_RANGE = 0.18f
+        private const val AGC_MIN_RANGE = 0.3f
         // Порог и ширина мягкого гейта локальной нормализации
         private const val AGC_GATE_START = 0.08f
         private const val AGC_GATE_WIDTH = 0.12f
@@ -64,6 +64,8 @@ class TwentyFiveBandVisualizer(
     private val agcCeil = FloatArray(SPECTRUM_BAND_COUNT)
     private var agcInitialized = false
     private val preparedSpectrum = FloatArray(SPECTRUM_BAND_COUNT)
+    // Уровни до AGC: трекер темпа должен видеть реальную динамику, а не усиленные колебания
+    private val globalSpectrum = FloatArray(SPECTRUM_BAND_COUNT)
 
     @Volatile
     var lastSpectrumUpdateTimeMs: Long = 0L
@@ -76,6 +78,8 @@ class TwentyFiveBandVisualizer(
     // --- Баллистика, интерполированная по темпу (currentPaceFactor: 0 = медленно, 1 = быстро) ---
     private val barHoldSec: Float
         get() = lerp(VisualizerConstants.SLOW_BAR_HOLD_SEC, VisualizerConstants.FAST_BAR_HOLD_SEC, currentPaceFactor)
+    private val barAttackSec: Float
+        get() = lerp(VisualizerConstants.SLOW_BAR_ATTACK_SEC, VisualizerConstants.FAST_BAR_ATTACK_SEC, currentPaceFactor)
     private val barReleaseSec: Float
         get() = lerp(VisualizerConstants.SLOW_BAR_RELEASE_SEC, VisualizerConstants.FAST_BAR_RELEASE_SEC, currentPaceFactor)
     private val peakHoldSec: Float
@@ -84,6 +88,9 @@ class TwentyFiveBandVisualizer(
         get() = lerp(VisualizerConstants.SLOW_PEAK_GRAVITY, VisualizerConstants.FAST_PEAK_GRAVITY, currentPaceFactor)
 
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
+
+    internal val paceFactor: Float
+        get() = currentPaceFactor
 
     private class Spectrum25Snapshot(
         val timeMs: Long,
@@ -268,15 +275,12 @@ class TwentyFiveBandVisualizer(
                 val softVal = if (i <= 2 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
                 val normalized = (softVal * autoGain).coerceIn(0f, 1f)
                 val global = normalized.pow(dynamicExp)
+                globalSpectrum[i] = global
                 val local = applyBandAgc(i, rawVal, dtSec)
                 val t = (local * AGC_MIX + global * (1f - AGC_MIX)).coerceIn(0f, 1f)
                 prepared[i] = t
                 targetSpectrumLevels[i] = t
 
-                if (t > currentSpectrumLevels[i]) {
-                    currentSpectrumLevels[i] = t
-                    spectrumHoldTimers[i] = holdSec
-                }
 
                 if (t > peakCapSpectrumLevels[i]) {
                     peakCapSpectrumLevels[i] = t
@@ -286,7 +290,7 @@ class TwentyFiveBandVisualizer(
             }
             agcInitialized = true
 
-            updateTempoTrackerFromSpectrum(prepared, dtSec)
+            updateTempoTrackerFromSpectrum(globalSpectrum, dtSec)
             applyTargetsWithSpatialCohesion(prepared)
 
             lastSpectrumUpdateTimeMs = currentTime()
@@ -333,6 +337,7 @@ class TwentyFiveBandVisualizer(
 
             val holdSec = barHoldSec
             val releaseSec = barReleaseSec
+            val attackSec = barAttackSec
             val capHoldSec = peakHoldSec
             val capGravity = peakGravity
 
@@ -341,7 +346,7 @@ class TwentyFiveBandVisualizer(
                 var current = currentSpectrumLevels[i]
 
                 if (target >= current) {
-                    current = target
+                    current += (target - current) * (1f - exp(-safeDt / attackSec))
                     spectrumHoldTimers[i] = holdSec
                 } else {
                     var remainingDt = safeDt
