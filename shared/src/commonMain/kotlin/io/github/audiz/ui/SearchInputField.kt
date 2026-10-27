@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +58,8 @@ fun SearchInputField(
             onSearchClick()
         }
     }
+
+    var isCompactState by remember { mutableStateOf(false) }
 
     val inputField: @Composable RowScope.() -> Unit = {
         Row(
@@ -144,7 +148,10 @@ fun SearchInputField(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = onClear
+                            onClick = {
+                                onClear()
+                                if (isCompactState) focusManager.clearFocus()
+                            }
                         )
                         .pointerHoverIcon(PointerIcon.Hand),
                     contentAlignment = Alignment.Center
@@ -240,31 +247,32 @@ fun SearchInputField(
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val isCompact = maxWidth < 480.dp
-        if (isCompact && query.isNotBlank()) {
-            // Узкий экран: поле ввода на всю ширину, кнопки действий — отдельной строкой ниже
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    inputField()
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+        isCompactState = isCompact
+        // Одна и та же иерархия при любом состоянии, иначе поле теряет фокус при вводе первого символа
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            inputField()
+            if (!isCompact) {
+                if (!isMobile || !isFocused || query.isNotBlank()) searchButton(Modifier)
+                trailingButton()
+            } else if (query.isNotBlank()) {
+                FilledIconButton(
+                    onClick = handleSearch,
+                    enabled = !isLoading,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .pointerHoverIcon(PointerIcon.Hand)
                 ) {
-                    searchButton(Modifier.weight(1f))
-                    trailingButton()
+                    Icon(
+                        imageVector = if (isLink) Icons.Filled.PlayArrow else Icons.Filled.Search,
+                        contentDescription = if (isLink) "Включить" else "Найти",
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                inputField()
-                if (!isCompact && (!isMobile || !isFocused)) {
-                    searchButton(Modifier)
-                }
+            } else {
                 trailingButton()
             }
         }
