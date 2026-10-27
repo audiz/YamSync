@@ -4,7 +4,6 @@ import io.github.audiz.synchronized
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.log10
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -13,8 +12,10 @@ import kotlin.math.sqrt
  *
  * Особенности:
  * - Выполняет частотное разложение в 25 логарифмических полос прямо из 16-битного PCM (LE Stereo/Mono).
- * - Алгоритм: Radix-2 Cooley-Tukey FFT (2048 точек) с окном Ханна.
- * - Частотное разрешение: ~21.5 Гц на бин (при 44.1 кГц).
+ * - Мультиразрешающий анализ: низкие полосы (до [LOW_RES_CROSSOVER_HZ]) считаются по длинному окну
+ *   (2 × [fftSize], ~10.8 Гц на бин), остальные — по короткому окну [fftSize] (~21.5 Гц на бин)
+ *   для быстрой реакции на транзиенты.
+ * - Алгоритм: Radix-2 Cooley-Tukey FFT с окном Ханна.
  * - Zero allocations в горячем цикле воспроизведения: все рабочие буферы и таблицы предрассчитаны.
  * - Потокобезопасен (synchronized lock).
  */
@@ -24,8 +25,7 @@ class PcmSpectrumAnalyzer(
 ) {
     companion object {
         const val FFT_SIZE = 2048
-        private const val NUM_BINS = FFT_SIZE / 2
-        private const val THRESHOLD_DB = -60.0f
+        const val LOW_RES_CROSSOVER_HZ = 250f
         private const val MAX_TEMP_SAMPLES = 8192
     }
 
@@ -35,47 +35,114 @@ class PcmSpectrumAnalyzer(
         }
     }
 
+    /**
+     * Предрассчитанный план FFT фиксированного размера с собственными рабочими буферами.
+     */
+    private class FftPlan(val size: Int) {
+        val numBins = size / 2
+        private val real = FloatArray(size)
+        private val imag = FloatArray(size)
+
+        /** Линейные амплитуды бинов после [transform] (1.0 = синус полной шкалы). */
+        val amplitudes = FloatArray(numBins)
+
+        private val hannWindow = FloatArray(size) { i ->
+            (0.5 * (1.0 - cos(2.0 * PI * i / (size - 1)))).toFloat()
+        }
+
+        private val logN = 31 - size.countLeadingZeroBits()
+        private val bitReversedIndices = IntArray(size) { i ->
+            var rev = 0
+            var temp = i
+            for (j in 0 until logN) {
+                rev = (rev shl 1) or (temp and 1)
+                temp = temp shr 1
+            }
+            rev
+        }
+
+        private val twiddleCos = FloatArray(size / 2) { i -> cos(-2.0 * PI * i / size).toFloat() }
+        private val twiddleSin = FloatArray(size / 2) { i -> sin(-2.0 * PI * i / size).toFloat() }
+
+        /** Окно Ханна + FFT над `samples[offset until offset + size]`, результат в [amplitudes]. */
+        fun transform(samples: FloatArray, offset: Int) {
+            for (k in 0 until size) {
+                real[k] = samples[offset + k] * hannWindow[k]
+                imag[k] = 0f
+            }
+            computeFft()
+            val normFactor = 4.0f / size.toFloat()
+            amplitudes[0] = 0f
+            for (k in 1 until numBins) {
+                val r = real[k]
+                val im = imag[k]
+                amplitudes[k] = sqrt(r * r + im * im) * normFactor
+            }
+        }
+
+        /**
+         * In-place Radix-2 Cooley-Tukey Decimation-in-Time FFT
+         */
+        private fun computeFft() {
+            // Битреверсивная перестановка
+            for (i in 0 until size) {
+                val j = bitReversedIndices[i]
+                if (j > i) {
+                    val tempR = real[i]
+                    real[i] = real[j]
+                    real[j] = tempR
+
+                    val tempI = imag[i]
+                    imag[i] = imag[j]
+                    imag[j] = tempI
+                }
+            }
+
+            // Бабочки FFT (DIT)
+            var len = 2
+            while (len <= size) {
+                val halfLen = len shr 1
+                val step = size / len
+                var k = 0
+                while (k < size) {
+                    var wIndex = 0
+                    for (j in 0 until halfLen) {
+                        val cosW = twiddleCos[wIndex]
+                        val sinW = twiddleSin[wIndex]
+
+                        val tr = real[k + j + halfLen] * cosW - imag[k + j + halfLen] * sinW
+                        val ti = real[k + j + halfLen] * sinW + imag[k + j + halfLen] * cosW
+
+                        real[k + j + halfLen] = real[k + j] - tr
+                        imag[k + j + halfLen] = imag[k + j] - ti
+
+                        real[k + j] += tr
+                        imag[k + j] += ti
+
+                        wIndex += step
+                    }
+                    k += len
+                }
+                len = len shl 1
+            }
+        }
+    }
+
     private val lock = Any()
 
-    // Скользящее окно сэмплов (2048 точек)
-    private val sampleBuffer = FloatArray(fftSize)
-    private var isBufferFilled = false
+    private val highResPlan = FftPlan(fftSize)
+    private val lowResPlan = FftPlan(fftSize * 2)
+
+    // Скользящее окно сэмплов под длинное FFT; короткое FFT берёт его хвост
+    private val sampleBuffer = FloatArray(lowResPlan.size)
 
     // Временный буфер для извлечения сэмплов из чанка байт
     private val tempExtracted = FloatArray(MAX_TEMP_SAMPLES)
 
-    // Буферы для быстрого преобразования Фурье
-    private val windowedReal = FloatArray(fftSize)
-    private val windowedImag = FloatArray(fftSize)
-    private val magnitudesDb = FloatArray(NUM_BINS)
     private val outputSpectrum25 = FloatArray(TwentyFiveBandVisualizer.SPECTRUM_BAND_COUNT)
 
-    // Предрассчитанное окно Ханна (Hann Window)
-    private val hannWindow = FloatArray(fftSize) { i ->
-        (0.5 * (1.0 - cos(2.0 * PI * i / (fftSize - 1)))).toFloat()
-    }
-
-    // Предрассчитанная битреверсивная перестановка индексов (Bit-Reversal Permutation)
-    private val logN = 31 - fftSize.countLeadingZeroBits()
-    private val bitReversedIndices = IntArray(fftSize) { i ->
-        var rev = 0
-        var temp = i
-        for (j in 0 until logN) {
-            rev = (rev shl 1) or (temp and 1)
-            temp = temp shr 1
-        }
-        rev
-    }
-
-    // Предрассчитанные поворотные множители (Twiddle Factors)
-    private val twiddleCos = FloatArray(fftSize / 2) { i ->
-        cos(-2.0 * PI * i / fftSize).toFloat()
-    }
-    private val twiddleSin = FloatArray(fftSize / 2) { i ->
-        sin(-2.0 * PI * i / fftSize).toFloat()
-    }
-
-    private val binHz = sampleRate / fftSize.toFloat()
+    private val highResBinHz = sampleRate / highResPlan.size.toFloat()
+    private val lowResBinHz = sampleRate / lowResPlan.size.toFloat()
 
     var onSpectrumReady: ((spectrum: FloatArray) -> Unit)? = null
     var onAudibleEnergyDetected: (() -> Unit)? = null
@@ -86,7 +153,6 @@ class PcmSpectrumAnalyzer(
     fun reset() {
         synchronized(lock) {
             sampleBuffer.fill(0f)
-            isBufferFilled = false
         }
     }
 
@@ -126,73 +192,48 @@ class PcmSpectrumAnalyzer(
             if (extractedCount == 0) return
 
             // Обновляем скользящий буфер новыми сэмплами
-            if (extractedCount >= fftSize) {
-                // Если сэмплов больше размера окна — берем последние fftSize сэмплов
+            val windowSize = sampleBuffer.size
+            if (extractedCount >= windowSize) {
+                // Если сэмплов больше размера окна — берем последние windowSize сэмплов
                 tempExtracted.copyInto(
                     destination = sampleBuffer,
                     destinationOffset = 0,
-                    startIndex = extractedCount - fftSize,
+                    startIndex = extractedCount - windowSize,
                     endIndex = extractedCount
                 )
-                isBufferFilled = true
             } else {
                 // Сдвигаем старые сэмплы влево на extractedCount
                 sampleBuffer.copyInto(
                     destination = sampleBuffer,
                     destinationOffset = 0,
                     startIndex = extractedCount,
-                    endIndex = fftSize
+                    endIndex = windowSize
                 )
                 // Дописываем новые сэмплы в конец
                 tempExtracted.copyInto(
                     destination = sampleBuffer,
-                    destinationOffset = fftSize - extractedCount,
+                    destinationOffset = windowSize - extractedCount,
                     startIndex = 0,
                     endIndex = extractedCount
                 )
-                isBufferFilled = true
             }
 
-            // Накладываем окно Ханна
-            for (k in 0 until fftSize) {
-                windowedReal[k] = sampleBuffer[k] * hannWindow[k]
-                windowedImag[k] = 0f
-            }
-
-            // Выполняем Radix-2 FFT
-            computeFft(windowedReal, windowedImag)
-
-            // Расчет магнитуд в дБ
-            val normFactor = 4.0f / fftSize.toFloat()
-            for (k in 1 until NUM_BINS) {
-                val r = windowedReal[k]
-                val im = windowedImag[k]
-                val mag = sqrt(r * r + im * im) * normFactor
-                magnitudesDb[k] = if (mag > 1e-4f) {
-                    (20.0f * log10(mag)).coerceIn(THRESHOLD_DB, 0.0f)
-                } else {
-                    THRESHOLD_DB
-                }
-            }
+            lowResPlan.transform(sampleBuffer, 0)
+            highResPlan.transform(sampleBuffer, windowSize - highResPlan.size)
 
             // Формируем 25 логарифмических полос частот
             for (k in 0 until TwentyFiveBandVisualizer.SPECTRUM_BAND_COUNT) {
                 val (fStart, fEnd) = VisualizerConstants.FREQ_RANGES_25[k]
-                val startBin = (fStart / binHz).toInt().coerceIn(1, NUM_BINS - 1)
-                val endBin = (fEnd / binHz).toInt().coerceIn(startBin, NUM_BINS - 1)
-
-                var sum = 0f
-                var maxDb = THRESHOLD_DB
-                for (b in startBin..endBin) {
-                    val v = magnitudesDb[b]
-                    sum += v
-                    if (v > maxDb) maxDb = v
-                }
-                val avgDb = sum / (endBin - startBin + 1)
-                val progress = k.toFloat() / (TwentyFiveBandVisualizer.SPECTRUM_BAND_COUNT - 1).toFloat()
-                val tiltDb = -7.0f + progress * 23.0f
-                val combinedDb = (maxDb * 0.75f + avgDb * 0.25f) + tiltDb
-                outputSpectrum25[k] = ((combinedDb - THRESHOLD_DB) / (-THRESHOLD_DB)).coerceIn(0.0f, 1.0f)
+                val useLowRes = fEnd <= LOW_RES_CROSSOVER_HZ
+                val plan = if (useLowRes) lowResPlan else highResPlan
+                outputSpectrum25[k] = SpectrumBands.bandLevel(
+                    amplitudes = plan.amplitudes,
+                    numBins = plan.numBins,
+                    binHz = if (useLowRes) lowResBinHz else highResBinHz,
+                    fStart = fStart,
+                    fEnd = fEnd,
+                    tiltDb = SpectrumBands.tiltDb(k)
+                )
             }
         }
 
@@ -204,52 +245,5 @@ class PcmSpectrumAnalyzer(
 
         // Оповещаем подписчиков о новом 25-полосном спектре
         onSpectrumReady?.invoke(outputSpectrum25)
-    }
-
-    /**
-     * In-place Radix-2 Cooley-Tukey Decimation-in-Time FFT
-     */
-    private fun computeFft(real: FloatArray, imag: FloatArray) {
-        // Битреверсивная перестановка
-        for (i in 0 until fftSize) {
-            val j = bitReversedIndices[i]
-            if (j > i) {
-                val tempR = real[i]
-                real[i] = real[j]
-                real[j] = tempR
-
-                val tempI = imag[i]
-                imag[i] = imag[j]
-                imag[j] = tempI
-            }
-        }
-
-        // Бабочки FFT (DIT)
-        var len = 2
-        while (len <= fftSize) {
-            val halfLen = len shr 1
-            val step = fftSize / len
-            var k = 0
-            while (k < fftSize) {
-                var wIndex = 0
-                for (j in 0 until halfLen) {
-                    val cosW = twiddleCos[wIndex]
-                    val sinW = twiddleSin[wIndex]
-
-                    val tr = real[k + j + halfLen] * cosW - imag[k + j + halfLen] * sinW
-                    val ti = real[k + j + halfLen] * sinW + imag[k + j + halfLen] * cosW
-
-                    real[k + j + halfLen] = real[k + j] - tr
-                    imag[k + j + halfLen] = imag[k + j] - ti
-
-                    real[k + j] += tr
-                    imag[k + j] += ti
-
-                    wIndex += step
-                }
-                k += len
-            }
-            len = len shl 1
-        }
     }
 }

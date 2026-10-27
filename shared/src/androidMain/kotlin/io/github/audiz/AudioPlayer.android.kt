@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.PowerManager
 import io.github.audiz.dsp.AudioVisualizer
 import io.github.audiz.dsp.EqualizerEngine
+import io.github.audiz.dsp.SpectrumBands
 import io.github.audiz.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -855,12 +856,14 @@ actual class AudioPlayer actual constructor() {
         if (binHz <= 0f) return
 
         val magnitudesDb = FloatArray(numBins)
+        val amplitudes = FloatArray(numBins)
         magnitudesDb[0] = -100f
 
         for (k in 1 until numBins) {
             val r = fft[2 * k].toFloat()
             val i = fft[2 * k + 1].toFloat()
             val mag = hypot(r, i)
+            amplitudes[k] = mag / 128f
             magnitudesDb[k] = if (mag > 0.01f) {
                 (20f * log10(mag / 128f)).coerceIn(-60f, 0f)
             } else {
@@ -887,10 +890,8 @@ actual class AudioPlayer actual constructor() {
         // 25 аппаратных полос (20 Гц .. 20 кГц) для обложки альбома
         val spectrum25 = FloatArray(25)
         for (k in 0 until 25) {
-            val progress = k.toFloat() / 24f
-            val tilt = -7.0f + progress * 23.0f
             val (fStart, fEnd) = FREQ_RANGES_25[k]
-            spectrum25[k] = calcBandEnergy(fStart, fEnd, tiltDb = tilt, peakWeight = 0.75f)
+            spectrum25[k] = SpectrumBands.bandLevel(amplitudes, numBins, binHz, fStart, fEnd, SpectrumBands.tiltDb(k))
         }
 
         // 5 полос для кнопок плеера и микро-иконок

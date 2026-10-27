@@ -257,7 +257,7 @@ class JLayerAudioBackend(
                             if (EqualizerEngine.isEnabled) {
                                 EqualizerEngine.processPcm(buffer, readBytes)
                             }
-                            AudioVisualizer.processPcmChunk(buffer, readBytes)
+                            line.analyzePcmChunk(buffer, readBytes)
                             PcmGainProcessor.applyGain(buffer, readBytes, currentVolume)
                         }
                         line.write(buffer, 0, readBytes)

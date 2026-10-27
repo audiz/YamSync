@@ -12,7 +12,8 @@ import kotlin.concurrent.Volatile
  * 1. Первичный источник спектра — 25 логарифмических полос FFT ([TwentyFiveBandVisualizer]).
  * 2. Для PCM потока (Desktop FFmpeg / JLayer) 25 полос рассчитываются в реальном времени через [PcmSpectrumAnalyzer].
  * 3. 5-полосный микро-анализатор [FiveBandVisualizer] формируется нисходящей агрегацией (downsampling) из 25 полос.
- * 4. Единая компенсация задержки (Latency Compensation) и синхронизация времени.
+ * 4. Единая компенсация задержки (Latency Compensation): ручная либо автоматическая — по измеренному
+ *    заполнению буфера аудиовывода, которое сообщает бэкенд через [reportOutputBufferedMs].
  * 5. Детектор тишины и слышимости трека для системы автопропуска.
  */
 object AudioVisualizer {
@@ -21,6 +22,15 @@ object AudioVisualizer {
     const val SPECTRUM_BAND_COUNT = TwentyFiveBandVisualizer.SPECTRUM_BAND_COUNT
     const val RESTING_LEVEL = VisualizerConstants.RESTING_LEVEL
     const val DEFAULT_LATENCY_COMPENSATION_MS = 140L
+
+    /** Значение [latencyCompensationMs], включающее автоматический расчёт задержки. */
+    const val LATENCY_AUTO = -1L
+
+    /** Оценка задержки микшера ОС и драйвера поверх измеренного буфера аудиовывода. */
+    const val DEVICE_OUTPUT_LATENCY_MS = 40L
+
+    private const val MAX_LATENCY_MS = 500L
+    private const val BUFFER_LATENCY_SMOOTHING = 0.15f
 
     val fiveBand: FiveBandVisualizer = FiveBandVisualizer()
     val twentyFiveBand: TwentyFiveBandVisualizer = TwentyFiveBandVisualizer()
@@ -48,19 +58,57 @@ object AudioVisualizer {
 
     private fun currentTime(): Long = timeProvider()
 
+    /**
+     * Ручная задержка спектра в мс либо [LATENCY_AUTO].
+     */
     @Volatile
-    var latencyCompensationMs: Long = loadAppConfig("visualizer_latency_ms")?.toLongOrNull() ?: DEFAULT_LATENCY_COMPENSATION_MS
+    var latencyCompensationMs: Long = loadAppConfig("visualizer_latency_ms")?.toLongOrNull() ?: LATENCY_AUTO
         set(value) {
-            val clamped = value.coerceIn(0L, 500L)
+            val clamped = if (value < 0L) LATENCY_AUTO else value.coerceAtMost(MAX_LATENCY_MS)
             field = clamped
-            fiveBand.latencyCompensationMs = clamped
-            twentyFiveBand.latencyCompensationMs = clamped
             saveAppConfig("visualizer_latency_ms", clamped.toString())
+            applyEffectiveLatency()
         }
 
+    val isLatencyAuto: Boolean
+        get() = latencyCompensationMs == LATENCY_AUTO
+
+    // Сглаженное заполнение буфера аудиовывода (мс); < 0 — бэкенд не измеряет задержку
+    @Volatile
+    private var measuredBufferLatencyMs: Float = -1f
+
+    /**
+     * Задержка, фактически применяемая к спектру: ручная, либо в авто-режиме
+     * измеренный буфер вывода + [DEVICE_OUTPUT_LATENCY_MS] (без измерений — [DEFAULT_LATENCY_COMPENSATION_MS]).
+     */
+    val effectiveLatencyMs: Long
+        get() {
+            val manual = latencyCompensationMs
+            if (manual != LATENCY_AUTO) return manual
+            val measured = measuredBufferLatencyMs
+            if (measured < 0f) return DEFAULT_LATENCY_COMPENSATION_MS
+            return (measured.toLong() + DEVICE_OUTPUT_LATENCY_MS).coerceIn(0L, MAX_LATENCY_MS)
+        }
+
+    private fun applyEffectiveLatency() {
+        val effective = effectiveLatencyMs
+        fiveBand.latencyCompensationMs = effective
+        twentyFiveBand.latencyCompensationMs = effective
+    }
+
+    /**
+     * ⏱ Сообщить объём аудио (мс), который уже лежит в буфере вывода и прозвучит раньше
+     * только что переданного в анализ чанка. Вызывается бэкендом перед [processPcmChunk].
+     */
+    fun reportOutputBufferedMs(bufferedMs: Float) {
+        if (bufferedMs < 0f) return
+        val prev = measuredBufferLatencyMs
+        measuredBufferLatencyMs = if (prev < 0f) bufferedMs else prev + BUFFER_LATENCY_SMOOTHING * (bufferedMs - prev)
+        if (isLatencyAuto) applyEffectiveLatency()
+    }
+
     init {
-        fiveBand.latencyCompensationMs = latencyCompensationMs
-        twentyFiveBand.latencyCompensationMs = latencyCompensationMs
+        applyEffectiveLatency()
     }
 
     // --- 5 полос для микро-иконок ---

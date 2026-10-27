@@ -264,7 +264,7 @@ class FfmpegAudioPumpBackend(
                     if (EqualizerEngine.isEnabled) {
                         EqualizerEngine.processPcm(fadingChunk, fadingChunk.size)
                     }
-                    AudioVisualizer.processPcmChunk(fadingChunk, fadingChunk.size)
+                    line.analyzePcmChunk(fadingChunk, fadingChunk.size)
                     PcmGainProcessor.applyGain(fadingChunk, fadingChunk.size, currentVolume)
                     line.write(fadingChunk, 0, fadingChunk.size)
                 } else if (fading.isEofReached && fading.pcmQueue.isEmpty()) {
@@ -326,7 +326,7 @@ class FfmpegAudioPumpBackend(
                     if (EqualizerEngine.isEnabled) {
                         EqualizerEngine.processPcm(activeChunk, activeChunk.size)
                     }
-                    AudioVisualizer.processPcmChunk(activeChunk, activeChunk.size)
+                    line.analyzePcmChunk(activeChunk, activeChunk.size)
                 }
 
                 PcmGainProcessor.applyGain(activeChunk, activeChunk.size, currentVolume)
@@ -376,7 +376,7 @@ class FfmpegAudioPumpBackend(
                     if (EqualizerEngine.isEnabled) {
                         EqualizerEngine.processPcm(fadingChunk, fadingChunk.size)
                     }
-                    AudioVisualizer.processPcmChunk(fadingChunk, fadingChunk.size)
+                    line.analyzePcmChunk(fadingChunk, fadingChunk.size)
                     PcmGainProcessor.applyGain(fadingChunk, fadingChunk.size, currentVolume)
                     line.write(fadingChunk, 0, fadingChunk.size)
                 } else if (fading.isEofReached && fading.pcmQueue.isEmpty()) {

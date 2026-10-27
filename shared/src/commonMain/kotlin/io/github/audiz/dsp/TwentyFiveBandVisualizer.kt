@@ -17,7 +17,10 @@ import kotlin.math.sin
  * - 25 спектральных полос (20 Гц .. 20.5 кГц)
  * - Трекинг спектрального потока (Spectral Flux) и адаптивную подстройку темпа (Pace Factor)
  * - Межполосную связность (Neighbor Cohesion)
- * - Студийную баллистику Winamp Pro (Hold + Gravity)
+ * - Поканальную автоматическую регулировку усиления (Per-band AGC): каждая полоса использует
+ *   полную высоту относительно своей собственной недавней динамики
+ * - Баллистику, зависящую от темпа трека: мгновенная атака, удержание и экспоненциальный спад столбиков,
+ *   гравитационное падение пиковых засечек
  * - Очередь компенсации задержки аудио (Latency Compensation)
  */
 class TwentyFiveBandVisualizer(
@@ -26,6 +29,20 @@ class TwentyFiveBandVisualizer(
     companion object {
         const val SPECTRUM_BAND_COUNT = 25
         const val RESTING_LEVEL = VisualizerConstants.RESTING_LEVEL
+
+        // Per-band AGC: доля локальной (поканальной) нормализации в итоговом уровне
+        private const val AGC_MIX = 0.6f
+        // Минимальный рабочий диапазон полосы: не даёт раздувать шум в тихих полосах
+        private const val AGC_MIN_RANGE = 0.18f
+        // Порог и ширина мягкого гейта локальной нормализации
+        private const val AGC_GATE_START = 0.08f
+        private const val AGC_GATE_WIDTH = 0.12f
+        // Постоянные времени следящих огибающих (сек)
+        private const val AGC_CEIL_ATTACK_SEC = 0.05f
+        private const val AGC_CEIL_RELEASE_SEC = 3.5f
+        private const val AGC_FLOOR_ATTACK_SEC = 0.4f
+        private const val AGC_FLOOR_RELEASE_SEC = 2.5f
+        private const val AGC_LOCAL_EXP = 1.25f
     }
 
     @Volatile
@@ -40,7 +57,13 @@ class TwentyFiveBandVisualizer(
     private var onsetDensityEma = 0f
     private var rmsEnergyEma = 0f
     private val prevRawSpectrum = FloatArray(SPECTRUM_BAND_COUNT) { 0f }
-    private var lastFluxTimeMs: Long = 0L
+    private var lastAnalysisTimeMs: Long = 0L
+
+    // --- Per-band AGC: огибающие пола и потолка каждой полосы ---
+    private val agcFloor = FloatArray(SPECTRUM_BAND_COUNT)
+    private val agcCeil = FloatArray(SPECTRUM_BAND_COUNT)
+    private var agcInitialized = false
+    private val preparedSpectrum = FloatArray(SPECTRUM_BAND_COUNT)
 
     @Volatile
     var lastSpectrumUpdateTimeMs: Long = 0L
@@ -49,6 +72,18 @@ class TwentyFiveBandVisualizer(
     @Volatile
     var lastUpdateTimeMs: Long = 0L
         private set
+
+    // --- Баллистика, интерполированная по темпу (currentPaceFactor: 0 = медленно, 1 = быстро) ---
+    private val barHoldSec: Float
+        get() = lerp(VisualizerConstants.SLOW_BAR_HOLD_SEC, VisualizerConstants.FAST_BAR_HOLD_SEC, currentPaceFactor)
+    private val barReleaseSec: Float
+        get() = lerp(VisualizerConstants.SLOW_BAR_RELEASE_SEC, VisualizerConstants.FAST_BAR_RELEASE_SEC, currentPaceFactor)
+    private val peakHoldSec: Float
+        get() = lerp(VisualizerConstants.SLOW_PEAK_HOLD_SEC, VisualizerConstants.FAST_PEAK_HOLD_SEC, currentPaceFactor)
+    private val peakGravity: Float
+        get() = lerp(VisualizerConstants.SLOW_PEAK_GRAVITY, VisualizerConstants.FAST_PEAK_GRAVITY, currentPaceFactor)
+
+    private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 
     private class Spectrum25Snapshot(
         val timeMs: Long,
@@ -60,7 +95,6 @@ class TwentyFiveBandVisualizer(
     // Состояние 25 полос
     private val targetSpectrumLevels = FloatArray(SPECTRUM_BAND_COUNT) { RESTING_LEVEL }
     private val currentSpectrumLevels = FloatArray(SPECTRUM_BAND_COUNT) { RESTING_LEVEL }
-    private val spectrumVelocities = FloatArray(SPECTRUM_BAND_COUNT) { 0f }
     private val spectrumHoldTimers = FloatArray(SPECTRUM_BAND_COUNT) { 0f }
     private val peakCapSpectrumLevels = FloatArray(SPECTRUM_BAND_COUNT) { RESTING_LEVEL }
     private val peakCapSpectrumVelocities = FloatArray(SPECTRUM_BAND_COUNT) { 0f }
@@ -87,7 +121,7 @@ class TwentyFiveBandVisualizer(
                 if (age >= latency) {
                     delayQueue25.removeFirstOrNull() ?: break
                     if (age <= latency + 1000L) {
-                        applySpectrumDirect(first.spectrum)
+                        applySpectrumDirect(first.spectrum, first.timeMs)
                     }
                 } else {
                     break
@@ -99,11 +133,7 @@ class TwentyFiveBandVisualizer(
     /**
      * 🧠 Анализ спектрального потока (Spectral Flux) и плотности транзиентов (ударов)
      */
-    private fun updateTempoTrackerFromSpectrum(normalizedBands: FloatArray) {
-        val now = currentTime()
-        val dtSec = if (lastFluxTimeMs > 0L) ((now - lastFluxTimeMs) / 1000f).coerceIn(0.005f, 0.25f) else 0.033f
-        lastFluxTimeMs = now
-
+    private fun updateTempoTrackerFromSpectrum(normalizedBands: FloatArray, dtSec: Float) {
         var bassFlux = 0f
         var midHighFlux = 0f
         var totalEnergy = 0f
@@ -177,8 +207,34 @@ class TwentyFiveBandVisualizer(
         }
     }
 
-    internal fun applySpectrumDirect(spectrum: FloatArray) {
+    /**
+     * 🎚 Per-band AGC: нормализует полосу относительно её собственных огибающих пола и потолка.
+     * Медленные огибающие подстраиваются под динамику трека, поэтому удары в каждой полосе
+     * используют почти полную высоту, а ровный фон полосы опускается вниз.
+     */
+    private fun applyBandAgc(i: Int, raw: Float, dtSec: Float): Float {
+        if (!agcInitialized) {
+            agcFloor[i] = 0f
+            agcCeil[i] = max(raw, AGC_MIN_RANGE)
+        }
+        val ceilTau = if (raw > agcCeil[i]) AGC_CEIL_ATTACK_SEC else AGC_CEIL_RELEASE_SEC
+        agcCeil[i] += (1f - exp(-dtSec / ceilTau)) * (raw - agcCeil[i])
+        val floorTau = if (raw < agcFloor[i]) AGC_FLOOR_ATTACK_SEC else AGC_FLOOR_RELEASE_SEC
+        agcFloor[i] += (1f - exp(-dtSec / floorTau)) * (raw - agcFloor[i])
+
+        val range = max(agcCeil[i] - agcFloor[i], AGC_MIN_RANGE)
+        val local = ((raw - agcFloor[i]) / range).coerceIn(0f, 1f)
+        val gate = ((raw - AGC_GATE_START) / AGC_GATE_WIDTH).coerceIn(0f, 1f)
+        return (local * gate).pow(AGC_LOCAL_EXP)
+    }
+
+    internal fun applySpectrumDirect(spectrum: FloatArray, timeMs: Long = currentTime()) {
         synchronized(currentSpectrumLevels) {
+            val dtSec = if (lastAnalysisTimeMs > 0L) {
+                ((timeMs - lastAnalysisTimeMs) / 1000f).coerceIn(0.005f, 0.25f)
+            } else 0.033f
+            lastAnalysisTimeMs = timeMs
+
             val count = minOf(spectrum.size, SPECTRUM_BAND_COUNT)
             var currentMax = 0f
             for (i in 0 until count) {
@@ -192,7 +248,9 @@ class TwentyFiveBandVisualizer(
             val dynamicExp = (2.0f - (autoGain - 1.0f) * 0.35f).coerceIn(1.45f, 2.0f)
 
             val inSize = spectrum.size
-            val prepared = FloatArray(SPECTRUM_BAND_COUNT)
+            val prepared = preparedSpectrum
+            val holdSec = barHoldSec
+            val capHoldSec = peakHoldSec
 
             for (i in 0 until SPECTRUM_BAND_COUNT) {
                 val rawVal = if (inSize == SPECTRUM_BAND_COUNT) {
@@ -209,24 +267,26 @@ class TwentyFiveBandVisualizer(
                 }
                 val softVal = if (i <= 2 && rawVal > 0.85f) 0.85f + (rawVal - 0.85f) * 0.35f else rawVal
                 val normalized = (softVal * autoGain).coerceIn(0f, 1f)
-                val t = normalized.pow(dynamicExp).coerceIn(0f, 1f)
+                val global = normalized.pow(dynamicExp)
+                val local = applyBandAgc(i, rawVal, dtSec)
+                val t = (local * AGC_MIX + global * (1f - AGC_MIX)).coerceIn(0f, 1f)
                 prepared[i] = t
                 targetSpectrumLevels[i] = t
 
                 if (t > currentSpectrumLevels[i]) {
                     currentSpectrumLevels[i] = t
-                    spectrumVelocities[i] = 0f
-                    spectrumHoldTimers[i] = VisualizerConstants.BAR_HOLD_SEC
+                    spectrumHoldTimers[i] = holdSec
                 }
 
                 if (t > peakCapSpectrumLevels[i]) {
                     peakCapSpectrumLevels[i] = t
                     peakCapSpectrumVelocities[i] = 0f
-                    peakCapSpectrumHoldTimers[i] = VisualizerConstants.PEAK_CAP_HOLD_SEC
+                    peakCapSpectrumHoldTimers[i] = capHoldSec
                 }
             }
+            agcInitialized = true
 
-            updateTempoTrackerFromSpectrum(prepared)
+            updateTempoTrackerFromSpectrum(prepared, dtSec)
             applyTargetsWithSpatialCohesion(prepared)
 
             lastSpectrumUpdateTimeMs = currentTime()
@@ -249,7 +309,6 @@ class TwentyFiveBandVisualizer(
                         max(RESTING_LEVEL, cur - (cur - RESTING_LEVEL) * (safeDt * 8f))
                     } else RESTING_LEVEL
                     peakCapSpectrumLevels[j] = RESTING_LEVEL
-                    spectrumVelocities[j] = 0f
                     spectrumHoldTimers[j] = 0f
                     peakCapSpectrumVelocities[j] = 0f
                     peakCapSpectrumHoldTimers[j] = 0f
@@ -272,14 +331,18 @@ class TwentyFiveBandVisualizer(
                 }
             }
 
+            val holdSec = barHoldSec
+            val releaseSec = barReleaseSec
+            val capHoldSec = peakHoldSec
+            val capGravity = peakGravity
+
             for (i in 0 until SPECTRUM_BAND_COUNT) {
                 val target = targetSpectrumLevels[i]
                 var current = currentSpectrumLevels[i]
 
                 if (target >= current) {
                     current = target
-                    spectrumVelocities[i] = 0f
-                    spectrumHoldTimers[i] = VisualizerConstants.BAR_HOLD_SEC
+                    spectrumHoldTimers[i] = holdSec
                 } else {
                     var remainingDt = safeDt
                     if (spectrumHoldTimers[i] > 0f) {
@@ -293,8 +356,7 @@ class TwentyFiveBandVisualizer(
                     }
 
                     if (remainingDt > 0f) {
-                        spectrumVelocities[i] += VisualizerConstants.BAR_GRAVITY * remainingDt
-                        current = max(target, current - spectrumVelocities[i] * remainingDt)
+                        current = target + (current - target) * exp(-remainingDt / releaseSec)
                     }
                 }
 
@@ -304,7 +366,7 @@ class TwentyFiveBandVisualizer(
                 if (target >= cap) {
                     cap = target
                     peakCapSpectrumVelocities[i] = 0f
-                    peakCapSpectrumHoldTimers[i] = VisualizerConstants.PEAK_CAP_HOLD_SEC
+                    peakCapSpectrumHoldTimers[i] = capHoldSec
                 } else {
                     var remainingCapDt = safeDt
                     if (peakCapSpectrumHoldTimers[i] > 0f) {
@@ -318,7 +380,7 @@ class TwentyFiveBandVisualizer(
                     }
 
                     if (remainingCapDt > 0f) {
-                        peakCapSpectrumVelocities[i] += VisualizerConstants.PEAK_CAP_GRAVITY * remainingCapDt
+                        peakCapSpectrumVelocities[i] += capGravity * remainingCapDt
                         cap = max(currentSpectrumLevels[i], cap - peakCapSpectrumVelocities[i] * remainingCapDt)
                     }
                 }
@@ -341,18 +403,20 @@ class TwentyFiveBandVisualizer(
             for (j in 0 until SPECTRUM_BAND_COUNT) {
                 targetSpectrumLevels[j] = RESTING_LEVEL
                 currentSpectrumLevels[j] = RESTING_LEVEL
-                spectrumVelocities[j] = 0f
                 spectrumHoldTimers[j] = 0f
                 peakCapSpectrumLevels[j] = RESTING_LEVEL
                 peakCapSpectrumVelocities[j] = 0f
                 peakCapSpectrumHoldTimers[j] = 0f
                 prevRawSpectrum[j] = 0f
+                agcFloor[j] = 0f
+                agcCeil[j] = 0f
             }
+            agcInitialized = false
             trackPeakEma = 0.5f
             currentPaceFactor = 0.35f
             onsetDensityEma = 0f
             rmsEnergyEma = 0f
-            lastFluxTimeMs = 0L
+            lastAnalysisTimeMs = 0L
             lastSpectrumUpdateTimeMs = 0L
             lastUpdateTimeMs = 0L
         }

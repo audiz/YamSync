@@ -23,6 +23,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -40,7 +42,8 @@ fun EqualizerDialog(
     val eqState by EqualizerEngine.state.collectAsState()
     var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
     var presetsMenuExpanded by remember { mutableStateOf(false) }
-    var latencyMs by remember { mutableStateOf(AudioVisualizer.latencyCompensationMs.toFloat()) }
+    var latencyAuto by remember { mutableStateOf(AudioVisualizer.isLatencyAuto) }
+    var latencyMs by remember { mutableStateOf(AudioVisualizer.effectiveLatencyMs.toFloat()) }
 
     Dialog(
         onDismissRequest = onDismissRequest,
@@ -591,13 +594,19 @@ fun EqualizerDialog(
                                     }
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = if (latencyMs.roundToInt() > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                                        color = if (latencyAuto || latencyMs.roundToInt() > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                                     ) {
                                         Text(
-                                            text = if (latencyMs.roundToInt() <= 0) "Выкл (0 мс)" else "${latencyMs.roundToInt()} мс",
+                                            text = when {
+                                                latencyAuto -> "Авто (${latencyMs.roundToInt()} мс)"
+                                                latencyMs.roundToInt() <= 0 -> "Выкл (0 мс)"
+                                                else -> "${latencyMs.roundToInt()} мс"
+                                            },
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                             style = MaterialTheme.typography.labelMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (latencyMs.roundToInt() > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = if (latencyAuto || latencyMs.roundToInt() > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
@@ -608,6 +617,7 @@ fun EqualizerDialog(
                                     onValueChange = {
                                         val snapped = (it / 10f).roundToInt() * 10f
                                         latencyMs = snapped
+                                        latencyAuto = false
                                         AudioVisualizer.latencyCompensationMs = snapped.toLong()
                                     },
                                     valueRange = 0f..350f,
@@ -623,16 +633,28 @@ fun EqualizerDialog(
                                     val presets = listOf(
                                         0f to "0 мс (Выкл)",
                                         80f to "80 мс",
-                                        140f to "140 мс (По умолч.)",
+                                        140f to "140 мс",
                                         200f to "200 мс (BT)",
                                         280f to "280 мс"
                                     )
+                                    FilterChip(
+                                        selected = latencyAuto,
+                                        onClick = {
+                                            latencyAuto = true
+                                            AudioVisualizer.latencyCompensationMs = AudioVisualizer.LATENCY_AUTO
+                                            latencyMs = AudioVisualizer.effectiveLatencyMs.toFloat()
+                                        },
+                                        label = { Text("Авто", fontSize = 11.sp) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                    )
                                     presets.forEach { (presetMs, label) ->
-                                        val isSelected = kotlin.math.abs(latencyMs - presetMs) < 5f
+                                        val isSelected = !latencyAuto && kotlin.math.abs(latencyMs - presetMs) < 5f
                                         FilterChip(
                                             selected = isSelected,
                                             onClick = {
                                                 latencyMs = presetMs
+                                                latencyAuto = false
                                                 AudioVisualizer.latencyCompensationMs = presetMs.toLong()
                                             },
                                             label = { Text(label, fontSize = 11.sp) },

@@ -1,6 +1,8 @@
 package io.github.audiz
 
 import io.github.audiz.dsp.AudioVisualizer
+import io.github.audiz.dsp.PcmSpectrumAnalyzer
+import io.github.audiz.dsp.TwentyFiveBandVisualizer
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.test.BeforeTest
@@ -221,5 +223,71 @@ class AudioVisualizerTest {
         val derivedTrebleLevels = AudioVisualizer.levels.value
         assertTrue(derivedTrebleLevels[4] > 0.60f, "Полоса 4 (Treble) в 5-полосном индикаторе должна вывестись из высоких частот: ${derivedTrebleLevels[4]}")
         assertTrue(derivedTrebleLevels[0] < derivedTrebleLevels[4], "Низкие частоты должны быть ниже высоких: ${derivedTrebleLevels[0]} vs ${derivedTrebleLevels[4]}")
+    }
+
+    private fun stereoSinePcm(freqHz: Double, numFrames: Int, sampleRate: Int = 44100): ByteArray {
+        val buf = ByteArray(numFrames * 4)
+        for (i in 0 until numFrames) {
+            val v = (sin(2.0 * PI * freqHz * i / sampleRate) * 28000.0).toInt()
+            for (ch in 0..1) {
+                buf[i * 4 + ch * 2] = (v and 0xFF).toByte()
+                buf[i * 4 + ch * 2 + 1] = ((v shr 8) and 0xFF).toByte()
+            }
+        }
+        return buf
+    }
+
+    @Test
+    fun testLowBandsAreResolvedIndividually() {
+        val analyzer = PcmSpectrumAnalyzer()
+        var spectrum = FloatArray(0)
+        analyzer.onSpectrumReady = { spectrum = it.copyOf() }
+
+        val pcm30 = stereoSinePcm(30.0, 4096)
+        analyzer.processPcmChunk(pcm30, pcm30.size)
+        val low30 = spectrum
+        analyzer.reset()
+        val pcm70 = stereoSinePcm(70.0, 4096)
+        analyzer.processPcmChunk(pcm70, pcm70.size)
+        val low70 = spectrum
+
+        assertTrue(low30[1] > low30[5] + 0.2f, "30 Гц должен выделять полосу 1, а не 5: ${low30.toList()}")
+        assertTrue(low70[4] > low70[1] + 0.2f, "70 Гц должен выделять полосу 4, а не 1: ${low70.toList()}")
+        val distinctLow = (0..4).map { low30[it] }.toSet()
+        assertTrue(distinctLow.size >= 4, "Низкие полосы не должны дублировать один бин: $distinctLow")
+    }
+
+    @Test
+    fun testPerBandAgcRevealsKicksOverSteadyBackground() {
+        var simTime = 1000L
+        val viz = TwentyFiveBandVisualizer(timeProvider = { simTime })
+
+        // Ровный фон 0.55 во всех полосах и удары до 0.75 в полосе 3 каждые ~500 мс
+        var kickLevel = 0f
+        var gapLevel = 0f
+        repeat(200) { step ->
+            simTime += 23L
+            val isKick = step % 22 == 0
+            val spectrum = FloatArray(25) { 0.55f }
+            if (isKick) spectrum[3] = 0.75f
+            viz.updateSpectrum(spectrum)
+            val frame = viz.advanceFrame(0.023f, isPlaying = true)
+            if (step > 150) {
+                if (isKick) kickLevel = frame.levels[3]
+                if (step % 22 == 11) gapLevel = frame.levels[3]
+            }
+        }
+        assertTrue(kickLevel > 0.75f, "Удар должен подниматься почти до верха: $kickLevel")
+        assertTrue(kickLevel - gapLevel > 0.4f, "Между ударами столбик должен опускаться: kick=$kickLevel gap=$gapLevel")
+    }
+
+    @Test
+    fun testAutoLatencyFollowsMeasuredOutputBuffer() {
+        AudioVisualizer.latencyCompensationMs = AudioVisualizer.LATENCY_AUTO
+        repeat(60) { AudioVisualizer.reportOutputBufferedMs(200f) }
+        assertEquals(200L + AudioVisualizer.DEVICE_OUTPUT_LATENCY_MS, AudioVisualizer.effectiveLatencyMs)
+
+        AudioVisualizer.latencyCompensationMs = 90L
+        assertEquals(90L, AudioVisualizer.effectiveLatencyMs, "Ручное значение имеет приоритет над измерением")
     }
 }

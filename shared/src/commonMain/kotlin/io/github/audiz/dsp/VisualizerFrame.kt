@@ -38,8 +38,8 @@ internal object VisualizerConstants {
     // Базовые границы адаптивной физики (Медленный темп <-> Быстрый темп)
     const val SLOW_BAR_HOLD_SEC = 0.095f    // 95 мс мягкое зависание на плавных частях
     const val FAST_BAR_HOLD_SEC = 0.030f    // 30 мс четкая отсечка на быстром ритме
-    const val SLOW_BAR_GRAVITY = 1.85f      // Тягучее плавное падение на интро/эмбиенте
-    const val FAST_BAR_GRAVITY = 6.40f      // Хлесткий возврат на быстром темпе/дропе
+    const val SLOW_BAR_RELEASE_SEC = 0.16f  // Постоянная времени спада: плавное дыхание на интро/эмбиенте
+    const val FAST_BAR_RELEASE_SEC = 0.06f  // Хлесткий возврат между ударами на быстром темпе/дропе
 
     const val SLOW_PEAK_HOLD_SEC = 0.380f   // Долгое парение засечек на медленном темпе
     const val FAST_PEAK_HOLD_SEC = 0.210f   // Быстрый сброс засечек на активном бите
