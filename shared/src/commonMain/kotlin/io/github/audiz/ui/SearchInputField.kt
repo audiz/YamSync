@@ -57,11 +57,7 @@ fun SearchInputField(
         }
     }
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    val inputField: @Composable RowScope.() -> Unit = {
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -162,13 +158,14 @@ fun SearchInputField(
                 }
             }
         }
+    }
 
-        val showSearchButton = !isMobile || !isFocused || query.isNotBlank()
-        if (showSearchButton) {
+    val searchButton: @Composable (Modifier) -> Unit = { buttonModifier ->
+        run {
             Button(
                 onClick = handleSearch,
                 enabled = query.isNotBlank() && !isLoading,
-                modifier = Modifier
+                modifier = buttonModifier
                     .height(42.dp)
                     .pointerHoverIcon(PointerIcon.Hand),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
@@ -195,6 +192,9 @@ fun SearchInputField(
             }
         }
 
+    }
+
+    val trailingButton: @Composable () -> Unit = {
         if (isFocused) {
             IconButton(
                 onClick = {
@@ -234,6 +234,38 @@ fun SearchInputField(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
+            }
+        }
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val isCompact = maxWidth < 480.dp
+        if (isCompact && query.isNotBlank()) {
+            // Узкий экран: поле ввода на всю ширину, кнопки действий — отдельной строкой ниже
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    inputField()
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    searchButton(Modifier.weight(1f))
+                    trailingButton()
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                inputField()
+                if (!isCompact && (!isMobile || !isFocused)) {
+                    searchButton(Modifier)
+                }
+                trailingButton()
             }
         }
     }
