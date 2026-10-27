@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YamSync — вариант A и его вариации</title>
+<style>
+  :root {
+    --page: #0b0b0d;
+    --dialog: #17171b;
+    --surface: #1f1f24;
+    --surface-2: #26262c;
+    --text: #f2f3f5;
+    --muted: #9b9ba6;
+    --dim: #6f6f7a;
+    --accent: #2dd881;
+    --accent-text: #5eeaa4;
+    --accent-soft: rgba(45, 216, 129, .13);
+    --accent-line: rgba(45, 216, 129, .28);
+    --line: rgba(255, 255, 255, .065);
+    --line-2: rgba(255, 255, 255, .10);
+    --slate: #9aa4b5;
+    --shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background:
+      radial-gradient(900px 600px at 15% -10%, rgba(45, 216, 129, .07), transparent 60%),
+      radial-gradient(700px 500px at 95% 0%, rgba(90, 120, 255, .05), transparent 55%),
+      var(--page);
+    color: var(--text);
+    font-family: "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 1560px; margin: 0 auto; padding: 34px 28px 56px; }
+
+  .page-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 24px; margin-bottom: 28px; flex-wrap: wrap;
+  }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11px; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--accent-text); font-weight: 700; margin-bottom: 8px;
+  }
+  .eyebrow::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 12px var(--accent);
+  }
+
+  h1 {
+    margin: 0; font-size: 30px; line-height: 1.15;
+    letter-spacing: -.02em; font-weight: 800;
+  }
+
+  .subtitle {
+    margin: 8px 0 0; color: var(--muted); font-size: 13.5px;
+    line-height: 1.5; max-width: 700px;
+  }
+  .subtitle strong { color: var(--accent-text); font-weight: 650; }
+
+  .hint {
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 14px; border: 1px solid var(--accent-line);
+    background: var(--accent-soft); border-radius: 12px;
+    color: var(--accent-text); font-size: 12px; font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(4, minmax(300px, 1fr));
+    gap: 26px; align-items: start;
+  }
+  @media (max-width: 1450px) { .grid { grid-template-columns: repeat(2, minmax(300px, 1fr)); } }
+  @media (max-width: 760px)  { .grid { grid-template-columns: 1fr; } }
+
+  .panel { min-width: 0; }
+
+  .panel-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; margin-bottom: 11px; padding: 0 2px;
+  }
+  .panel-title {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 14px; font-weight: 750; letter-spacing: -.01em;
+  }
+  .badge {
+    display: inline-grid; place-items: center;
+    min-width: 22px; height: 22px; padding: 0 7px;
+    border-radius: 7px; background: rgba(255, 255, 255, .07);
+    border: 1px solid var(--line-2); font-size: 11px;
+    font-weight: 800; color: var(--muted);
+  }
+  .panel-title .badge {
+    color: var(--accent-text); background: var(--accent-soft);
+    border-color: var(--accent-line);
+  }
+  .tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--dim); padding-top: 5px;
+    text-align: right;
+  }
+
+  .caption {
+    margin: 11px 2px 0; color: var(--muted); font-size: 11.5px; line-height: 1.45;
+  }
+  .caption strong { color: var(--text); font-weight: 650; }
+
+  .phone {
+    width: 100%; max-width: 390px; border-radius: 22px; padding: 7px;
+    background: linear-gradient(160deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .015));
+    box-shadow: var(--shadow);
+  }
+  .dialog {
+    border-radius: 17px; background: var(--dialog);
+    border: 1px solid rgba(255, 255, 255, .045); padding: 14px; overflow: hidden;
+  }
+
+  .dialog-head { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; }
+  .app-icon {
+    width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+    border-radius: 9px; color: var(--accent); background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+  }
+  .dialog-titles { flex: 1; min-width: 0; }
+  .dialog-title {
+    font-size: 19px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15;
+  }
+  .dialog-sub {
+    font-size: 10.5px; color: var(--muted); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
+  }
+  .head-actions { display: flex; gap: 2px; flex: none; }
+
+  .ibtn {
+    appearance: none; border: 0; padding: 0;
+    width: 28px; height: 28px; display: grid; place-items: center;
+    border-radius: 8px; background: transparent; color: var(--muted);
+    cursor: pointer; transition: background .15s, color .15s;
+  }
+  .ibtn:hover { background: rgba(255, 255, 255, .06); color: var(--text); }
+  .ibtn.accent { color: var(--accent); }
+
+  .tabs {
+    display: grid; grid-template-columns: 1fr 1fr; padding: 3px;
+    border-radius: 11px; background: #202025; border: 1px solid var(--line);
+    margin-bottom: 13px;
+  }
+  .tab {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    height: 30px; border-radius: 8px; font-size: 11.5px;
+    font-weight: 600; color: var(--muted);
+  }
+  .tab.active {
+    color: var(--accent-text); background: rgba(45, 216, 129, .10);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+
+  .list { display: flex; flex-direction: column; gap: 8px; }
+
+  .ico {
+    width: 16px; height: 16px; fill: none; stroke: currentColor;
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block;
+  }
+  .ico.sm { width: 13px; height: 13px; }
+  .ico.fill { fill: currentColor; stroke: none; }
+
+  .title {
+    font-size: 13.5px; font-weight: 750; letter-spacing: -.012em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ── Общий каркас варианта A: слева текст, справа кнопки по центру ── */
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px 9px 13px;
+    min-height: 63px;
+  }
+  .card-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+  .card-actions { display: flex; align-items: center; gap: 3px; flex: none; }
+  .meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+  .playbtn {
+    appearance: none; border: 0; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); color: #00381e; display: grid; place-items: center;
+    cursor: pointer; flex: none; transition: transform .12s, box-shadow .15s;
+  }
+  .playbtn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(45, 216, 129, .28); }
+
+  .pill {
+    appearance: none; border: 1px solid var(--accent-line);
+    background: var(--accent-soft); color: var(--accent-text);
+    border-radius: 6px; height: 22px; padding: 0 6px;
+    display: inline-flex; align-items: center; gap: 4px;
+    font: inherit; font-size: 10.5px; font-weight: 650;
+    cursor: pointer; white-space: nowrap; flex: none;
+  }
+  .pill.neutral {
+    background: rgba(0, 0, 0, .22); border-color: var(--line-2); color: var(--muted);
+  }
+  .pill.neutral:hover { color: var(--accent-text); border-color: var(--accent-line); }
+
+  .src {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; color: var(--muted); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .src .ico { color: var(--dim); }
+  .dotsep { color: var(--dim); font-size: 10px; flex: none; }
+
+  .src-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; padding: 0 7px; border-radius: 6px;
+    font-size: 10.5px; font-weight: 600; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .src-chip.cloud {
+    color: var(--accent-text); background: rgba(45, 216, 129, .08);
+    border-color: rgba(45, 216, 129, .16);
+  }
+  .src-chip.local {
+    color: var(--slate); background: rgba(154, 164, 181, .08);
+    border-color: rgba(154, 164, 181, .18);
+  }
+
+  /* ── A1 · Изумрудная рейка ─────────────────────────────────── */
+  .a1 {
+    position: relative; overflow: hidden; border-radius: 12px;
+    border: 1px solid var(--line);
+    background:
+      linear-gradient(118deg, rgba(45, 216, 129, .09), rgba(45, 216, 129, 0) 58%),
+      var(--surface);
+    transition: border-color .15s;
+  }
+  .a1::before {
+    content: ""; position: absolute; left: 0; top: 9px; bottom: 9px;
+    width: 3px; border-radius: 0 3px 3px 0; background: var(--accent);
+    box-shadow: 0 0 12px rgba(45, 216, 129, .45);
+  }
+  .a1:hover { border-color: rgba(45, 216, 129, .22); }
+
+  /* ── A2 · Контур ───────────────────────────────────────────── */
+  .a2 {
+    border-radius: 12px; border: 1px solid rgba(45, 216, 129, .22);
+    background: rgba(45, 216, 129, .015);
+    transition: background .15s, border-color .15s;
+  }
+  .a2:hover { background: rgba(45, 216, 129, .045); border-color: rgba(45, 216, 129, .38); }
+  .a2 .playbtn { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
+
+  /* ── A3 · Акцент источника ─────────────────────────────────── */
+  .a3 {
+    position: relative; overflow: hidden; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--surface);
+    --rail: var(--accent);
+    transition: border-color .15s;
+  }
+  .a3::before {
+    content: ""; position: absolute; left: 0; top: 9px; bottom: 9px;
+    width: 3px; border-radius: 0 3px 3px 0; background: var(--rail);
+  }
+  .a3.offline { --rail: var(--slate); }
+  .a3:hover { border-color: var(--line-2); }
+
+  /* ── A4 · Мягкое свечение ──────────────────────────────────── */
+  .a4 {
+    border-radius: 12px; border: 1px solid rgba(255, 255, 255, .055);
+    background:
+      radial-gradient(110px 90px at 90% 50%, rgba(45, 216, 129, .16), transparent 72%),
+      #1d1d22;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+    transition: border-color .15s;
+  }
+  .a4:hover { border-color: rgba(45, 216, 129, .22); }
+  .a4 .playbtn { box-shadow: 0 0 0 4px rgba(45, 216, 129, .07), 0 5px 16px rgba(45, 216, 129, .26); }
+
+  .footer-note {
+    display: flex; align-items: center; gap: 9px; margin-top: 30px;
+    padding: 13px 16px; border-radius: 12px; border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .022); color: var(--muted);
+    font-size: 12px; line-height: 1.5;
+  }
+  .footer-note strong { color: var(--text); font-weight: 650; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-library" viewBox="0 0 24 24">
+    <path d="M4 19V5.5A1.5 1.5 0 0 1 5.5 4H8v15M8 4l4 15M12 4l4 15M16 4l3 15M4 19h16"/>
+  </symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24">
+    <path d="M3.5 9.5a13 13 0 0 1 17 0M6.5 12.8a8.5 8.5 0 0 1 11 0M9.5 16a4 4 0 0 1 5 0"/><circle cx="12" cy="19" r=".9" fill="currentColor" stroke="none"/>
+  </symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-hdd" viewBox="0 0 24 24">
+    <rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 15h1M11 15h.01"/><path d="M7 9h10"/>
+  </symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24">
+    <path d="M7.5 18a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18.7 10a4 4 0 0 1-.7 8Z"/>
+  </symbol>
+  <symbol id="i-download" viewBox="0 0 24 24">
+    <path d="M12 4v10m0 0 3.5-3.5M12 14l-3.5-3.5M5 18.5h14"/>
+  </symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24">
+    <circle cx="12" cy="5.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.2" fill="currentColor" stroke="none"/>
+  </symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8.5 5.8c0-.8.9-1.3 1.6-.9l8 5.7a1.1 1.1 0 0 1 0 1.8l-8 5.7c-.7.4-1.6-.1-1.6-.9Z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24">
+    <path d="M9 18V6.5l10-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>
+  </symbol>
+</svg>
+
+<main class="page">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">YamSync · Media Library · итерация 2</div>
+      <h1>Вариант A: кнопки по центру + 4 характера</h1>
+      <p class="subtitle">
+        Блок действий справа теперь <strong>выровнен по вертикальному центру карточки</strong>,
+        а не прижат к строке заголовка. Слева — название и метаданные, справа — скачивание, меню
+        и play. Обложек нет, высота карточек прежняя: ≈ 63 px.
+      </p>
+    </div>
+    <div class="hint">Наведите на карточку — виден hover</div>
+  </header>
+
+  <div class="grid">
+    <!-- ─────────────────────────── A1 ─────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="badge">A1</span> Изумрудная рейка</div>
+        <span class="tag">рекомендую</span>
+      </div>
+
+      <div class="phone">
+        <div class="dialog">
+          <div class="dialog-head">
+            <div class="app-icon"><svg class="ico" style="width:20px;height:20px"><use href="#i-library"/></svg></div>
+            <div class="dialog-titles">
+              <div class="dialog-title">Медиатека</div>
+              <div class="dialog-sub">Локальные коллекции и Яндекс Музыка</div>
+            </div>
+            <div class="head-actions">
+              <button class="ibtn accent"><svg class="ico"><use href="#i-wifi"/></svg></button>
+              <button class="ibtn"><svg class="ico"><use href="#i-close"/></svg></button>
+            </div>
+          </div>
+
+          <div class="tabs">
+            <div class="tab"><svg class="ico sm"><use href="#i-hdd"/></svg> Локальные</div>
+            <div class="tab active"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс</div>
+          </div>
+
+          <div class="list">
+            <article class="card a1">
+              <div class="card-left">
+                <div class="title">Other</div>
+                <div class="meta">
+                  <button class="pill"><svg class="ico sm"><use href="#i-note"/></svg> 3 трека <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a1">
+              <div class="card-left">
+                <div class="title">Rock</div>
+                <div class="meta">
+                  <button class="pill"><svg class="ico sm"><use href="#i-note"/></svg> 17 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a1">
+              <div class="card-left">
+                <div class="title">Electronic</div>
+                <div class="meta">
+                  <button class="pill"><svg class="ico sm"><use href="#i-note"/></svg> 40 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a1">
+              <div class="card-left">
+                <div class="title">Мой плейлист</div>
+                <div class="meta">
+                  <button class="pill"><svg class="ico sm"><use href="#i-note"/></svg> 65 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-hdd"/></svg> Оффлайн</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><strong>Базовая и самая выразительная.</strong> Мягкий зелёный градиент, рейка слева и акцентный счётчик. Кнопки по центру уравновешивают две строки текста.</p>
+    </section>
+
+    <!-- ─────────────────────────── A2 ─────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="badge">A2</span> Контур</div>
+        <span class="tag">легче всего</span>
+      </div>
+
+      <div class="phone">
+        <div class="dialog">
+          <div class="dialog-head">
+            <div class="app-icon"><svg class="ico" style="width:20px;height:20px"><use href="#i-library"/></svg></div>
+            <div class="dialog-titles">
+              <div class="dialog-title">Медиатека</div>
+              <div class="dialog-sub">Локальные коллекции и Яндекс Музыка</div>
+            </div>
+            <div class="head-actions">
+              <button class="ibtn accent"><svg class="ico"><use href="#i-wifi"/></svg></button>
+              <button class="ibtn"><svg class="ico"><use href="#i-close"/></svg></button>
+            </div>
+          </div>
+
+          <div class="tabs">
+            <div class="tab"><svg class="ico sm"><use href="#i-hdd"/></svg> Локальные</div>
+            <div class="tab active"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс</div>
+          </div>
+
+          <div class="list">
+            <article class="card a2">
+              <div class="card-left">
+                <div class="title">Other</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 3 трека <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a2">
+              <div class="card-left">
+                <div class="title">Rock</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 17 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a2">
+              <div class="card-left">
+                <div class="title">Electronic</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 40 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a2">
+              <div class="card-left">
+                <div class="title">Мой плейлист</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 65 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-hdd"/></svg> Оффлайн</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><strong>Прозрачный и воздушный.</strong> Никакой заливки — только тонкий изумрудный контур и play-кнопка-«стекло». Список выглядит легче, при этом остаётся карточным.</p>
+    </section>
+
+    <!-- ─────────────────────────── A3 ─────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="badge">A3</span> Акцент источника</div>
+        <span class="tag">информативно</span>
+      </div>
+
+      <div class="phone">
+        <div class="dialog">
+          <div class="dialog-head">
+            <div class="app-icon"><svg class="ico" style="width:20px;height:20px"><use href="#i-library"/></svg></div>
+            <div class="dialog-titles">
+              <div class="dialog-title">Медиатека</div>
+              <div class="dialog-sub">Локальные коллекции и Яндекс Музыка</div>
+            </div>
+            <div class="head-actions">
+              <button class="ibtn accent"><svg class="ico"><use href="#i-wifi"/></svg></button>
+              <button class="ibtn"><svg class="ico"><use href="#i-close"/></svg></button>
+            </div>
+          </div>
+
+          <div class="tabs">
+            <div class="tab"><svg class="ico sm"><use href="#i-hdd"/></svg> Локальные</div>
+            <div class="tab active"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс</div>
+          </div>
+
+          <div class="list">
+            <article class="card a3">
+              <div class="card-left">
+                <div class="title">Other</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 3 трека <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="src-chip cloud"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a3">
+              <div class="card-left">
+                <div class="title">Rock</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 17 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="src-chip cloud"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a3">
+              <div class="card-left">
+                <div class="title">Electronic</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 40 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="src-chip cloud"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a3 offline">
+              <div class="card-left">
+                <div class="title">Мой плейлист</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 65 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="src-chip local"><svg class="ico sm"><use href="#i-hdd"/></svg> Оффлайн</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><strong>Цвет говорит об источнике.</strong> Рейка и чип источника окрашены: изумрудный — Яндекс, серо-синий — оффлайн. Счётчик нейтральный, поэтому взгляд сначала цепляется за тип плейлиста.</p>
+    </section>
+
+    <!-- ─────────────────────────── A4 ─────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="badge">A4</span> Мягкое свечение</div>
+        <span class="tag">премиально</span>
+      </div>
+
+      <div class="phone">
+        <div class="dialog">
+          <div class="dialog-head">
+            <div class="app-icon"><svg class="ico" style="width:20px;height:20px"><use href="#i-library"/></svg></div>
+            <div class="dialog-titles">
+              <div class="dialog-title">Медиатека</div>
+              <div class="dialog-sub">Локальные коллекции и Яндекс Музыка</div>
+            </div>
+            <div class="head-actions">
+              <button class="ibtn accent"><svg class="ico"><use href="#i-wifi"/></svg></button>
+              <button class="ibtn"><svg class="ico"><use href="#i-close"/></svg></button>
+            </div>
+          </div>
+
+          <div class="tabs">
+            <div class="tab"><svg class="ico sm"><use href="#i-hdd"/></svg> Локальные</div>
+            <div class="tab active"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс</div>
+          </div>
+
+          <div class="list">
+            <article class="card a4">
+              <div class="card-left">
+                <div class="title">Other</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 3 трека <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a4">
+              <div class="card-left">
+                <div class="title">Rock</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 17 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a4">
+              <div class="card-left">
+                <div class="title">Electronic</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 40 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-cloud"/></svg> Яндекс Музыка</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn accent"><svg class="ico"><use href="#i-download"/></svg></button>
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+
+            <article class="card a4">
+              <div class="card-left">
+                <div class="title">Мой плейлист</div>
+                <div class="meta">
+                  <button class="pill neutral"><svg class="ico sm"><use href="#i-note"/></svg> 65 треков <svg class="ico sm"><use href="#i-chev"/></svg></button>
+                  <span class="dotsep">•</span>
+                  <span class="src"><svg class="ico sm"><use href="#i-hdd"/></svg> Оффлайн</span>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ibtn"><svg class="ico"><use href="#i-dots"/></svg></button>
+                <button class="playbtn"><svg class="ico fill" style="width:14px;height:14px"><use href="#i-play"/></svg></button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><strong>Тихий премиальный акцент.</strong> Вместо рейки — мягкое изумрудное свечение вокруг play-кнопки. Карточка тёмная и спокойная, кнопки по центру, счётчик не перетягивает внимание.</p>
+    </section>
+  </div>
+
+  <div class="footer-note">
+    <svg class="ico" style="color:var(--accent);flex:none"><use href="#i-note"/></svg>
+    <span><strong>Что изменилось:</strong> правый блок кнопок теперь центрирован по высоте карточки, а не по строке заголовка. Все четыре варианта используют один каркас, поэтому переключаются без изменения логики. Выберите характер — внедрю в <code>LocalPlaylistsTab</code> и <code>YandexUserPlaylistsTab</code>.</span>
+  </div>
+</main>
+</body>
+</html>
