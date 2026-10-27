@@ -9,6 +9,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * 🌊 25-полосный спектральный анализатор Winamp Pro для обложки альбома.
@@ -19,8 +20,11 @@ import kotlin.math.sin
  * - Межполосную связность (Neighbor Cohesion)
  * - Поканальную автоматическую регулировку усиления (Per-band AGC): каждая полоса использует
  *   полную высоту относительно своей собственной недавней динамики
- * - Привязку к долям: трекер бита ([BeatTracker]) даёт общий импульс на каждую долю, а столбики
- *   рисуются как сглаженная форма спектра × огибающая импульса, поэтому вся линейка «дышит» в такт
+ * - Поканальные удары: каждая полоса сама детектирует свои атаки (бочка, малый, хай-хэт),
+ *   столбик рисуется как сглаженная форма спектра × огибающая своего удара. Общего импульса
+ *   на всю линейку нет — столбики играют каждый свою партию.
+ * - Темп и фаза ([BeatTracker]) задают ритмическую сетку: удары полосы засчитываются только
+ *   на долях и половинах долей; от темпа зависят длительность спада и скорость баллистики
  * - Баллистику, зависящую от темпа трека: сглаженная атака, удержание и экспоненциальный спад столбиков,
  *   гравитационное падение пиковых засечек
  * - Очередь компенсации задержки аудио (Latency Compensation)
@@ -49,19 +53,28 @@ class TwentyFiveBandVisualizer(
         // Форма спектра: медленно меняющийся контур, который модулируется импульсом доли
         private const val SHAPE_ATTACK_SEC = 0.06f
         private const val SHAPE_RELEASE_SEC = 0.30f
-        // Глубина модуляции долей: базовая (без уверенного темпа) + добавка от уверенности
-        private const val BEAT_DEPTH_BASE = 0.35f
-        private const val BEAT_DEPTH_CONFIDENT = 0.35f
-        // Насколько импульс доли поднимает столбик над формой спектра
-        private const val BEAT_BOOST = 1.6f
+        // Глубина модуляции формы спектра ударом полосы
+        private const val HIT_DEPTH = 0.6f
+        // Насколько удар поднимает столбик над формой спектра
+        private const val HIT_BOOST = 1.6f
+        // Детектор ударов полосы: порог среднее + k·σ потока, постоянная времени статистики
+        private const val HIT_THRESHOLD_STD = 1.5f
+        private const val HIT_MIN_FLUX = 0.02f
+        private const val HIT_STATS_SEC = 1.0f
+        // Минимальный интервал между ударами одной полосы: доля длительности доли, но не меньше
+        private const val HIT_REFRACTORY_PERIOD_RATIO = 0.3f
+        private const val HIT_MIN_REFRACTORY_SEC = 0.09f
+        // Вклад соседей в поток полосы: удар звучит не одной иголкой, а узкой группой
+        private const val HIT_NEIGHBOR_WEIGHT = 0.25f
+        // Минимальный вес ритмической сетки, при котором удар полосы засчитывается
+        private const val HIT_MIN_GRID_WEIGHT = 0.35f
         // Доля мгновенного спектра поверх модуляции: сохраняет мелкую живую детализацию
         private const val INSTANT_MIX = 0.15f
         // Итоговое усиление модулированной формы, чтобы удары доходили до верхней трети
-        private const val OUTPUT_GAIN = 1.3f
-        // Спад импульса доли как доля её длительности
-        private const val BEAT_DECAY_PERIOD_RATIO = 0.32f
-        private const val ACCENT_DECAY_SEC = 0.09f
-        private const val BASS_BAND_END = 7
+        private const val OUTPUT_GAIN = 1.45f
+        // Спад удара как доля длительности доли
+        private const val HIT_DECAY_PERIOD_RATIO = 0.32f
+        private const val HIT_MIN_DECAY_SEC = 0.06f
         private const val MIN_BPM_PACE = 70f
         private const val MAX_BPM_PACE = 160f
     }
@@ -91,8 +104,13 @@ class TwentyFiveBandVisualizer(
     // --- Привязка к долям ---
     private val beatTracker = BeatTracker()
     private val shapeLevels = FloatArray(SPECTRUM_BAND_COUNT) { RESTING_LEVEL }
-    private var beatPulse = 0f
-    private var accentPulse = 0f
+    private val hitPulse = FloatArray(SPECTRUM_BAND_COUNT)
+    private val hitPrev = FloatArray(SPECTRUM_BAND_COUNT)
+    private val hitFlux = FloatArray(SPECTRUM_BAND_COUNT)
+    private val hitFluxMean = FloatArray(SPECTRUM_BAND_COUNT)
+    private val hitFluxVar = FloatArray(SPECTRUM_BAND_COUNT)
+    private val hitSinceSec = FloatArray(SPECTRUM_BAND_COUNT) { 10f }
+    private var hitHasPrev = false
 
     @Volatile
     var lastSpectrumUpdateTimeMs: Long = 0L
@@ -322,13 +340,56 @@ class TwentyFiveBandVisualizer(
                 shapeLevels[i] += (1f - exp(-dtSec / tau)) * (instant - shapeLevels[i])
             }
 
-            val beatStrength = beatTracker.process(globalSpectrum, dtSec)
-            if (beatStrength > 0f) beatPulse = max(beatPulse, beatStrength)
-            accentPulse = max(accentPulse, beatTracker.lastOnsetStrength)
+            beatTracker.process(globalSpectrum, dtSec)
+            detectBandHits(dtSec)
 
             lastSpectrumUpdateTimeMs = currentTime()
             lastUpdateTimeMs = currentTime()
         }
+    }
+
+    /**
+     * 🥁 Удары каждой полосы: положительный поток уровня (с небольшим вкладом соседей)
+     * выше адаптивного порога полосы запускает её собственный импульс.
+     */
+    private fun detectBandHits(dtSec: Float) {
+        for (i in 0 until SPECTRUM_BAND_COUNT) {
+            hitFlux[i] = if (hitHasPrev) max(0f, globalSpectrum[i] - hitPrev[i]) else 0f
+            hitPrev[i] = globalSpectrum[i]
+        }
+        hitHasPrev = true
+
+        val alpha = 1f - exp(-dtSec / HIT_STATS_SEC)
+        val grid = beatTracker.gridWeight()
+        val refractory = max(HIT_MIN_REFRACTORY_SEC, beatTracker.beatPeriodSec * HIT_REFRACTORY_PERIOD_RATIO)
+        for (i in 0 until SPECTRUM_BAND_COUNT) {
+            val left = if (i > 0) hitFlux[i - 1] else hitFlux[i]
+            val right = if (i < SPECTRUM_BAND_COUNT - 1) hitFlux[i + 1] else hitFlux[i]
+            val flux = hitFlux[i] * (1f - 2f * HIT_NEIGHBOR_WEIGHT) + (left + right) * HIT_NEIGHBOR_WEIGHT
+
+            val threshold = hitFluxMean[i] + HIT_THRESHOLD_STD * sqrt(hitFluxVar[i])
+            val diff = flux - hitFluxMean[i]
+            hitFluxMean[i] += alpha * diff
+            hitFluxVar[i] += alpha * (diff * diff - hitFluxVar[i])
+
+            hitSinceSec[i] += dtSec
+            // Удары вне ритмической сетки (легато струнных, вокал) не запускают импульс
+            if (flux > threshold && flux > HIT_MIN_FLUX && hitSinceSec[i] > refractory && grid >= HIT_MIN_GRID_WEIGHT) {
+                hitSinceSec[i] = 0f
+                val strength = (0.6f + 0.4f * (flux - threshold) / max(threshold, 0.01f)).coerceIn(0.6f, 1f)
+                hitPulse[i] = max(hitPulse[i], strength * grid)
+            }
+        }
+    }
+
+    private fun resetBandHits() {
+        hitPulse.fill(0f)
+        hitPrev.fill(0f)
+        hitFlux.fill(0f)
+        hitFluxMean.fill(0f)
+        hitFluxVar.fill(0f)
+        hitSinceSec.fill(10f)
+        hitHasPrev = false
     }
 
     /**
@@ -352,8 +413,7 @@ class TwentyFiveBandVisualizer(
                     targetSpectrumLevels[j] = RESTING_LEVEL
                     shapeLevels[j] = RESTING_LEVEL
                 }
-                beatPulse = 0f
-                accentPulse = 0f
+                hitPulse.fill(0f)
                 return VisualizerFrame(currentSpectrumLevels.copyOf(), peakCapSpectrumLevels.copyOf())
             }
 
@@ -370,13 +430,10 @@ class TwentyFiveBandVisualizer(
                     targetSpectrumLevels[k] = RESTING_LEVEL
                     shapeLevels[k] = RESTING_LEVEL
                 }
-                beatPulse = 0f
-                accentPulse = 0f
+                hitPulse.fill(0f)
             }
 
-            beatPulse *= exp(-safeDt / max(0.06f, beatTracker.beatPeriodSec * BEAT_DECAY_PERIOD_RATIO))
-            accentPulse *= exp(-safeDt / ACCENT_DECAY_SEC)
-            val depth = BEAT_DEPTH_BASE + BEAT_DEPTH_CONFIDENT * beatTracker.confidence
+            val hitDecay = exp(-safeDt / max(HIT_MIN_DECAY_SEC, beatTracker.beatPeriodSec * HIT_DECAY_PERIOD_RATIO))
 
             val holdSec = barHoldSec
             val releaseSec = barReleaseSec
@@ -385,9 +442,8 @@ class TwentyFiveBandVisualizer(
             val capGravity = peakGravity
 
             for (i in 0 until SPECTRUM_BAND_COUNT) {
-                // Бас идёт строго по долям, середина и верх дополнительно откликаются на акценты
-                val envelope = if (i <= BASS_BAND_END) beatPulse else max(beatPulse * 0.85f, accentPulse * 0.8f)
-                val pulsed = OUTPUT_GAIN * shapeLevels[i] * ((1f - depth) + depth * BEAT_BOOST * envelope)
+                hitPulse[i] *= hitDecay
+                val pulsed = OUTPUT_GAIN * shapeLevels[i] * ((1f - HIT_DEPTH) + HIT_DEPTH * HIT_BOOST * hitPulse[i])
                 val target = (pulsed * (1f - INSTANT_MIX) + targetSpectrumLevels[i] * INSTANT_MIX)
                     .coerceIn(RESTING_LEVEL, 1f)
                 var current = currentSpectrumLevels[i]
@@ -466,8 +522,7 @@ class TwentyFiveBandVisualizer(
             agcInitialized = false
             shapeLevels.fill(RESTING_LEVEL)
             beatTracker.reset()
-            beatPulse = 0f
-            accentPulse = 0f
+            resetBandHits()
             trackPeakEma = 0.5f
             currentPaceFactor = 0.35f
             onsetDensityEma = 0f

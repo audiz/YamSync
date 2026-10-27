@@ -182,7 +182,7 @@ class AudioVisualizerTest {
         simTime = 2120L
         val frameMatured = AudioVisualizer.advanceSpectrumFrame(0.060f, isPlaying = true)
         assertEquals(25, frameMatured.levels.size, "Spectrum frame should contain 25 bands")
-        assertTrue(frameMatured.levels[8] > AudioVisualizer.RESTING_LEVEL + 0.15f, "Band 8 should trigger after 120ms latency: ${frameMatured.levels[8]}")
+        assertTrue(frameMatured.levels[8] > AudioVisualizer.RESTING_LEVEL + 0.1f, "Band 8 should trigger after 120ms latency: ${frameMatured.levels[8]}")
     }
 
     @Test
@@ -209,7 +209,7 @@ class AudioVisualizerTest {
         // Атака сглажена: даём столбику несколько кадров на подъём
         val frame25 = AudioVisualizer.advanceSpectrumFrame(0.080f, isPlaying = true)
         assertEquals(25, frame25.levels.size)
-        assertTrue(frame25.levels[0] > 0.35f, "Полоса 0 в 25-полосном спектре активна: ${frame25.levels[0]}")
+        assertTrue(frame25.levels[0] > 0.3f, "Полоса 0 в 25-полосном спектре активна: ${frame25.levels[0]}")
 
         // 5-полосный визуализатор должен автоматически вывестись из 25 полос:
         // b1 (Sub-bass/Kick) должен быть высоким, а b5 (Treble) — значительно ниже

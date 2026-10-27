@@ -4,15 +4,15 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
-import kotlin.math.sqrt
 
 /**
- * 🥁 Трекер долей (бита) по 25-полосному спектру.
+ * 🥁 Трекер темпа по 25-полосному спектру.
  *
  * - Функция начала нот (onset strength): взвешенный положительный спектральный поток, бас весомее.
- * - Темп: автокорреляция onset strength за последние [HISTORY_SEC] секунд в диапазоне [MIN_BPM]..[MAX_BPM].
- * - Фаза: доля срабатывает на onset рядом с ожидаемым моментом, а при уверенном темпе
- *   доигрывается «маховиком», даже если удар в миксе слабый.
+ * - Темп: автокорреляция onset strength за последние [HISTORY_SEC] секунд в диапазоне [MIN_BPM]..[MAX_BPM]
+ *   с коррекцией половинного/двойного темпа и инерцией против случайных переключений.
+ * - Фаза: гребёнка с периодом доли по той же истории даёт момент последней доли,
+ *   из которого строится ритмическая сетка (доли и половины долей) — [gridWeight].
  *
  * Не потокобезопасен: вызывается под блокировкой [TwentyFiveBandVisualizer].
  */
@@ -32,9 +32,12 @@ internal class BeatTracker {
         // Сколько оценок подряд новый темп должен побеждать, чтобы на него переключиться
         private const val SWITCH_PERSISTENCE = 3
         private const val TEMPO_UPDATE_SEC = 0.5f
-        private const val ONSET_THRESHOLD_STD = 1.4f
-        private const val ONSET_MIN_STRENGTH = 0.012f
-        private const val MIN_CONFIDENCE_FOR_FLYWHEEL = 0.3f
+        // Ширина окна попадания в сетку как доля длительности доли
+        private const val GRID_SIGMA_PERIOD_RATIO = 0.07f
+        // Вес половины доли относительно самой доли
+        private const val HALF_BEAT_WEIGHT = 0.75f
+        // Ниже этой уверенности в темпе сетка не применяется
+        private const val MIN_CONFIDENCE_FOR_GRID = 0.3f
         private const val BASS_BAND_END = 7
         private const val HIGH_BAND_START = 18
     }
@@ -49,12 +52,8 @@ internal class BeatTracker {
     private var tempoTimer = 0f
     private val acf = FloatArray(HISTORY_SIZE)
 
-    private var odfMean = 0f
-    private var odfVar = 0f
-    private var sinceOnsetSec = 10f
-    private var sinceBeatSec = 10f
-    private var lastBeatPredicted = false
     private var hasTempo = false
+    private var sinceBeatSec = 0f
     private var candidateLag = 0
     private var candidateCount = 0
 
@@ -75,60 +74,62 @@ internal class BeatTracker {
     val bpm: Float
         get() = 60f / beatPeriodSec
 
-    /** Сила onset последнего кадра относительно порога (0 — onset не было). */
-    var lastOnsetStrength: Float = 0f
-        private set
-
     /**
-     * Обработать кадр спектра.
-     * @return сила доли 0..1, если в этом кадре сработала доля, иначе 0.
+     * Обработать кадр спектра длительностью [dtSec].
      */
-    fun process(bands: FloatArray, dtSec: Float): Float {
-        val odf = onsetStrength(bands)
-        pushHistory(odf, dtSec)
+    fun process(bands: FloatArray, dtSec: Float) {
+        pushHistory(onsetStrength(bands), dtSec)
+
+        sinceBeatSec += dtSec
+        val period = beatPeriodSec
+        while (sinceBeatSec >= period) sinceBeatSec -= period
 
         tempoTimer += dtSec
         if (tempoTimer >= TEMPO_UPDATE_SEC && historyCount >= HISTORY_SIZE / 2) {
             tempoTimer = 0f
             estimateTempo()
+            if (hasTempo) estimatePhase()
         }
+    }
 
-        // Адаптивный порог onset: среднее + k·σ на скользящем окне ~1 с
-        val alpha = 1f - exp(-dtSec / 1.0f)
-        val threshold = odfMean + ONSET_THRESHOLD_STD * sqrt(odfVar)
-        val diff = odf - odfMean
-        odfMean += alpha * diff
-        odfVar += alpha * (diff * diff - odfVar)
-
-        sinceOnsetSec += dtSec
-        sinceBeatSec += dtSec
-
+    /**
+     * Вес текущего момента в ритмической сетке: 1 — на доле, [HALF_BEAT_WEIGHT] — на половине доли,
+     * около 0 — между ними. Без уверенного темпа сетка не ограничивает (всегда 1).
+     */
+    fun gridWeight(): Float {
+        if (confidence < MIN_CONFIDENCE_FOR_GRID) return 1f
         val period = beatPeriodSec
-        val isOnset = odf > threshold && odf > ONSET_MIN_STRENGTH && sinceOnsetSec > period * 0.3f
-        lastOnsetStrength = if (isOnset) ((odf - threshold) / max(threshold, 1e-3f)).coerceIn(0f, 1f) else 0f
-        if (isOnset) sinceOnsetSec = 0f
+        val sigma = period * GRID_SIGMA_PERIOD_RATIO
+        val toBeat = minOf(sinceBeatSec, period - sinceBeatSec)
+        val toHalf = abs(sinceBeatSec - period * 0.5f)
+        val onBeat = exp(-0.5f * (toBeat / sigma) * (toBeat / sigma))
+        val onHalf = HALF_BEAT_WEIGHT * exp(-0.5f * (toHalf / sigma) * (toHalf / sigma))
+        return max(onBeat, onHalf)
+    }
 
-        val confident = confidence >= MIN_CONFIDENCE_FOR_FLYWHEEL
-        if (isOnset) {
-            if (!confident || sinceBeatSec >= period * 0.75f) {
-                sinceBeatSec = 0f
-                lastBeatPredicted = false
-                return (0.7f + 0.3f * lastOnsetStrength)
+    // Гребёнка с периодом доли по истории onset strength: сдвиг с максимальной суммой — момент последней доли
+    private fun estimatePhase() {
+        val n = historyCount
+        val periodHops = (beatPeriodSec / HOP_SEC + 0.5f).toInt()
+        if (periodHops < 2 || n < periodHops * 2) return
+        val newest = (historyPos - 1 + HISTORY_SIZE) % HISTORY_SIZE
+        var bestOffset = 0
+        var bestSum = -1f
+        for (offset in 0 until periodHops) {
+            var sum = 0f
+            var back = offset
+            while (back < n) {
+                // Соседние шаги сетки тоже учитываются: удар может попасть на границу шага
+                val idx = (newest - back + HISTORY_SIZE) % HISTORY_SIZE
+                sum += history[idx]
+                back += periodHops
             }
-            if (lastBeatPredicted && sinceBeatSec <= period * 0.25f) {
-                // Предсказанная доля опередила реальный удар: подтягиваем фазу без повторного импульса
-                sinceBeatSec = 0f
-                lastBeatPredicted = false
+            if (sum > bestSum) {
+                bestSum = sum
+                bestOffset = offset
             }
-            return 0f
         }
-
-        if (confident && sinceBeatSec >= period) {
-            sinceBeatSec -= period
-            lastBeatPredicted = true
-            return 0.55f + 0.35f * confidence
-        }
-        return 0f
+        sinceBeatSec = bestOffset * HOP_SEC + hopAccumulator
     }
 
     private fun onsetStrength(bands: FloatArray): Float {
@@ -269,16 +270,11 @@ internal class BeatTracker {
         historyCount = 0
         hopAccumulator = 0f
         tempoTimer = 0f
-        odfMean = 0f
-        odfVar = 0f
-        sinceOnsetSec = 10f
-        sinceBeatSec = 10f
-        lastBeatPredicted = false
         hasTempo = false
+        sinceBeatSec = 0f
         candidateLag = 0
         candidateCount = 0
         tempoPeriodSec = 0.5f
         confidence = 0f
-        lastOnsetStrength = 0f
     }
 }
