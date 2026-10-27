@@ -63,6 +63,10 @@ fun App() {
     // Инициализируем вьюмодель реактивного состояния приложения
     val searchViewModel: SearchViewModel = viewModel { SearchViewModel() }
 
+    // 🔄 Фоновая проверка новой версии (ошибки сети игнорируются)
+    val updateManager = remember { io.github.audiz.update.UpdateManager() }
+    LaunchedEffect(Unit) { updateManager.checkForUpdates() }
+
     // 🔗 Обработка входящих Deep Link ссылок
     LaunchedEffect(Unit) {
         DeepLinkHandler.pendingTrackId.collect { trackId ->
@@ -386,6 +390,14 @@ fun App() {
                             ) {
                                 Column {
                                     Spacer(modifier = Modifier.height(16.dp))
+                                    updateManager.availableUpdate?.let { update ->
+                                        io.github.audiz.ui.UpdateBanner(
+                                            update = update,
+                                            onDismiss = { updateManager.dismiss() },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                    }
                                     HomeHub(
                                         viewModel = searchViewModel,
                                         onOpenMediaLibrary = {

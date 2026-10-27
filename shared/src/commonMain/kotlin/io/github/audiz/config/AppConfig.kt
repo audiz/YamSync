@@ -19,6 +19,7 @@ object AppConfigKeys {
     const val EQ_LPF = "eq_lpf"
     const val EQ_PRESET = "eq_preset"
     const val SESSION_COOKIE = "session_cookie"
+    const val UPDATE_DISMISSED_VERSION = "update_dismissed_version"
     const val RECENT_THEMATIC_WAVES = "recent_thematic_waves"
     const val LAST_WAVE_STYLE = "last_wave_style"
     const val CUSTOM_LOCAL_SOURCES = "custom_local_sources"

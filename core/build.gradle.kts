@@ -16,6 +16,11 @@ val localProps = Properties().apply {
     }
 }
 
+// Версия приложения: тег релиза из CI (APP_VERSION, вида v1.2.3) либо appVersion из gradle.properties
+val appVersion: String = providers.environmentVariable("APP_VERSION").orNull
+    ?.removePrefix("v")?.takeIf { Regex("""\d+(\.\d+){1,2}""").matches(it) }
+    ?: providers.gradleProperty("appVersion").get()
+
 val generateSecurityConfig = tasks.register("generateSecurityConfig") {
     val outputDir = layout.buildDirectory.dir("generated/source/security/commonMain/kotlin")
     outputs.dir(outputDir)
@@ -61,6 +66,26 @@ val generateSecurityConfig = tasks.register("generateSecurityConfig") {
     }
 }
 
+val generateBuildInfo = tasks.register("generateBuildInfo") {
+    val outputDir = layout.buildDirectory.dir("generated/source/buildinfo/commonMain/kotlin")
+    val version = appVersion
+    inputs.property("appVersion", version)
+    outputs.dir(outputDir)
+    doLast {
+        val targetFile = File(outputDir.get().asFile, "io/github/audiz/core/BuildInfo.kt")
+        targetFile.parentFile.mkdirs()
+        targetFile.writeText(
+            """
+            package io.github.audiz.core
+
+            object BuildInfo {
+                const val APP_VERSION: String = "$version"
+            }
+            """.trimIndent()
+        )
+    }
+}
+
 kotlin {
     applyDefaultHierarchyTemplate()
     jvm()
@@ -71,6 +96,7 @@ kotlin {
     sourceSets {
         commonMain {
             kotlin.srcDir(generateSecurityConfig)
+            kotlin.srcDir(generateBuildInfo)
             dependencies {
                 implementation("io.ktor:ktor-client-core:3.0.0")
                 implementation("io.ktor:ktor-client-content-negotiation:3.0.0")
@@ -102,6 +128,7 @@ kotlin {
 
 tasks.matching { it.name.startsWith("compile") }.configureEach {
     dependsOn(generateSecurityConfig)
+    dependsOn(generateBuildInfo)
 }
 
 android {

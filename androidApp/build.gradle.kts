@@ -6,6 +6,11 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
+// Версия приложения: тег релиза из CI (APP_VERSION, вида v1.2.3) либо appVersion из gradle.properties
+val appVersion: String = providers.environmentVariable("APP_VERSION").orNull
+    ?.removePrefix("v")?.takeIf { Regex("""\d+(\.\d+){1,2}""").matches(it) }
+    ?: providers.gradleProperty("appVersion").get()
+
 android {
     namespace = "io.github.audiz.android"
     compileSdk = 35
@@ -15,7 +20,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0"
+        versionName = appVersion
     }
 
     buildTypes {

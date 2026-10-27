@@ -11,6 +11,7 @@ permissions:
 
 env:
   LIB_ACCESS_KEY: ${{ secrets.LIB_ACCESS_KEY }}
+  APP_VERSION: ${{ github.ref_name }}
 
 jobs:
   # ========================================================

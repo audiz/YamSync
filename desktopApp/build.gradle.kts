@@ -13,6 +13,11 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
 }
 
+// Версия приложения: тег релиза из CI (APP_VERSION, вида v1.2.3) либо appVersion из gradle.properties
+val appVersion: String = providers.environmentVariable("APP_VERSION").orNull
+    ?.removePrefix("v")?.takeIf { Regex("""\d+(\.\d+){1,2}""").matches(it) }
+    ?: providers.gradleProperty("appVersion").get()
+
 compose.desktop {
     application {
         mainClass = "io.github.audiz.MainKt"
@@ -21,7 +26,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Dmg)
 
             packageName = "yamsync"
-            packageVersion = "1.0.0"
+            packageVersion = appVersion.let { if (it.count { c -> c == '.' } == 1) "$it.0" else it }
 
             // Настройки сборки для Windows
             windows {
