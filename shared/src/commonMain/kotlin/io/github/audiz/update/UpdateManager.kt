@@ -50,6 +50,11 @@ class UpdateManager {
         availableUpdate = latest
     }
 
+    /** Скрывает баннер до следующего запуска: сохранённая версия остаётся, и при перезапуске он появится снова. */
+    fun dismiss() {
+        availableUpdate = null
+    }
+
     private suspend fun fetchLatestRelease(): UpdateInfo? = withContext(DispatcherIO) {
         val client = ApiSessionContext.createDefaultHttpClient()
         try {

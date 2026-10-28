@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -20,6 +21,7 @@ import io.github.audiz.update.UpdateInfo
 @Composable
 fun UpdateBanner(
     update: UpdateInfo,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -49,6 +51,17 @@ fun UpdateBanner(
             modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
         ) {
             Text("Открыть", maxLines = 1)
+        }
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.size(36.dp).pointerHoverIcon(PointerIcon.Hand)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Скрыть",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }

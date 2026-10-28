@@ -393,6 +393,7 @@ fun App() {
                                     updateManager.availableUpdate?.let { update ->
                                         io.github.audiz.ui.UpdateBanner(
                                             update = update,
+                                            onDismiss = { updateManager.dismiss() },
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                         Spacer(modifier = Modifier.height(12.dp))
