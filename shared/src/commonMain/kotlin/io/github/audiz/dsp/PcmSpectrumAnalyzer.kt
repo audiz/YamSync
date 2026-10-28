@@ -11,7 +11,8 @@ import kotlin.math.sqrt
  * 🎛 Прецизионный спектральный анализатор PCM-потока на базе быстрого преобразования Фурье (FFT).
  *
  * Особенности:
- * - Выполняет частотное разложение в 25 логарифмических полос прямо из 16-битного PCM (LE Stereo/Mono).
+ * - Выполняет частотное разложение в 25 логарифмических полос прямо из 16-битного PCM (LE Stereo/Mono)
+ *   либо из моно-сэмплов float ([processMonoFloat]).
  * - Мультиразрешающий анализ: низкие полосы (до [LOW_RES_CROSSOVER_HZ]) считаются по длинному окну
  *   (2 × [fftSize], ~10.8 Гц на бин), остальные — по короткому окну [fftSize] (~21.5 Гц на бин)
  *   для быстрой реакции на транзиенты.
@@ -21,7 +22,7 @@ import kotlin.math.sqrt
  */
 class PcmSpectrumAnalyzer(
     private val fftSize: Int = FFT_SIZE,
-    private val sampleRate: Float = 44100.0f
+    sampleRate: Float = 44100.0f
 ) {
     companion object {
         const val FFT_SIZE = 2048
@@ -141,8 +142,19 @@ class PcmSpectrumAnalyzer(
 
     private val outputSpectrum25 = FloatArray(TwentyFiveBandVisualizer.SPECTRUM_BAND_COUNT)
 
-    private val highResBinHz = sampleRate / highResPlan.size.toFloat()
-    private val lowResBinHz = sampleRate / lowResPlan.size.toFloat()
+    private var highResBinHz = sampleRate / highResPlan.size.toFloat()
+    private var lowResBinHz = sampleRate / lowResPlan.size.toFloat()
+
+    /**
+     * Сменить частоту дискретизации входного потока (например, 48 кГц на iOS).
+     */
+    fun setSampleRate(rate: Float) {
+        if (rate <= 0f) return
+        synchronized(lock) {
+            highResBinHz = rate / highResPlan.size.toFloat()
+            lowResBinHz = rate / lowResPlan.size.toFloat()
+        }
+    }
 
     var onSpectrumReady: ((spectrum: FloatArray) -> Unit)? = null
     var onAudibleEnergyDetected: (() -> Unit)? = null
@@ -190,60 +202,90 @@ class PcmSpectrumAnalyzer(
             }
 
             if (extractedCount == 0) return
-
-            // Обновляем скользящий буфер новыми сэмплами
-            val windowSize = sampleBuffer.size
-            if (extractedCount >= windowSize) {
-                // Если сэмплов больше размера окна — берем последние windowSize сэмплов
-                tempExtracted.copyInto(
-                    destination = sampleBuffer,
-                    destinationOffset = 0,
-                    startIndex = extractedCount - windowSize,
-                    endIndex = extractedCount
-                )
-            } else {
-                // Сдвигаем старые сэмплы влево на extractedCount
-                sampleBuffer.copyInto(
-                    destination = sampleBuffer,
-                    destinationOffset = 0,
-                    startIndex = extractedCount,
-                    endIndex = windowSize
-                )
-                // Дописываем новые сэмплы в конец
-                tempExtracted.copyInto(
-                    destination = sampleBuffer,
-                    destinationOffset = windowSize - extractedCount,
-                    startIndex = 0,
-                    endIndex = extractedCount
-                )
-            }
-
-            lowResPlan.transform(sampleBuffer, 0)
-            highResPlan.transform(sampleBuffer, windowSize - highResPlan.size)
-
-            // Формируем 25 логарифмических полос частот
-            for (k in 0 until TwentyFiveBandVisualizer.SPECTRUM_BAND_COUNT) {
-                val (fStart, fEnd) = VisualizerConstants.FREQ_RANGES_25[k]
-                val useLowRes = fEnd <= LOW_RES_CROSSOVER_HZ
-                val plan = if (useLowRes) lowResPlan else highResPlan
-                outputSpectrum25[k] = SpectrumBands.bandLevel(
-                    amplitudes = plan.amplitudes,
-                    numBins = plan.numBins,
-                    binHz = if (useLowRes) lowResBinHz else highResBinHz,
-                    fStart = fStart,
-                    fEnd = fEnd,
-                    tiltDb = SpectrumBands.tiltDb(k)
-                )
-            }
+            analyzeExtracted(extractedCount)
         }
 
+        notifyResult(maxSampleAbs, energySum / extractedCount)
+    }
+
+    /**
+     * 📊 Обработать моно-сэмплы float (-1..1) и рассчитать 25-полосный спектр
+     */
+    fun processMonoFloat(samples: FloatArray, count: Int) {
+        val n = minOf(count, samples.size, MAX_TEMP_SAMPLES)
+        if (n <= 0) return
+
+        var maxSampleAbs = 0f
+        var energySum = 0f
+        synchronized(lock) {
+            for (k in 0 until n) {
+                val v = samples[k]
+                val absVal = abs(v)
+                if (absVal > maxSampleAbs) maxSampleAbs = absVal
+                energySum += absVal
+                tempExtracted[k] = v
+            }
+            analyzeExtracted(n)
+        }
+
+        notifyResult(maxSampleAbs, energySum / n)
+    }
+
+    private fun notifyResult(maxSampleAbs: Float, avgEnergy: Float) {
         // Детекция слышимой энергии
-        val avgEnergy = energySum / extractedCount
         if (maxSampleAbs > 0.015f || avgEnergy > 0.005f) {
             onAudibleEnergyDetected?.invoke()
         }
 
         // Оповещаем подписчиков о новом 25-полосном спектре
         onSpectrumReady?.invoke(outputSpectrum25)
+    }
+
+    // Вызывается под lock: сдвигает окно на extractedCount сэмплов из tempExtracted и пересчитывает полосы
+    private fun analyzeExtracted(extractedCount: Int) {
+        // Обновляем скользящий буфер новыми сэмплами
+        val windowSize = sampleBuffer.size
+        if (extractedCount >= windowSize) {
+            // Если сэмплов больше размера окна — берем последние windowSize сэмплов
+            tempExtracted.copyInto(
+                destination = sampleBuffer,
+                destinationOffset = 0,
+                startIndex = extractedCount - windowSize,
+                endIndex = extractedCount
+            )
+        } else {
+            // Сдвигаем старые сэмплы влево на extractedCount
+            sampleBuffer.copyInto(
+                destination = sampleBuffer,
+                destinationOffset = 0,
+                startIndex = extractedCount,
+                endIndex = windowSize
+            )
+            // Дописываем новые сэмплы в конец
+            tempExtracted.copyInto(
+                destination = sampleBuffer,
+                destinationOffset = windowSize - extractedCount,
+                startIndex = 0,
+                endIndex = extractedCount
+            )
+        }
+
+        lowResPlan.transform(sampleBuffer, 0)
+        highResPlan.transform(sampleBuffer, windowSize - highResPlan.size)
+
+        // Формируем 25 логарифмических полос частот
+        for (k in 0 until TwentyFiveBandVisualizer.SPECTRUM_BAND_COUNT) {
+            val (fStart, fEnd) = VisualizerConstants.FREQ_RANGES_25[k]
+            val useLowRes = fEnd <= LOW_RES_CROSSOVER_HZ
+            val plan = if (useLowRes) lowResPlan else highResPlan
+            outputSpectrum25[k] = SpectrumBands.bandLevel(
+                amplitudes = plan.amplitudes,
+                numBins = plan.numBins,
+                binHz = if (useLowRes) lowResBinHz else highResBinHz,
+                fStart = fStart,
+                fEnd = fEnd,
+                tiltDb = SpectrumBands.tiltDb(k)
+            )
+        }
     }
 }

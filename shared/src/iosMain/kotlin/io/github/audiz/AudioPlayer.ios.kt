@@ -424,6 +424,7 @@ actual class AudioPlayer actual constructor() {
         avPlayer = null
         currentResourceLoaderDelegate?.cancelAll()
         currentResourceLoaderDelegate = null
+        IosSpectrumFeed.reset()
         io.github.audiz.dsp.AudioVisualizer.reset()
         tempFilePath?.let {
             platform.Foundation.NSFileManager.defaultManager.removeItemAtPath(it, null)
@@ -453,6 +454,8 @@ actual class AudioPlayer actual constructor() {
     actual fun seekTo(positionMs: Long) {
         val seconds = positionMs / 1000.0
         val targetTime = CMTimeMakeWithSeconds(seconds, 1000)
+        IosSpectrumFeed.reset()
+        io.github.audiz.dsp.AudioVisualizer.clearDelayQueue()
         avPlayer?.seekToTime(targetTime)
     }
 

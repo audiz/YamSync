@@ -300,12 +300,12 @@ final class TapDSPContext {
     let b9 = SwiftBiquadFilter()
     let lpf = SwiftBiquadFilter()
 
-    var subCutFilter: Float = 0
-    var kickFilter: Float = 0
-    var bassFilter: Float = 0
-    var midFilter: Float = 0
-    var highMidFilter: Float = 0
-    var lastUpdateNs: UInt64 = 0
+    // Моно-сэмплы текущего блока для спектроанализатора; размер задаётся в tapPrepareCallback
+    var monoBuffer: [Float] = []
+    // Последовательная очередь анализа спектра: FFT не выполняется в потоке обработки аудио
+    let analysisQueue = DispatchQueue(label: "io.github.audiz.spectrum", qos: .userInitiated)
+    // Буфер для передачи сэмплов в Kotlin; используется только на analysisQueue
+    var analysisSamples: KotlinFloatArray?
 
     static let f0: Float = 31.0
     static let f1: Float = 63.0
@@ -425,6 +425,7 @@ private func tapPrepareCallback(
     if sr > 8000 {
         context.setSampleRate(sr)
     }
+    context.monoBuffer = [Float](repeating: 0, count: max(Int(maxFrames), 1))
 }
 
 private func tapUnprepareCallback(tap: MTAudioProcessingTap) {}
@@ -482,23 +483,9 @@ private func tapProcessCallback(
     let b9 = context.b9
     let lpf = context.lpf
 
-    let ALPHA_SUBCUT: Float   = 0.0057
-    let ALPHA_KICK: Float     = 0.0157
-    let ALPHA_BASS: Float     = 0.050
-    let ALPHA_MID: Float      = 0.22
-    let ALPHA_HIGH_MID: Float = 0.50
-
-    var sumKick: Float = 0
-    var sumBass: Float = 0
-    var sumMid: Float = 0
-    var sumHighMid: Float = 0
-    var sumTreble: Float = 0
-
-    var subCut = context.subCutFilter
-    var kick = context.kickFilter
-    var bass = context.bassFilter
-    var mid = context.midFilter
-    var highMid = context.highMidFilter
+    if context.monoBuffer.count < frameCount {
+        context.monoBuffer = [Float](repeating: 0, count: frameCount)
+    }
 
     if let floatPtr1 = floatPtr1 {
         for i in 0..<frameCount {
@@ -540,21 +527,7 @@ private func tapProcessCallback(
                 floatPtr1[i] = right
             }
 
-            let mono = (left + right) * 0.5
-
-            subCut += ALPHA_SUBCUT * (mono - subCut)
-            let clean = mono - subCut
-
-            kick += ALPHA_KICK * (clean - kick)
-            bass += ALPHA_BASS * (clean - bass)
-            mid += ALPHA_MID * (clean - mid)
-            highMid += ALPHA_HIGH_MID * (clean - highMid)
-
-            sumKick += abs(kick)
-            sumBass += abs(bass - kick)
-            sumMid += abs(mid - bass)
-            sumHighMid += abs(highMid - mid)
-            sumTreble += abs(clean - highMid)
+            context.monoBuffer[i] = (left + right) * 0.5
         }
     } else if isInterleavedStereo {
         for i in 0..<frameCount {
@@ -596,21 +569,7 @@ private func tapProcessCallback(
                 floatPtr0[i * 2 + 1] = right
             }
 
-            let mono = (left + right) * 0.5
-
-            subCut += ALPHA_SUBCUT * (mono - subCut)
-            let clean = mono - subCut
-
-            kick += ALPHA_KICK * (clean - kick)
-            bass += ALPHA_BASS * (clean - bass)
-            mid += ALPHA_MID * (clean - mid)
-            highMid += ALPHA_HIGH_MID * (clean - highMid)
-
-            sumKick += abs(kick)
-            sumBass += abs(bass - kick)
-            sumMid += abs(mid - bass)
-            sumHighMid += abs(highMid - mid)
-            sumTreble += abs(clean - highMid)
+            context.monoBuffer[i] = (left + right) * 0.5
         }
     } else {
         for i in 0..<frameCount {
@@ -634,47 +593,22 @@ private func tapProcessCallback(
                 floatPtr0[i] = mono
             }
 
-            subCut += ALPHA_SUBCUT * (mono - subCut)
-            let clean = mono - subCut
-
-            kick += ALPHA_KICK * (clean - kick)
-            bass += ALPHA_BASS * (clean - bass)
-            mid += ALPHA_MID * (clean - mid)
-            highMid += ALPHA_HIGH_MID * (clean - highMid)
-
-            sumKick += abs(kick)
-            sumBass += abs(bass - kick)
-            sumMid += abs(mid - bass)
-            sumHighMid += abs(highMid - mid)
-            sumTreble += abs(clean - highMid)
+            context.monoBuffer[i] = mono
         }
     }
 
-    context.subCutFilter = subCut
-    context.kickFilter = kick
-    context.bassFilter = bass
-    context.midFilter = mid
-    context.highMidFilter = highMid
-
-    let invCount = 1.0 / Float(frameCount)
-    let avgKick = sumKick * invCount
-    let avgBass = sumBass * invCount
-    let avgMid = sumMid * invCount
-    let avgHighMid = sumHighMid * invCount
-    let avgTreble = sumTreble * invCount
-
-    let bVisualizer1 = min(max(avgKick * 3.0, 0), 1.0)
-    let bVisualizer2 = min(max(avgBass * 5.6, 0), 1.0)
-    let bVisualizer3 = min(max(avgMid * 6.5, 0), 1.0)
-    let bVisualizer4 = min(max(avgHighMid * 11.0, 0), 1.0)
-    let bVisualizer5 = min(max(avgTreble * 17.5, 0), 1.0)
-
-    let now = DispatchTime.now().uptimeNanoseconds
-    if now - context.lastUpdateNs >= 16_000_000 {
-        context.lastUpdateNs = now
-        DispatchQueue.main.async {
-            AudioVisualizer.shared.updateBands(b1: bVisualizer1, b2: bVisualizer2, b3: bVisualizer3, b4: bVisualizer4, b5: bVisualizer5)
+    // Спектр (а из него и 5 полос для иконок) считается в общем Kotlin-анализаторе
+    let samples = Array(context.monoBuffer[0..<frameCount])
+    let sampleRate = context.sampleRate
+    context.analysisQueue.async {
+        if context.analysisSamples?.size != Int32(frameCount) {
+            context.analysisSamples = KotlinFloatArray(size: Int32(frameCount))
         }
+        guard let kotlinSamples = context.analysisSamples else { return }
+        for (index, value) in samples.enumerated() {
+            kotlinSamples.set(index: Int32(index), value: value)
+        }
+        IosSpectrumFeed.shared.submit(samples: kotlinSamples, count: Int32(frameCount), sampleRate: sampleRate)
     }
 }
 

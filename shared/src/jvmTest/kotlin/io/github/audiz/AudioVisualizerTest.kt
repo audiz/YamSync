@@ -293,4 +293,19 @@ class AudioVisualizerTest {
         AudioVisualizer.latencyCompensationMs = 90L
         assertEquals(90L, AudioVisualizer.effectiveLatencyMs, "Ручное значение имеет приоритет над измерением")
     }
+
+    @Test
+    fun testMonoFloatInputAt48kHz() {
+        val analyzer = PcmSpectrumAnalyzer()
+        analyzer.setSampleRate(48000f)
+        var spectrum = FloatArray(0)
+        analyzer.onSpectrumReady = { spectrum = it.copyOf() }
+
+        // 1 кГц попадает в полосу 14 (971..1282 Гц) только при верной частоте дискретизации
+        val samples = FloatArray(4096) { (sin(2.0 * PI * 1000.0 * it / 48000.0) * 0.8).toFloat() }
+        analyzer.processMonoFloat(samples, samples.size)
+
+        val peakBand = spectrum.indices.maxByOrNull { spectrum[it] }
+        assertEquals(14, peakBand, "1 кГц при 48 кГц должен попасть в полосу 14: ${spectrum.toList()}")
+    }
 }
