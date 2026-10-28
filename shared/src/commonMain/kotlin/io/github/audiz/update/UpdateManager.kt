@@ -30,17 +30,24 @@ class UpdateManager {
     var availableUpdate by mutableStateOf<UpdateInfo?>(null)
         private set
 
+    /**
+     * Если ранее уже найдена более новая версия, повторно в сеть не ходим: баннер висит,
+     * пока приложение не обновят. Иначе делаем один запрос и запоминаем результат.
+     */
     suspend fun checkForUpdates() {
+        val known = loadAppConfig(AppConfigKeys.KNOWN_LATEST_VERSION)?.takeIf { it.isNotBlank() }
+        if (known != null) {
+            if (isNewer(known, BuildInfo.APP_VERSION)) {
+                availableUpdate = UpdateInfo(known, RELEASES_PAGE)
+                return
+            }
+            // Приложение уже обновлено — забываем старую запись и проверяем заново
+            saveAppConfig(AppConfigKeys.KNOWN_LATEST_VERSION, "")
+        }
         val latest = fetchLatestRelease() ?: return
         if (!isNewer(latest.version, BuildInfo.APP_VERSION)) return
-        if (loadAppConfig(AppConfigKeys.UPDATE_DISMISSED_VERSION) == latest.version) return
+        saveAppConfig(AppConfigKeys.KNOWN_LATEST_VERSION, latest.version)
         availableUpdate = latest
-    }
-
-    /** «Позже»: скрыть баннер, пока не выйдет более свежая версия. */
-    fun dismiss() {
-        availableUpdate?.let { saveAppConfig(AppConfigKeys.UPDATE_DISMISSED_VERSION, it.version) }
-        availableUpdate = null
     }
 
     private suspend fun fetchLatestRelease(): UpdateInfo? = withContext(DispatcherIO) {
