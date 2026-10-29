@@ -26,6 +26,13 @@ sealed interface YamSyncConnectionState {
     data class Syncing(val message: String, val progress: Float) : YamSyncConnectionState
 }
 
+/** Трек на экране плейлиста: [isLocal] — файл уже есть здесь, [isDownloadable] — файл есть на другом устройстве. */
+data class YamSyncPlaylistTrackEntry(
+    val track: YamSyncTrack,
+    val isLocal: Boolean,
+    val isDownloadable: Boolean
+)
+
 /** Состояние синхронизации одного плейлиста: в очереди или скачано [done] из [total]. */
 data class YamSyncPlaylistProgress(
     val isQueued: Boolean = false,
@@ -60,7 +67,16 @@ class YamSyncManager(
     /** Сколько треков придётся скачать при синхронизации плейлиста (ключ — playlistId). */
     val playlistMissingCounts = mutableStateMapOf<String, Int>()
 
-    private val playlistSyncQueue = Channel<String>(Channel.UNLIMITED)
+    /** Треки, ожидающие скачивания с экрана плейлиста (ключ — matchKey). */
+    val queuedTrackKeys = mutableStateSetOf<String>()
+    /** Увеличивается при каждом пересчёте различий — сигнал экрану плейлиста обновить список. */
+    var diffVersion by mutableStateOf(0)
+        private set
+
+    /** Запрос в очередь: весь плейлист ([tracks] == null) или только выбранные треки. */
+    private class PlaylistSyncRequest(val playlistId: String, val tracks: List<YamSyncTrack>?)
+
+    private val playlistSyncQueue = Channel<PlaylistSyncRequest>(Channel.UNLIMITED)
     private var playlistSyncWorker: Job? = null
     private var activePlaylistSyncId: String? = null
     private var activePlaylistSyncJob: Job? = null
@@ -540,6 +556,7 @@ class YamSyncManager(
         }
 
         recomputeMissingFilesInternal()
+        diffVersion++
     }
 
     private fun recomputeMissingFilesInternal() {
@@ -940,7 +957,45 @@ class YamSyncManager(
         if (playlistSyncProgress.containsKey(playlistId)) return
         playlistSyncProgress[playlistId] = YamSyncPlaylistProgress(isQueued = true)
         ensurePlaylistSyncWorker()
-        playlistSyncQueue.trySend(playlistId)
+        playlistSyncQueue.trySend(PlaylistSyncRequest(playlistId, null))
+    }
+
+    /** Поставить в очередь скачивание отдельных треков плейлиста (с экрана плейлиста). */
+    fun downloadPlaylistTracks(playlistId: String, tracks: List<YamSyncTrack>) {
+        val fresh = tracks.filter { queuedTrackKeys.add(it.matchKey) }
+        if (fresh.isEmpty()) return
+        ensurePlaylistSyncWorker()
+        playlistSyncQueue.trySend(PlaylistSyncRequest(playlistId, fresh))
+    }
+
+    /** Убрать трек из очереди скачивания (если он ещё не начал скачиваться). */
+    fun cancelTrackDownload(matchKey: String) {
+        queuedTrackKeys.remove(matchKey)
+    }
+
+    /**
+     * Треки плейлиста с отметкой, есть ли файл на этом устройстве и можно ли его скачать.
+     * Для отличающихся плейлистов показываются треки обеих версий.
+     */
+    suspend fun loadPlaylistTracks(playlistId: String): List<YamSyncPlaylistTrackEntry> {
+        val diff = playlistDiffs.firstOrNull { it.playlistId == playlistId } ?: return emptyList()
+        val localMan = localManifestCache ?: return emptyList()
+        val remoteMan = remoteManifestCache ?: return emptyList()
+        val listing = if (diff.state == YamSyncDiffState.MODIFIED) YamSyncResolution.MERGE_ALL else effectiveResolution(diff)
+        return withContext(DispatcherIO) {
+            val merged = YamSyncDiffEngine.mergePlaylists(listOf(diff.copy(resolution = listing))).firstOrNull()
+                ?: return@withContext emptyList()
+            // Точное совпадение ключа — через хеш-таблицу, нечёткое сравнение только для оставшихся
+            val localKeys = localMan.availableFiles.mapTo(HashSet()) { it.matchKey.lowercase() }
+            val remoteByKey = remoteMan.availableFiles.associateBy { it.matchKey.lowercase() }
+            merged.tracks.map { track ->
+                val key = track.matchKey.lowercase()
+                val isLocal = key in localKeys || localMan.availableFiles.any { YamSyncDiffEngine.areTracksMatching(it, track) }
+                val remoteFile = if (isLocal) null else
+                    remoteByKey[key] ?: remoteMan.availableFiles.firstOrNull { YamSyncDiffEngine.areTracksMatching(it, track) }
+                YamSyncPlaylistTrackEntry(track = remoteFile ?: track, isLocal = isLocal, isDownloadable = remoteFile != null)
+            }
+        }
     }
 
     /** Синхронизировать все плейлисты, которые отличаются на устройствах. */
@@ -960,20 +1015,55 @@ class YamSyncManager(
     private fun ensurePlaylistSyncWorker() {
         if (playlistSyncWorker?.isActive == true) return
         playlistSyncWorker = scope.launch(Dispatchers.Main) {
-            for (playlistId in playlistSyncQueue) {
-                // Пропускаем отменённые, пока ждали в очереди
-                if (playlistSyncProgress[playlistId]?.isQueued != true) continue
+            for (request in playlistSyncQueue) {
+                val playlistId = request.playlistId
+                // Пропускаем то, что отменили, пока ждали в очереди
+                val tracks = request.tracks?.filter { it.matchKey in queuedTrackKeys }
+                if (tracks == null && playlistSyncProgress[playlistId]?.isQueued != true) continue
+                if (tracks != null && tracks.isEmpty()) continue
                 // Не пересекаемся с ручной загрузкой на вкладке «Треки»
                 snapshotFlow { isDownloadingFiles }.first { !it }
 
-                val job = launch { runPlaylistSync(playlistId) }
-                activePlaylistSyncId = playlistId
+                val job = launch {
+                    if (tracks == null) runPlaylistSync(playlistId) else runTracksDownload(playlistId, tracks)
+                }
+                activePlaylistSyncId = playlistId.takeIf { tracks == null }
                 activePlaylistSyncJob = job
                 job.join()
                 activePlaylistSyncId = null
                 activePlaylistSyncJob = null
-                playlistSyncProgress.remove(playlistId)
+                if (tracks == null) playlistSyncProgress.remove(playlistId)
+                tracks?.forEach { queuedTrackKeys.remove(it.matchKey) }
             }
+        }
+    }
+
+    /**
+     * Скачать отдельные треки плейлиста. Плейлист у себя дополняется только этими треками
+     * (или создаётся с ними), чтобы файлы не оказались вне плейлиста.
+     */
+    private suspend fun runTracksDownload(playlistId: String, tracks: List<YamSyncTrack>) {
+        val diff = playlistDiffs.firstOrNull { it.playlistId == playlistId } ?: return
+        val pair = activePairInfo ?: return
+        val base = diff.localPlaylist ?: diff.remotePlaylist?.copy(tracks = emptyList()) ?: return
+
+        isDownloadingFiles = true
+        errorMessage = null
+        try {
+            val toAdd = tracks.filter { t -> base.tracks.none { YamSyncDiffEngine.areTracksMatching(it, t) } }
+            if (toAdd.isNotEmpty()) {
+                val updated = base.copy(tracks = base.tracks + toAdd, updatedAt = currentTimeMillis())
+                withContext(DispatcherIO) { applyRemoteMergedPlaylists(listOf(updated)) }
+            }
+            val result = downloadTracksInternal(
+                pair, tracks,
+                shouldSkip = { it.matchKey !in queuedTrackKeys }
+            ) { _, _, track -> queuedTrackKeys.remove(track.matchKey) }
+            reportDownloadResult(result)
+        } finally {
+            isDownloadingFiles = false
+            onPlaylistsUpdated()
+            refreshManifestAndDiff()
         }
     }
 
@@ -1073,6 +1163,7 @@ class YamSyncManager(
     private suspend fun downloadTracksInternal(
         pair: YamSyncPairInfo,
         toDownload: List<YamSyncTrack>,
+        shouldSkip: (YamSyncTrack) -> Boolean = { false },
         onTrackStart: (index: Int, total: Int, track: YamSyncTrack) -> Unit
     ): DownloadResult {
         val totalCount = toDownload.size
@@ -1083,6 +1174,7 @@ class YamSyncManager(
         val downloadedFilePathsByFileName = mutableMapOf<String, String>()
 
         toDownload.forEachIndexed { i, track ->
+            if (shouldSkip(track)) return@forEachIndexed
             onTrackStart(i + 1, totalCount, track)
             val cleanArtist = sanitizeDirName(track.artist.ifBlank { "Unknown Artist" })
             val cleanFileName = sanitizeKeepSpaces(track.fileName)

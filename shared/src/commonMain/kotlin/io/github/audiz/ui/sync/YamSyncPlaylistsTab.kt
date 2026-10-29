@@ -3,6 +3,8 @@ package io.github.audiz.ui.sync
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -52,6 +54,17 @@ internal fun YamSyncPlaylistsTab(syncManager: YamSyncManager) {
         return
     }
 
+    var openedPlaylistId by remember { mutableStateOf<String?>(null) }
+    val openedDiff = openedPlaylistId?.let { id -> syncManager.playlistDiffs.firstOrNull { it.playlistId == id } }
+    if (openedDiff != null) {
+        YamSyncPlaylistTracksScreen(
+            syncManager = syncManager,
+            diff = openedDiff,
+            onBack = { openedPlaylistId = null }
+        )
+        return
+    }
+
     val peerName = syncManager.connectedDevice?.name ?: "другого устройства"
     val pendingCount = syncManager.playlistDiffs.count {
         it.state != YamSyncDiffState.IDENTICAL && !syncManager.playlistSyncProgress.containsKey(it.playlistId)
@@ -95,6 +108,7 @@ internal fun YamSyncPlaylistsTab(syncManager: YamSyncManager) {
                 missingCount = syncManager.playlistMissingCounts[diff.playlistId] ?: 0,
                 progress = syncManager.playlistSyncProgress[diff.playlistId],
                 onSync = { resolution -> syncManager.syncPlaylist(diff.playlistId, resolution) },
+                onOpen = { openedPlaylistId = diff.playlistId },
                 onCancel = { syncManager.cancelPlaylistSync(diff.playlistId) }
             )
         }
@@ -156,6 +170,7 @@ private fun PlaylistSyncCard(
     missingCount: Int,
     progress: YamSyncPlaylistProgress?,
     onSync: (YamSyncResolution?) -> Unit,
+    onOpen: () -> Unit,
     onCancel: () -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -168,6 +183,9 @@ private fun PlaylistSyncCard(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), shape)
             .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), shape)
+            .clip(shape)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(onClick = onOpen)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -189,6 +207,12 @@ private fun PlaylistSyncCard(
                     .padding(start = 8.dp)
                     .background(badge.color.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Открыть треки",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(start = 4.dp).size(20.dp)
             )
         }
 
