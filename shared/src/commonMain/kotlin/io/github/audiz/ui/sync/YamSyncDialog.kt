@@ -2,17 +2,12 @@ package io.github.audiz.ui.sync
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MergeType
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.audiz.models.YamSyncDiffState
@@ -54,55 +49,23 @@ fun YamSyncDialog(
                 var selectedTabIndex by remember { mutableIntStateOf(0) }
 
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // 1. Верхний заголовок и статус-сообщения
-                    YamSyncDialogHeader(
-                        syncManager = syncManager,
-                        isCompact = isCompact,
-                        onDismiss = onDismiss
-                    )
+                    // 1. Шапка: устройство и статус соединения
+                    YamSyncDialogHeader(syncManager = syncManager, onDismiss = onDismiss)
 
-                    // 2. Вкладки (Связь • Плейлисты • Файлы)
-                    TabRow(
-                        selectedTabIndex = selectedTabIndex,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Tab(
-                            selected = selectedTabIndex == 0,
-                            onClick = { selectedTabIndex = 0 },
-                            text = { Text("Связь", fontSize = 12.sp, maxLines = 1, softWrap = false) },
-                            icon = { Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                        )
-                        Tab(
-                            selected = selectedTabIndex == 1,
-                            onClick = { selectedTabIndex = 1 },
-                            text = {
-                                val count = syncManager.playlistDiffs.count { it.state != YamSyncDiffState.IDENTICAL }
-                                Text(
-                                    text = if (count > 0) "Плейлисты ($count)" else "Плейлисты",
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            },
-                            icon = { Icon(Icons.AutoMirrored.Filled.MergeType, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                        )
-                        Tab(
-                            selected = selectedTabIndex == 2,
-                            onClick = { selectedTabIndex = 2 },
-                            text = {
-                                val count = syncManager.missingFiles.size
-                                Text(
-                                    text = if (count > 0) "Файлы ($count)" else "Файлы",
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            },
-                            icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                        )
-                    }
+                    // 2. Вкладки: Связь • Плейлисты • Треки
+                    val playlistsCount = syncManager.playlistDiffs.count { it.state != YamSyncDiffState.IDENTICAL }
+                    val tracksCount = syncManager.missingFiles.size
+                    SyncSegmentedControl(
+                        options = listOf(
+                            "Связь",
+                            if (playlistsCount > 0) "Плейлисты · $playlistsCount" else "Плейлисты",
+                            if (tracksCount > 0) "Треки · $tracksCount" else "Треки"
+                        ),
+                        selectedIndex = selectedTabIndex,
+                        onSelect = { selectedTabIndex = it },
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     // 3. Содержимое активной вкладки
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {

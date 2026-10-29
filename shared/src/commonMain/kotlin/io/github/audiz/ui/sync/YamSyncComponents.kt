@@ -2,6 +2,7 @@ package io.github.audiz.ui.sync
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -9,14 +10,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -24,6 +26,8 @@ import androidx.compose.ui.unit.sp
 import io.github.audiz.sync.YamSyncConnectionState
 import io.github.audiz.sync.YamSyncKnownDevice
 import io.github.audiz.sync.YamSyncManager
+import io.github.audiz.currentTimeMillis
+import kotlinx.coroutines.delay
 
 internal fun sanitizeErrorMessage(err: String): String {
     val lower = err.lowercase()
@@ -46,99 +50,154 @@ internal fun formatMb(bytes: Long): String {
     return "$whole.$fraction МБ"
 }
 
-@Composable
-internal fun YamSyncDialogHeader(
-    syncManager: YamSyncManager,
-    isCompact: Boolean = false,
-    onDismiss: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Wifi,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isCompact) "YamSync P2P" else "Синхронизация YamSync",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val subtitle = when (val s = syncManager.connectionState) {
-                        is YamSyncConnectionState.Connected -> "🟢 Связано с ${s.peer.name}"
-                        is YamSyncConnectionState.Hosting -> "📡 Раздача (ожидание)"
-                        is YamSyncConnectionState.Connecting -> "⏳ Подключение..."
-                        is YamSyncConnectionState.Syncing -> "🚀 Синхронизация..."
-                        is YamSyncConnectionState.Disconnected -> "Оффлайн"
-                    }
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+internal fun isMobilePlatform(platform: String): Boolean =
+    platform.contains("Android", ignoreCase = true) || platform.contains("iOS", ignoreCase = true)
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (syncManager.isConnected) {
-                    IconButton(
-                        onClick = { syncManager.refreshManifestAndDiff() },
-                        enabled = !syncManager.isDownloadingFiles
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Обновить списки и манифест",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
+/** «сегодня», «вчера», «3 дн. назад» — когда устройство было на связи последний раз. */
+internal fun formatLastSeen(lastSeenMs: Long): String {
+    if (lastSeenMs <= 0L) return ""
+    val days = ((currentTimeMillis() - lastSeenMs) / 86_400_000L).coerceAtLeast(0L)
+    return when (days) {
+        0L -> "был сегодня"
+        1L -> "был вчера"
+        else -> "был $days дн. назад"
+    }
+}
+
+/** Сегментный переключатель на всю ширину: используется для вкладок и подрежимов окна синхронизации. */
+@Composable
+internal fun SyncSegmentedControl(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = modifier.fillMaxWidth().height(40.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxSize().padding(3.dp)) {
+            options.forEachIndexed { index, title ->
+                val selected = index == selectedIndex
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable { onSelect(index) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
                 }
             }
         }
+    }
+}
 
-        // Всплывающее статус-сообщение / ошибка
+@Composable
+internal fun YamSyncDialogHeader(
+    syncManager: YamSyncManager,
+    onDismiss: () -> Unit
+) {
+    val state = syncManager.connectionState
+    val connectedPeer = (state as? YamSyncConnectionState.Connected)?.peer
+
+    // Информационные сообщения исчезают сами; прогресс загрузки показывается в карточках
+    val status = syncManager.statusMessage
+    LaunchedEffect(status, syncManager.isDownloadingFiles) {
+        if (status != null && !syncManager.isDownloadingFiles) {
+            delay(3500)
+            if (syncManager.statusMessage == status) syncManager.statusMessage = null
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val (statusText, statusColor) = when (state) {
+                is YamSyncConnectionState.Connected -> "Связано" to Color(0xFF2DD881)
+                is YamSyncConnectionState.Syncing -> "Синхронизация…" to Color(0xFF2DD881)
+                is YamSyncConnectionState.Hosting -> "Ожидание партнёра…" to Color(0xFFF59E0B)
+                is YamSyncConnectionState.Connecting -> "Подключение…" to Color(0xFFF59E0B)
+                is YamSyncConnectionState.Disconnected -> "Нет соединения" to MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(statusColor.copy(alpha = 0.16f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = when {
+                        connectedPeer != null && isMobilePlatform(connectedPeer.platform) -> Icons.Default.PhoneIphone
+                        connectedPeer != null -> Icons.Default.Laptop
+                        else -> Icons.Default.Devices
+                    },
+                    contentDescription = null,
+                    tint = statusColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = connectedPeer?.name ?: "Устройства",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(7.dp).background(statusColor, CircleShape))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = statusColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (syncManager.isConnected) {
+                IconButton(
+                    onClick = { syncManager.refreshManifestAndDiff() },
+                    enabled = !syncManager.isDownloadingFiles,
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Обновить", modifier = Modifier.size(20.dp))
+                }
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)) {
+                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+            }
+        }
+
+        // Ошибка остаётся до явного закрытия: обычно она требует действия пользователя
         AnimatedVisibility(visible = syncManager.errorMessage != null) {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Error,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
-                    )
                     val displayError = remember(syncManager.errorMessage) {
                         sanitizeErrorMessage(syncManager.errorMessage ?: "")
                     }
@@ -150,10 +209,7 @@ internal fun YamSyncDialogHeader(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(
-                        onClick = { syncManager.errorMessage = null },
-                        modifier = Modifier.size(24.dp)
-                    ) {
+                    IconButton(onClick = { syncManager.errorMessage = null }, modifier = Modifier.size(28.dp)) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Скрыть ошибку",
@@ -165,38 +221,15 @@ internal fun YamSyncDialogHeader(
             }
         }
 
-        AnimatedVisibility(visible = syncManager.statusMessage != null && syncManager.errorMessage == null) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = syncManager.statusMessage ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = { syncManager.statusMessage = null },
-                        modifier = Modifier.size(20.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Скрыть",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
-            }
+        AnimatedVisibility(visible = status != null && syncManager.errorMessage == null) {
+            Text(
+                text = status ?: "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp, start = 46.dp, end = 8.dp)
+            )
         }
     }
 }
@@ -207,80 +240,63 @@ internal fun KnownDeviceCard(
     onConnect: () -> Unit,
     onRemove: () -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        tonalElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth()
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Icon(
+            imageVector = if (isMobilePlatform(device.platform)) Icons.Default.PhoneIphone else Icons.Default.Laptop,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = device.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = listOf(device.ip, formatLastSeen(device.lastSeenMs)).filter { it.isNotBlank() }.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Button(
+            onClick = onConnect,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+            modifier = Modifier.height(32.dp).pointerHoverIcon(PointerIcon.Hand),
+            shape = RoundedCornerShape(16.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
+            Text("Связать", style = MaterialTheme.typography.labelMedium)
+        }
+        Box {
+            IconButton(
+                onClick = { menuOpen = true },
+                modifier = Modifier.size(32.dp).pointerHoverIcon(PointerIcon.Hand)
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        val isMobile = device.platform.contains("Android", ignoreCase = true) ||
-                                device.platform.contains("iOS", ignoreCase = true)
-                        val icon = if (isMobile) Icons.Default.PhoneAndroid else Icons.Default.Laptop
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = device.name,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "${device.ip} • ${device.platform.ifBlank { "YamSync" }}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Ещё",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
             }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Button(
-                    onClick = onConnect,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text("Связать", fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                }
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Удалить устройство",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Забыть устройство") },
+                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onRemove()
+                    }
+                )
             }
         }
     }
