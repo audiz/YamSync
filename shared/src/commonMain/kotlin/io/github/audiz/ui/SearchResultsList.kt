@@ -97,54 +97,57 @@ fun SearchResultsList(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             items(searchItems) { item ->
-                ResultCard(
-                    item = item,
-                    onArtistClick = {
-                        dismissKeyboard()
-                        onArtistClick(it)
-                    },
-                    onPlaylistClick = {
-                        dismissKeyboard()
-                        onPlaylistClick(it)
-                    },
-                    onAlbumClick = onAlbumClick?.let { callback ->
-                        { albumId, albumTitle ->
+                Column {
+                    ResultCard(
+                        item = item,
+                        onArtistClick = {
                             dismissKeyboard()
-                            callback(albumId, albumTitle)
-                        }
-                    },
-                    isTrackDownloading = isTrackDownloading,
-                    downloadingTrackId = downloadingTrackId,
-                    onDownloadTrack = { trackId, trackTitle, artistName ->
-                        dismissKeyboard()
-                        onDownloadTrack(trackId, trackTitle, artistName)
-                    },
-                    onPlayTrack = { trackId, trackTitle, artistName ->
-                        dismissKeyboard()
-                        onPlayTrack(trackId, trackTitle, artistName)
-                    },
-                    playingTrackId = playingTrackId,
-                    isPlaying = isPlaying,
-                    isPaused = isPaused,
-                    playbackPositionMs = playbackPositionMs,
-                    playbackDurationMs = playbackDurationMs,
-                    onTogglePlayPause = onTogglePlayPause,
-                    onStopPlayback = onStopPlayback,
-                    onSeek = onSeek,
-                    isTrackDownloaded = isTrackDownloaded,
-                    isTrackInPlaylist = isTrackInPlaylist,
-                    onDeleteTrack = onDeleteTrack,
-                    onWaveClick = onWaveClick?.let { callback ->
-                        { wave ->
+                            onArtistClick(it)
+                        },
+                        onPlaylistClick = {
                             dismissKeyboard()
-                            callback(wave)
-                        }
-                    },
-                    onAddToPlaylist = onAddToPlaylist
-                )
+                            onPlaylistClick(it)
+                        },
+                        onAlbumClick = onAlbumClick?.let { callback ->
+                            { albumId, albumTitle ->
+                                dismissKeyboard()
+                                callback(albumId, albumTitle)
+                            }
+                        },
+                        isTrackDownloading = isTrackDownloading,
+                        downloadingTrackId = downloadingTrackId,
+                        onDownloadTrack = { trackId, trackTitle, artistName ->
+                            dismissKeyboard()
+                            onDownloadTrack(trackId, trackTitle, artistName)
+                        },
+                        onPlayTrack = { trackId, trackTitle, artistName ->
+                            dismissKeyboard()
+                            onPlayTrack(trackId, trackTitle, artistName)
+                        },
+                        playingTrackId = playingTrackId,
+                        isPlaying = isPlaying,
+                        isPaused = isPaused,
+                        playbackPositionMs = playbackPositionMs,
+                        playbackDurationMs = playbackDurationMs,
+                        onTogglePlayPause = onTogglePlayPause,
+                        onStopPlayback = onStopPlayback,
+                        onSeek = onSeek,
+                        isTrackDownloaded = isTrackDownloaded,
+                        isTrackInPlaylist = isTrackInPlaylist,
+                        onDeleteTrack = onDeleteTrack,
+                        onWaveClick = onWaveClick?.let { callback ->
+                            { wave ->
+                                dismissKeyboard()
+                                callback(wave)
+                            }
+                        },
+                        onAddToPlaylist = onAddToPlaylist
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
             }
         }
 
@@ -200,7 +203,7 @@ private fun ResultCard(
         val isDownloaded = fullTrack.isLocal || isTrackDownloaded(artistsString, fullTrack.title)
         val isInPlaylist = isTrackInPlaylist?.invoke(fullTrack) ?: false
 
-        TrackItemCard(
+        CompactTrackRow(
             track = fullTrack,
             state = TrackItemState(
                 isDownloading = isCurrentTrackDownloading,
@@ -222,38 +225,59 @@ private fun ResultCard(
                 onAddToPlaylist = if (onAddToPlaylist != null) {
                     { onAddToPlaylist(fullTrack) }
                 } else null
-            ),
-            showAlbum = true
+            )
         )
         return
     }
 
-    val isArtist = item.type == "artist"
-    val isPlaylist = item.type == "playlist"
-    val isAlbum = item.type == "album"
-    val isWave = item.type == "wave"
+    when (item.type) {
+        "artist" -> item.artist?.let { artist ->
+            val tracksCount = artist.counts?.tracks?.takeIf { it > 0 }
+            CompactEntityRow(
+                title = artist.name,
+                typeLabel = "Артист",
+                typeColor = MaterialTheme.colorScheme.primary,
+                meta = listOf(
+                    artist.genres.take(2).joinToString(", ").replaceFirstChar { it.uppercase() },
+                    tracksCount?.let { "$it треков" } ?: "",
+                    artist.likesCount?.takeIf { it > 0 }?.let { "${formatCompactCount(it)} лайков" } ?: ""
+                ),
+                onClick = { onArtistClick(artist.id) }
+            )
+        }
+        "playlist" -> item.playlist?.let { playlist ->
+            CompactEntityRow(
+                title = playlist.title.ifBlank { "Без названия" },
+                typeLabel = "Плейлист",
+                typeColor = MaterialTheme.colorScheme.tertiary,
+                meta = listOf(if (playlist.trackCount > 0) "${playlist.trackCount} треков" else ""),
+                onClick = { onPlaylistClick(playlist) }
+            )
+        }
+        "album" -> item.album?.let { album ->
+            CompactEntityRow(
+                title = album.title.ifBlank { "Без названия" },
+                typeLabel = "Альбом",
+                typeColor = MaterialTheme.colorScheme.secondary,
+                meta = listOf(
+                    album.year?.takeIf { it > 0 }?.toString() ?: "",
+                    if (album.trackCount > 0) "${album.trackCount} треков" else ""
+                ),
+                onClick = { onAlbumClick?.invoke(album.id, album.title) }
+            )
+        }
+    }
+    if (item.type != "wave") return
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                when {
-                    isArtist -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.artist?.id?.let { onArtistClick(it) } }
-                    isPlaylist -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.playlist?.let { onPlaylistClick(it) } }
-                    isAlbum -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.album?.let { onAlbumClick?.invoke(it.id, it.title) } }
-                    isWave -> Modifier.pointerHoverIcon(PointerIcon.Hand).clickable { item.wave?.let { onWaveClick?.invoke(it) } }
-                    else -> Modifier
-                }
-            ),
+            .padding(vertical = 6.dp)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable { item.wave?.let { onWaveClick?.invoke(it) } },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = when {
-                isArtist -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                isPlaylist -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-                isAlbum -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
-                isWave -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-            }
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
         )
     ) {
         Column(
@@ -312,188 +336,6 @@ private fun ResultCard(
                             Text("Слушать", style = MaterialTheme.typography.labelMedium)
                         }
                     }
-                }
-                "artist" -> {
-                    val likes = item.artist?.likesCount
-                    val genres = item.artist?.genres ?: emptyList()
-                    val tracksCount = item.artist?.counts?.tracks
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            ContentTypeIcon(ContentType.ARTIST, modifier = Modifier.size(18.dp))
-                            Text(
-                                text = item.artist?.name ?: "Артист",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (tracksCount != null && tracksCount > 0) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                                ) {
-                                    Text(
-                                        text = "$tracksCount треков",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-                            if (likes != null && likes > 0) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                                ) {
-                                    Text(
-                                        text = "$likes лайков",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (genres.isNotEmpty()) {
-                        Text(
-                            text = genres.joinToString(", ").replaceFirstChar { it.uppercase() },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Text(
-                        text = "Нажмите, чтобы открыть все треки исполнителя",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                "playlist" -> {
-                    val count = item.playlist?.trackCount ?: 0
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            ContentTypeIcon(ContentType.PLAYLIST, modifier = Modifier.size(18.dp))
-                            Text(
-                                text = "Плейлист: ${item.playlist?.title ?: "Без названия"}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (count > 0) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                            ) {
-                                Text(
-                                    text = "$count треков",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        text = "Нажмите, чтобы открыть треки плейлиста",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                "album" -> {
-                    val count = item.album?.trackCount ?: 0
-                    val year = item.album?.year
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            ContentTypeIcon(ContentType.ALBUM, modifier = Modifier.size(18.dp))
-                            Text(
-                                text = "Альбом: ${item.album?.title ?: "Без названия"}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (year != null && year > 0) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                                ) {
-                                    Text(
-                                        text = "$year",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-                            if (count > 0) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                                ) {
-                                    Text(
-                                        text = "$count треков",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Text(
-                        text = "Нажмите, чтобы открыть треки альбома",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
                 }
             }
         }
