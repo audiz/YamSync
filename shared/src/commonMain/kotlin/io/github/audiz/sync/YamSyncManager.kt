@@ -8,7 +8,10 @@ import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.setValue
 import io.github.audiz.*
 import io.github.audiz.models.*
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
@@ -22,6 +25,13 @@ sealed interface YamSyncConnectionState {
     data class Connected(val peer: YamSyncDevice, val pairInfo: YamSyncPairInfo) : YamSyncConnectionState
     data class Syncing(val message: String, val progress: Float) : YamSyncConnectionState
 }
+
+/** Состояние синхронизации одного плейлиста: в очереди или скачано [done] из [total]. */
+data class YamSyncPlaylistProgress(
+    val isQueued: Boolean = false,
+    val done: Int = 0,
+    val total: Int = 0
+)
 
 /**
  * 🎛️ Менеджер сессии P2P-синхронизации медиатеки YamSync
@@ -44,6 +54,16 @@ class YamSyncManager(
     val selectedFiles = mutableStateSetOf<String>()
     val fileTransfers = mutableStateMapOf<String, YamSyncTransferProgress>()
     val knownDevices = mutableStateListOf<YamSyncKnownDevice>()
+
+    /** Прогресс синхронизации отдельных плейлистов (ключ — playlistId). Отсутствие ключа — плейлист не в работе. */
+    val playlistSyncProgress = mutableStateMapOf<String, YamSyncPlaylistProgress>()
+    /** Сколько треков придётся скачать при синхронизации плейлиста (ключ — playlistId). */
+    val playlistMissingCounts = mutableStateMapOf<String, Int>()
+
+    private val playlistSyncQueue = Channel<String>(Channel.UNLIMITED)
+    private var playlistSyncWorker: Job? = null
+    private var activePlaylistSyncId: String? = null
+    private var activePlaylistSyncJob: Job? = null
 
     // 🔒 Сохраненные решения пользователя по слиянию плейлистов (защита от сброса при фоновом автообновлении)
     private val userResolutions = mutableMapOf<String, YamSyncResolution>()
@@ -539,7 +559,18 @@ class YamSyncManager(
                 selectedFiles.add(track.matchKey)
             }
         }
+
+        val counts = playlistDiffs.associate { diff ->
+            val single = YamSyncDiffEngine.mergePlaylists(listOf(diff.copy(resolution = effectiveResolution(diff))))
+            diff.playlistId to YamSyncDiffEngine.findMissingFiles(single, localMan.availableFiles, remoteMan.availableFiles).size
+        }
+        playlistMissingCounts.keys.retainAll(counts.keys)
+        playlistMissingCounts.putAll(counts)
     }
+
+    /** Плейлист, который есть только на другом устройстве, всегда забираем целиком. */
+    fun effectiveResolution(diff: YamSyncPlaylistDiff): YamSyncResolution =
+        if (diff.state == YamSyncDiffState.NEW_REMOTE) YamSyncResolution.TAKE_REMOTE else diff.resolution
 
     private fun resolveFilePathInternal(fileName: String, checksum: String): String? {
         val rawName = fileName.trim()
@@ -900,43 +931,103 @@ class YamSyncManager(
         }
     }
 
-    /** Применить слияние плейлистов (Merge Request) */
-    fun applyPlaylistMerge(autoDownloadFiles: Boolean = false) {
-        if (playlistDiffs.isEmpty()) return
-        val pair = activePairInfo
-        scope.launch(Dispatchers.Main) {
-            statusMessage = "Применение изменений плейлистов..."
-            val merged = YamSyncDiffEngine.mergePlaylists(playlistDiffs)
+    /**
+     * Поставить плейлист в очередь синхронизации. [resolution] — явно выбранное действие из меню,
+     * иначе используется текущее (по умолчанию «Объединить»).
+     */
+    fun syncPlaylist(playlistId: String, resolution: YamSyncResolution? = null) {
+        if (resolution != null) setResolution(playlistId, resolution)
+        if (playlistSyncProgress.containsKey(playlistId)) return
+        playlistSyncProgress[playlistId] = YamSyncPlaylistProgress(isQueued = true)
+        ensurePlaylistSyncWorker()
+        playlistSyncQueue.trySend(playlistId)
+    }
 
-            // Сохраняем локально
-            applyRemoteMergedPlaylists(merged)
+    /** Синхронизировать все плейлисты, которые отличаются на устройствах. */
+    fun syncAllPlaylists() {
+        playlistDiffs.filter { it.state != YamSyncDiffState.IDENTICAL }.forEach { syncPlaylist(it.playlistId) }
+    }
 
-            // Если мы клиент — отправляем объединенные плейлисты обратно на хост
-            if (pair != null && !isHostingMode) {
-                withContext(DispatcherIO) {
-                    client.sendMerge(pair.ip, pair.port, pair.token, YamSyncMergePayload(merged))
-                }
-            }
+    /** Остановить синхронизацию плейлиста или убрать его из очереди. */
+    fun cancelPlaylistSync(playlistId: String) {
+        if (activePlaylistSyncId == playlistId) {
+            activePlaylistSyncJob?.cancel()
+        } else {
+            playlistSyncProgress.remove(playlistId)
+        }
+    }
 
-            statusMessage = "✅ Плейлисты успешно объединены!"
-            userResolutions.clear()
-            userExplicitlyUnselectedFiles.clear()
-            onPlaylistsUpdated()
+    private fun ensurePlaylistSyncWorker() {
+        if (playlistSyncWorker?.isActive == true) return
+        playlistSyncWorker = scope.launch(Dispatchers.Main) {
+            for (playlistId in playlistSyncQueue) {
+                // Пропускаем отменённые, пока ждали в очереди
+                if (playlistSyncProgress[playlistId]?.isQueued != true) continue
+                // Не пересекаемся с ручной загрузкой на вкладке «Треки»
+                snapshotFlow { isDownloadingFiles }.first { !it }
 
-            if (autoDownloadFiles) {
-                if (selectedFiles.isEmpty() && missingFiles.isNotEmpty()) {
-                    selectedFiles.addAll(missingFiles.map { it.matchKey })
-                }
-                if (missingFiles.isNotEmpty()) {
-                    downloadSelectedFiles()
-                }
-            } else {
-                refreshManifestAndDiff()
+                val job = launch { runPlaylistSync(playlistId) }
+                activePlaylistSyncId = playlistId
+                activePlaylistSyncJob = job
+                job.join()
+                activePlaylistSyncId = null
+                activePlaylistSyncJob = null
+                playlistSyncProgress.remove(playlistId)
             }
         }
     }
 
-    /** Скачать выбранные недостающие аудиофайлы по требованию */
+    private suspend fun runPlaylistSync(playlistId: String) {
+        val diff = playlistDiffs.firstOrNull { it.playlistId == playlistId } ?: return
+        val pair = activePairInfo ?: return
+        val localMan = localManifestCache ?: return
+        val remoteMan = remoteManifestCache ?: return
+        val resolution = effectiveResolution(diff)
+        val merged = YamSyncDiffEngine.mergePlaylists(listOf(diff.copy(resolution = resolution))).firstOrNull() ?: return
+
+        isDownloadingFiles = true
+        errorMessage = null
+        playlistSyncProgress[playlistId] = YamSyncPlaylistProgress()
+        try {
+            // 1. Сохраняем итоговый плейлист у себя под своим id, чтобы не создать дубликат
+            if (resolution != YamSyncResolution.KEEP_LOCAL) {
+                val localCopy = merged.copy(id = diff.localPlaylist?.id ?: merged.id)
+                withContext(DispatcherIO) { applyRemoteMergedPlaylists(listOf(localCopy)) }
+            }
+
+            // 2. Отправляем его на другое устройство под его id
+            if (resolution != YamSyncResolution.TAKE_REMOTE && pair.port > 0) {
+                val remoteCopy = merged.copy(id = diff.remotePlaylist?.id ?: merged.id)
+                withContext(DispatcherIO) {
+                    client.sendMerge(pair.ip, pair.port, pair.token, YamSyncMergePayload(listOf(remoteCopy)))
+                }.onFailure { err -> errorMessage = "Не удалось отправить «${diff.title}»: ${err.message}" }
+            }
+
+            // 3. Скачиваем недостающие треки этого плейлиста
+            val missing = if (resolution == YamSyncResolution.KEEP_LOCAL) emptyList() else
+                YamSyncDiffEngine.findMissingFiles(listOf(merged), localMan.availableFiles, remoteMan.availableFiles)
+            if (missing.isNotEmpty()) {
+                playlistSyncProgress[playlistId] = YamSyncPlaylistProgress(done = 0, total = missing.size)
+                val result = downloadTracksInternal(pair, missing) { index, total, _ ->
+                    playlistSyncProgress[playlistId] = YamSyncPlaylistProgress(done = index - 1, total = total)
+                }
+                reportDownloadResult(result)
+            } else {
+                statusMessage = "«${diff.title}» синхронизирован"
+            }
+        } catch (e: CancellationException) {
+            statusMessage = "Синхронизация «${diff.title}» остановлена"
+            throw e
+        } finally {
+            isDownloadingFiles = false
+            userResolutions.remove(playlistId)
+            userResolutions.remove(YamSyncDiffEngine.normalizeTitle(diff.title))
+            onPlaylistsUpdated()
+            refreshManifestAndDiff()
+        }
+    }
+
+    /** Скачать выбранные на вкладке «Треки» недостающие аудиофайлы */
     fun downloadSelectedFiles() {
         if (isDownloadingFiles) return
         val pair = activePairInfo ?: return
@@ -947,117 +1038,125 @@ class YamSyncManager(
         errorMessage = null
         scope.launch(Dispatchers.Main) {
             try {
-                val totalCount = toDownload.size
-                var currentIdx = 0
-                var successCount = 0
-                var failCount = 0
-                val errorDetails = mutableListOf<String>()
-                val basePath = getMusicStoragePath()
-                val downloadedFilePathsByFileName = mutableMapOf<String, String>()
-
-                for (track in toDownload) {
-                    currentIdx++
-                    statusMessage = "Загрузка: $currentIdx/$totalCount (${track.title})"
-
-                    val res = withContext(DispatcherIO) {
-                        client.downloadTrackBytes(pair.ip, pair.port, pair.token, track) { progress ->
-                            fileTransfers[track.matchKey] = progress
-                        }
-                    }
-
-                    res.fold(
-                        onSuccess = { bytes ->
-                            try {
-                                val cleanArtist = sanitizeDirName(track.artist.ifBlank { "Unknown Artist" })
-                                val cleanFileName = sanitizeKeepSpaces(track.fileName)
-                                val syncBasePath = if (basePath.endsWith('/') || basePath.endsWith('\\')) "${basePath}YamSync" else "$basePath/YamSync"
-                                val sep = if (basePath.contains('\\')) "\\" else "/"
-                                val savedFilePath = "${syncBasePath.trimEnd('/', '\\')}$sep$cleanArtist$sep$cleanFileName"
-                                withContext(DispatcherIO) {
-                                    saveTrackFile(syncBasePath, cleanArtist, cleanFileName, bytes)
-                                }
-                                downloadedFilePathsByFileName[cleanFileName.lowercase()] = savedFilePath
-                                downloadedFilePathsByFileName[track.fileName.lowercase()] = savedFilePath
-
-                                successCount++
-                                fileTransfers[track.matchKey] = YamSyncTransferProgress(
-                                    fileName = track.fileName,
-                                    trackTitle = "${track.artist} — ${track.title}",
-                                    bytesTransferred = bytes.size.toLong(),
-                                    totalBytes = bytes.size.toLong(),
-                                    isCompleted = true
-                                )
-                                println("YamSync: ✅ Успешно сохранён файл: $cleanFileName (${bytes.size} байт)")
-                            } catch (e: Exception) {
-                                failCount++
-                                val msg = e.message ?: e.toString()
-                                errorDetails.add("${track.title}: $msg")
-                                println("YamSync: ❌ Ошибка сохранения файла ${track.fileName}: $msg")
-                                fileTransfers[track.matchKey] = YamSyncTransferProgress(
-                                    fileName = track.fileName,
-                                    trackTitle = "${track.artist} — ${track.title}",
-                                    error = msg,
-                                    isCompleted = true
-                                )
-                            }
-                        },
-                        onFailure = { err ->
-                            failCount++
-                            val msg = err.message ?: err.toString()
-                            errorDetails.add("${track.title}: $msg")
-                            println("YamSync: ❌ Ошибка скачивания файла ${track.fileName}: $msg")
-                            fileTransfers[track.matchKey] = YamSyncTransferProgress(
-                                fileName = track.fileName,
-                                trackTitle = "${track.artist} — ${track.title}",
-                                error = msg,
-                                isCompleted = true
-                            )
-                        }
-                    )
+                val result = downloadTracksInternal(pair, toDownload) { index, total, track ->
+                    statusMessage = "Загрузка: $index/$total (${track.title})"
                 }
-
-                // Обновляем пути в локальных плейлистах с учетом скачанных файлов
-                withContext(DispatcherIO) {
-                    val freshDownloaded = scanDownloadedTracks(basePath)
-                    val allLocal = loadLocalPlaylists(basePath)
-                    val updatedLocal = allLocal.map { pl ->
-                        val updatedPaths = pl.trackPaths.map { originalPath ->
-                            val fileName = originalPath.substringAfterLast('/').substringAfterLast('\\')
-                            val cleanFileName = sanitizeKeepSpaces(fileName)
-                            val directSaved = downloadedFilePathsByFileName[cleanFileName.lowercase()]
-                                ?: downloadedFilePathsByFileName[fileName.lowercase()]
-
-                            val matched = freshDownloaded.firstOrNull {
-                                val p = it.realId ?: it.id.removePrefix("local:")
-                                val fn = p.substringAfterLast('/').substringAfterLast('\\')
-                                fn.equals(fileName, ignoreCase = true) || fn.equals(cleanFileName, ignoreCase = true)
-                            }
-                            directSaved
-                                ?: matched?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
-                                ?: resolveLocalPath(originalPath).takeIf { localFileExists(it) }
-                                ?: originalPath
-                        }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
-                        pl.copy(trackPaths = updatedPaths)
-                    }
-                    saveLocalPlaylists(basePath, updatedLocal)
-                }
-
-                if (failCount == 0) {
-                    statusMessage = "✅ Загрузка $successCount файлов завершена!"
-                } else if (successCount > 0) {
-                    statusMessage = "⚠️ Скачано $successCount из $totalCount файлов ($failCount ошибок)"
-                    errorMessage = "Не удалось скачать некоторые файлы:\n" + errorDetails.take(3).joinToString("\n")
-                } else {
-                    statusMessage = "❌ Ошибка загрузки файлов ($failCount ошибок)"
-                    errorMessage = "Ошибки загрузки файлов:\n" + errorDetails.take(3).joinToString("\n")
-                }
-
+                reportDownloadResult(result)
                 refreshManifestAndDiff()
                 onPlaylistsUpdated()
             } finally {
                 isDownloadingFiles = false
             }
         }
+    }
+
+    private class DownloadResult(val total: Int, val success: Int, val failed: Int, val errors: List<String>)
+
+    private fun reportDownloadResult(result: DownloadResult) {
+        when {
+            result.failed == 0 -> statusMessage = "Скачано треков: ${result.success}"
+            result.success > 0 -> {
+                statusMessage = "Скачано ${result.success} из ${result.total}"
+                errorMessage = "Не удалось скачать некоторые файлы:\n" + result.errors.take(3).joinToString("\n")
+            }
+            else -> {
+                statusMessage = null
+                errorMessage = "Ошибки загрузки файлов:\n" + result.errors.take(3).joinToString("\n")
+            }
+        }
+    }
+
+    /**
+     * Последовательно скачивает треки с другого устройства в папку YamSync и обновляет пути
+     * в локальных плейлистах. [onTrackStart] вызывается перед каждым треком (номер с единицы).
+     */
+    private suspend fun downloadTracksInternal(
+        pair: YamSyncPairInfo,
+        toDownload: List<YamSyncTrack>,
+        onTrackStart: (index: Int, total: Int, track: YamSyncTrack) -> Unit
+    ): DownloadResult {
+        val totalCount = toDownload.size
+        var successCount = 0
+        var failCount = 0
+        val errorDetails = mutableListOf<String>()
+        val basePath = getMusicStoragePath()
+        val downloadedFilePathsByFileName = mutableMapOf<String, String>()
+
+        toDownload.forEachIndexed { i, track ->
+            onTrackStart(i + 1, totalCount, track)
+            val cleanArtist = sanitizeDirName(track.artist.ifBlank { "Unknown Artist" })
+            val cleanFileName = sanitizeKeepSpaces(track.fileName)
+            val syncBasePath = if (basePath.endsWith('/') || basePath.endsWith('\\')) "${basePath}YamSync" else "$basePath/YamSync"
+            val sep = if (basePath.contains('\\')) "\\" else "/"
+            val savedFilePath = "${syncBasePath.trimEnd('/', '\\')}$sep$cleanArtist$sep$cleanFileName"
+
+            val res = withContext(DispatcherIO) {
+                client.downloadTrackBytes(pair.ip, pair.port, pair.token, track) { progress ->
+                    fileTransfers[track.matchKey] = progress
+                }.mapCatching { bytes ->
+                    saveTrackFile(syncBasePath, cleanArtist, cleanFileName, bytes)
+                    bytes.size.toLong()
+                }
+            }
+
+            res.fold(
+                onSuccess = { size ->
+                    downloadedFilePathsByFileName[cleanFileName.lowercase()] = savedFilePath
+                    downloadedFilePathsByFileName[track.fileName.lowercase()] = savedFilePath
+                    successCount++
+                    fileTransfers[track.matchKey] = YamSyncTransferProgress(
+                        fileName = track.fileName,
+                        trackTitle = "${track.artist} — ${track.title}",
+                        bytesTransferred = size,
+                        totalBytes = size,
+                        isCompleted = true
+                    )
+                },
+                onFailure = { err ->
+                    if (err is CancellationException) throw err
+                    failCount++
+                    val msg = err.message ?: err.toString()
+                    errorDetails.add("${track.title}: $msg")
+                    println("YamSync: ❌ Ошибка скачивания файла ${track.fileName}: $msg")
+                    fileTransfers[track.matchKey] = YamSyncTransferProgress(
+                        fileName = track.fileName,
+                        trackTitle = "${track.artist} — ${track.title}",
+                        error = msg,
+                        isCompleted = true
+                    )
+                }
+            )
+        }
+
+        // Обновляем пути в локальных плейлистах с учетом скачанных файлов
+        if (successCount > 0) {
+            withContext(DispatcherIO) {
+                val freshDownloaded = scanDownloadedTracks(basePath)
+                val allLocal = loadLocalPlaylists(basePath)
+                val updatedLocal = allLocal.map { pl ->
+                    val updatedPaths = pl.trackPaths.map { originalPath ->
+                        val fileName = originalPath.substringAfterLast('/').substringAfterLast('\\')
+                        val cleanFileName = sanitizeKeepSpaces(fileName)
+                        val directSaved = downloadedFilePathsByFileName[cleanFileName.lowercase()]
+                            ?: downloadedFilePathsByFileName[fileName.lowercase()]
+
+                        val matched = freshDownloaded.firstOrNull {
+                            val p = it.realId ?: it.id.removePrefix("local:")
+                            val fn = p.substringAfterLast('/').substringAfterLast('\\')
+                            fn.equals(fileName, ignoreCase = true) || fn.equals(cleanFileName, ignoreCase = true)
+                        }
+                        directSaved
+                            ?: matched?.let { it.realId?.ifBlank { it.id.removePrefix("local:") } ?: it.id.removePrefix("local:") }
+                            ?: resolveLocalPath(originalPath).takeIf { localFileExists(it) }
+                            ?: originalPath
+                    }.distinctBy { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
+                    pl.copy(trackPaths = updatedPaths)
+                }
+                saveLocalPlaylists(basePath, updatedLocal)
+            }
+        }
+
+        return DownloadResult(totalCount, successCount, failCount, errorDetails)
     }
 
     private fun applyRemoteMergedPlaylists(remotePlaylists: List<YamSyncPlaylist>) {

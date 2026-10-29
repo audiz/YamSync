@@ -71,7 +71,7 @@ fun YamSyncDialog(
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         when (selectedTabIndex) {
                             0 -> YamSyncPairingTab(syncManager = syncManager, isCompact = isCompact)
-                            1 -> YamSyncPlaylistsTab(syncManager = syncManager, isCompact = isCompact, onNavigateToFiles = { selectedTabIndex = 2 })
+                            1 -> YamSyncPlaylistsTab(syncManager = syncManager)
                             2 -> YamSyncFilesTab(syncManager = syncManager)
                         }
                     }
