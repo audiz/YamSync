@@ -97,7 +97,7 @@ fun SearchResultsList(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(searchItems) { item ->
                 Column {
@@ -146,7 +146,6 @@ fun SearchResultsList(
                         },
                         onAddToPlaylist = onAddToPlaylist
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
             }
         }
@@ -235,8 +234,8 @@ private fun ResultCard(
             val tracksCount = artist.counts?.tracks?.takeIf { it > 0 }
             CompactEntityRow(
                 title = artist.name,
-                typeLabel = "Артист",
-                typeColor = MaterialTheme.colorScheme.primary,
+                typeLabel = "Исполнитель",
+                typeColor = searchTypeColor("artist"),
                 meta = listOf(
                     artist.genres.take(2).joinToString(", ").replaceFirstChar { it.uppercase() },
                     tracksCount?.let { "$it треков" } ?: "",
@@ -249,7 +248,7 @@ private fun ResultCard(
             CompactEntityRow(
                 title = playlist.title.ifBlank { "Без названия" },
                 typeLabel = "Плейлист",
-                typeColor = MaterialTheme.colorScheme.tertiary,
+                typeColor = searchTypeColor("playlist"),
                 meta = listOf(if (playlist.trackCount > 0) "${playlist.trackCount} треков" else ""),
                 onClick = { onPlaylistClick(playlist) }
             )
@@ -257,10 +256,9 @@ private fun ResultCard(
         "album" -> item.album?.let { album ->
             CompactEntityRow(
                 title = album.title.ifBlank { "Без названия" },
-                typeLabel = "Альбом",
-                typeColor = MaterialTheme.colorScheme.secondary,
+                typeLabel = listOfNotNull("Альбом", album.year?.takeIf { it > 0 }?.toString()).joinToString(" · "),
+                typeColor = searchTypeColor("album"),
                 meta = listOf(
-                    album.year?.takeIf { it > 0 }?.toString() ?: "",
                     if (album.trackCount > 0) "${album.trackCount} треков" else ""
                 ),
                 onClick = { onAlbumClick?.invoke(album.id, album.title) }
@@ -272,7 +270,6 @@ private fun ResultCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable { item.wave?.let { onWaveClick?.invoke(it) } },
         shape = RoundedCornerShape(12.dp),

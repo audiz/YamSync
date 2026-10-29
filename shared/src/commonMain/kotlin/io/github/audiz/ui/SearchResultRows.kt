@@ -1,6 +1,10 @@
 package io.github.audiz.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -28,7 +32,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.github.audiz.models.FullTrackInfo
 
-private val CompactButtonSize = 30.dp
+private val CompactButtonSize = 28.dp
 
 /** 1 234 → «1,2 тыс.», 2 811 657 → «2,8 млн». */
 internal fun formatCompactCount(value: Int): String = when {
@@ -38,7 +42,19 @@ internal fun formatCompactCount(value: Int): String = when {
     else -> value.toString()
 }
 
-/** Строка артиста, плейлиста или альбома: название на всю ширину, ниже тип и мета-информация. */
+/** Цвет типа результата: адаптируется к светлой и тёмной теме. */
+@Composable
+internal fun searchTypeColor(type: String): Color {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    return when (type) {
+        "artist" -> if (isDark) Color(0xFFD0BCFF) else Color(0xFF6750A4)
+        "playlist" -> if (isDark) Color(0xFFFB7185) else Color(0xFFE11D48)
+        "album" -> if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
+/** Карточка артиста, плейлиста или альбома: подпись типа, название на всю ширину, мета-строка. */
 @Composable
 internal fun CompactEntityRow(
     title: String,
@@ -48,32 +64,43 @@ internal fun CompactEntityRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val shape = RoundedCornerShape(12.dp)
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .clip(shape)
+            .background(typeColor.copy(alpha = 0.14f))
+            .border(0.5.dp, typeColor.copy(alpha = 0.28f), shape)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = typeLabel.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = typeColor,
+                maxLines = 1
+            )
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = buildAnnotatedString {
-                    withStyle(SpanStyle(color = typeColor, fontWeight = FontWeight.SemiBold)) { append(typeLabel) }
-                    meta.filter { it.isNotBlank() }.forEach { append(" · $it") }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            val metaText = meta.filter { it.isNotBlank() }.joinToString(" · ")
+            if (metaText.isNotEmpty()) {
+                Text(
+                    text = metaText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
         Icon(
             imageVector = Icons.Filled.ChevronRight,
@@ -84,7 +111,7 @@ internal fun CompactEntityRow(
     }
 }
 
-/** Компактная строка трека: название и длительность, ниже исполнитель и кнопки действий. */
+/** Карточка трека: название и длительность, ниже исполнитель и кнопки действий. */
 @Composable
 internal fun CompactTrackRow(
     track: FullTrackInfo,
@@ -96,14 +123,16 @@ internal fun CompactTrackRow(
     val album = track.albums.firstOrNull()?.title
     val subtitle = listOfNotNull(artists.takeIf { it.isNotBlank() }, album).joinToString(" · ")
 
+    val cardShape = RoundedCornerShape(12.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .then(
-                if (state.isActive) Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
-                else Modifier
+            .clip(cardShape)
+            .background(
+                if (state.isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             )
-            .padding(horizontal = 4.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (state.isPlaying) {
@@ -112,7 +141,7 @@ internal fun CompactTrackRow(
             }
             Text(
                 text = track.title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
