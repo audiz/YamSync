@@ -404,6 +404,7 @@ fun App() {
                                             searchViewModel.resetBrowsedFolder()
                                             updateShowPlaylistsDialog(true)
                                         },
+                                        onOpenDevices = { showYamSyncDialog = true },
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }

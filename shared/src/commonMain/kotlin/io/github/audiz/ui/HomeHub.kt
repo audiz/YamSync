@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.audiz.SearchViewModel
+import io.github.audiz.sync.YamSyncConnectionState
 import io.github.audiz.isPlatformPickerSupported
 import io.github.audiz.models.CustomMediaSource
 import io.github.audiz.models.LastPlaybackSession
@@ -48,6 +49,7 @@ import io.github.audiz.pickDirectory
 fun HomeHub(
     viewModel: SearchViewModel,
     onOpenMediaLibrary: () -> Unit,
+    onOpenDevices: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -76,6 +78,7 @@ fun HomeHub(
             QuickAccessSection(
                 viewModel = viewModel,
                 onOpenMediaLibrary = onOpenMediaLibrary,
+                onOpenDevices = onOpenDevices,
                 isWide = isWide,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -345,9 +348,28 @@ private fun WaveHeroCard(
 private fun QuickAccessSection(
     viewModel: SearchViewModel,
     onOpenMediaLibrary: () -> Unit,
+    onOpenDevices: () -> Unit,
     isWide: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val syncState = viewModel.yamSyncManager.connectionState
+    // Точка статуса: зелёная — связано, янтарная — ожидание/связывание, серая — нет соединения
+    val devicesStatusColor = when (syncState) {
+        is YamSyncConnectionState.Connected, is YamSyncConnectionState.Syncing -> Color(0xFF2DD881)
+        is YamSyncConnectionState.Hosting, is YamSyncConnectionState.Connecting -> Color(0xFFF59E0B)
+        is YamSyncConnectionState.Disconnected -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+    }
+    val devicesTile: @Composable (Modifier) -> Unit = { tileModifier ->
+        QuickAccessTile(
+            title = "Устройства",
+            icon = Icons.Filled.Devices,
+            accentColor = Color(0xFF2DD881),
+            onClick = onOpenDevices,
+            statusColor = devicesStatusColor,
+            modifier = tileModifier
+        )
+    }
+
     Column(modifier = modifier) {
         Text(
             text = "Быстрый доступ",
@@ -390,6 +412,7 @@ private fun QuickAccessSection(
                     onClick = { viewModel.loadHistory() },
                     modifier = Modifier.weight(1f)
                 )
+                devicesTile(Modifier.weight(1f))
             }
         } else {
             // 2 колонки на мобильных — перенос на следующую строку
@@ -432,6 +455,13 @@ private fun QuickAccessSection(
                         modifier = Modifier.weight(1f)
                     )
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    devicesTile(Modifier.weight(1f))
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }
@@ -443,7 +473,8 @@ private fun QuickAccessTile(
     icon: ImageVector,
     accentColor: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    statusColor: Color? = null
 ) {
     Card(
         modifier = modifier
@@ -485,8 +516,18 @@ private fun QuickAccessTile(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
+            if (statusColor != null) {
+                Spacer(modifier = Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(8.dp)
+                        .background(statusColor, CircleShape)
+                )
+            }
         }
     }
 }
