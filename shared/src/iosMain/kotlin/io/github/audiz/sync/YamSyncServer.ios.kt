@@ -25,6 +25,38 @@ private fun htons(port: UShort): UShort {
 
 private fun ntohs(port: UShort): UShort = htons(port)
 
+/** Максимальный размер тела запроса (манифест, слияние плейлистов). */
+private const val MAX_REQUEST_BODY = 32 * 1024 * 1024
+
+/** Сколько живёт кеш списка разрешённых к отдаче файлов. */
+private const val ALLOWED_FILES_TTL_MS = 30_000L
+
+/** Включить SO_NOSIGPIPE: запись в закрытый собеседником сокет вернёт ошибку, а не завершит приложение. */
+private fun disableSigPipe(fd: Int) {
+    memScoped {
+        val optVal = alloc<IntVar>()
+        optVal.value = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, optVal.ptr, sizeOf<IntVar>().toUInt())
+    }
+}
+
+/** Отправить буфер целиком. false — собеседник закрыл соединение или произошла ошибка сети. */
+private fun sendAll(fd: Int, bytes: ByteArray, length: Int = bytes.size): Boolean {
+    if (length <= 0) return true
+    var offset = 0
+    bytes.usePinned { pinned ->
+        while (offset < length) {
+            val sent = send(fd, pinned.addressOf(offset), (length - offset).toULong(), 0)
+            if (sent <= 0) return false
+            offset += sent.toInt()
+        }
+    }
+    return true
+}
+
+/** Набор имён файлов и контрольных сумм, которые разрешено отдавать (для проверки за O(1)). */
+private class AllowedFiles(val createdAtMs: Long, val fileNames: Set<String>, val checksums: Set<String>)
+
 actual class YamSyncServer actual constructor(
     private val initialPort: Int,
     private val token: String,
@@ -40,6 +72,7 @@ actual class YamSyncServer actual constructor(
     private var activePort: Int = 0
     private var running: Boolean = false
     private val serverScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val allowedFilesCache = kotlin.concurrent.AtomicReference<AllowedFiles?>(null)
 
     actual val port: Int get() = activePort
     actual val isRunning: Boolean get() = running && serverFd >= 0
@@ -47,11 +80,15 @@ actual class YamSyncServer actual constructor(
     actual fun start(): Int {
         if (running && serverFd >= 0) return activePort
 
+        // Страховка на уровне процесса: без этого обрыв соединения во время отдачи файла завершает приложение
+        signal(SIGPIPE, SIG_IGN)
+
         val fd = socket(AF_INET, SOCK_STREAM, 0)
         if (fd < 0) {
             println("⚡ [YamSyncServer iOS] Ошибка создания сокета")
             return 0
         }
+        disableSigPipe(fd)
 
         // SO_REUSEADDR
         memScoped {
@@ -99,6 +136,7 @@ actual class YamSyncServer actual constructor(
             while (running && serverFd >= 0) {
                 val clientFd = accept(serverFd, null, null)
                 if (clientFd >= 0) {
+                    disableSigPipe(clientFd)
                     launch(Dispatchers.Default) {
                         handleClient(clientFd)
                     }
@@ -123,13 +161,7 @@ actual class YamSyncServer actual constructor(
 
     private fun handleClient(clientFd: Int) {
         try {
-            val buffer = ByteArray(8192)
-            val bytesRead = buffer.usePinned { pinned ->
-                recv(clientFd, pinned.addressOf(0), buffer.size.toULong(), 0).toInt()
-            }
-            if (bytesRead <= 0) return
-
-            val requestStr = buffer.decodeToString(0, bytesRead)
+            val requestStr = readRequest(clientFd) ?: return
             val firstLine = requestStr.substringBefore("\r\n").substringBefore("\n")
             val parts = firstLine.split(" ")
             if (parts.size < 2) return
@@ -221,15 +253,12 @@ actual class YamSyncServer actual constructor(
                         return
                     }
 
-                    // Защита от утечки произвольных файлов: отдавать разрешено только треки из манифеста раздачи
-                    val manifest = getManifest()
-                    val isAllowedFile = manifest.availableFiles.any { track ->
-                        val trackFn = track.fileName.substringAfterLast('/').substringAfterLast('\\')
-                        val actualFn = filePath.substringAfterLast('/')
-                        trackFn.equals(actualFn, ignoreCase = true) ||
-                        trackFn.equals(safeFileName, ignoreCase = true) ||
-                        (checksum.isNotBlank() && track.checksum.equals(checksum, ignoreCase = true))
-                    }
+                    // Защита от утечки произвольных файлов: отдавать разрешено только треки из манифеста раздачи.
+                    // Список кешируется, чтобы не сканировать всю медиатеку на каждый запрошенный трек.
+                    val allowed = allowedFiles()
+                    val isAllowedFile = filePath.substringAfterLast('/').lowercase() in allowed.fileNames ||
+                        safeFileName.lowercase() in allowed.fileNames ||
+                        (checksum.isNotBlank() && checksum.lowercase() in allowed.checksums)
 
                     if (!isAllowedFile) {
                         val err = """{"error":"Access denied"}""".encodeToByteArray()
@@ -323,9 +352,9 @@ actual class YamSyncServer actual constructor(
         }
         headerBuilder.append("\r\n")
 
-        val headerBytes = headerBuilder.toString().encodeToByteArray()
-        headerBytes.usePinned { pinned ->
-            send(clientFd, pinned.addressOf(0), headerBytes.size.toULong(), 0)
+        if (!sendAll(clientFd, headerBuilder.toString().encodeToByteArray())) {
+            fileHandle.closeFile()
+            return
         }
 
         fileHandle.seekToFileOffset(start.toULong())
@@ -342,9 +371,8 @@ actual class YamSyncServer actual constructor(
                 ptr.readBytes(dataLen)
             } ?: break
 
-            bytes.usePinned { pinned ->
-                send(clientFd, pinned.addressOf(0), dataLen.toULong(), 0)
-            }
+            // Собеседник закрыл соединение (отмена, таймаут, смена сети) — прекращаем отдачу
+            if (!sendAll(clientFd, bytes, dataLen)) break
             remaining -= dataLen
         }
         fileHandle.closeFile()
@@ -368,15 +396,70 @@ actual class YamSyncServer actual constructor(
         }
         sb.append("\r\n")
 
-        val headerBytes = sb.toString().encodeToByteArray()
-        headerBytes.usePinned { pinned ->
-            send(clientFd, pinned.addressOf(0), headerBytes.size.toULong(), 0)
+        if (sendAll(clientFd, sb.toString().encodeToByteArray())) {
+            sendAll(clientFd, body)
         }
-        if (body.isNotEmpty()) {
-            body.usePinned { pinned ->
-                send(clientFd, pinned.addressOf(0), body.size.toULong(), 0)
+    }
+
+    /**
+     * Прочитать HTTP-запрос целиком: заголовки до пустой строки и тело по Content-Length.
+     * Раньше читались только первые 8 КБ, и большие манифесты обрезались.
+     */
+    private fun readRequest(clientFd: Int): String? {
+        var data = ByteArray(16 * 1024)
+        var size = 0
+        var headerEnd = -1
+        var expectedTotal = -1
+        val chunk = ByteArray(64 * 1024)
+
+        while (true) {
+            val read = chunk.usePinned { pinned ->
+                recv(clientFd, pinned.addressOf(0), chunk.size.toULong(), 0).toInt()
             }
+            if (read <= 0) break
+            if (size + read > data.size) {
+                data = data.copyOf(maxOf(data.size * 2, size + read))
+            }
+            chunk.copyInto(data, size, 0, read)
+            size += read
+
+            if (headerEnd < 0) {
+                headerEnd = indexOfHeaderEnd(data, size)
+                if (headerEnd < 0) {
+                    if (size > 64 * 1024) return null // слишком длинные заголовки
+                    continue
+                }
+                val headerText = data.decodeToString(0, headerEnd)
+                val contentLength = parseHeaders(headerText)["content-length"]?.toIntOrNull() ?: 0
+                if (contentLength < 0 || contentLength > MAX_REQUEST_BODY) return null
+                expectedTotal = headerEnd + 4 + contentLength
+            }
+            if (size >= expectedTotal) break
         }
+        if (size == 0) return null
+        return data.decodeToString(0, size)
+    }
+
+    private fun indexOfHeaderEnd(data: ByteArray, size: Int): Int {
+        for (i in 0..size - 4) {
+            if (data[i] == '\r'.code.toByte() && data[i + 1] == '\n'.code.toByte() &&
+                data[i + 2] == '\r'.code.toByte() && data[i + 3] == '\n'.code.toByte()
+            ) return i
+        }
+        return -1
+    }
+
+    private fun allowedFiles(): AllowedFiles {
+        val now = (NSDate().timeIntervalSince1970 * 1000).toLong()
+        allowedFilesCache.value?.takeIf { now - it.createdAtMs < ALLOWED_FILES_TTL_MS }?.let { return it }
+        val files = getManifest().availableFiles
+        val fresh = AllowedFiles(
+            createdAtMs = now,
+            fileNames = files.mapTo(HashSet()) { it.fileName.substringAfterLast('/').substringAfterLast('\\').lowercase() },
+            checksums = files.mapNotNullTo(HashSet()) { it.checksum.takeIf { c -> c.isNotBlank() }?.lowercase() }
+        )
+        allowedFilesCache.value = fresh
+        return fresh
     }
 
     private fun parseHeaders(requestStr: String): Map<String, String> {
