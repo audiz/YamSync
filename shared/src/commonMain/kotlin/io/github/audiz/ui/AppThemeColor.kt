@@ -34,31 +34,18 @@ enum class AppAccentColor(
         primaryContainerLight = Color(0xFFEADDFF),
         onPrimaryContainerLight = Color(0xFF21005D)
     ),
-    YANDEX(
-        key = "yandex",
-        title = "Жёлтый",
-        previewColor = Color(0xFFFFCC00),
-        primaryDark = Color(0xFFFFCC00),
-        onPrimaryDark = Color(0xFF241A00),
-        primaryContainerDark = Color(0xFF574300),
-        onPrimaryContainerDark = Color(0xFFFFE088),
-        primaryLight = Color(0xFFE6A100),
+    INDIGO(
+        key = "indigo",
+        title = "Индиго",
+        previewColor = Color(0xFF818CF8),
+        primaryDark = Color(0xFF818CF8),
+        onPrimaryDark = Color(0xFF1E1B4B),
+        primaryContainerDark = Color(0xFF3730A3),
+        onPrimaryContainerDark = Color(0xFFE0E7FF),
+        primaryLight = Color(0xFF4F46E5),
         onPrimaryLight = Color(0xFFFFFFFF),
-        primaryContainerLight = Color(0xFFFFE799),
-        onPrimaryContainerLight = Color(0xFF2E2000)
-    ),
-    EMERALD(
-        key = "emerald",
-        title = "Изумруд",
-        previewColor = Color(0xFF2DD881),
-        primaryDark = Color(0xFF2DD881),
-        onPrimaryDark = Color(0xFF00381E),
-        primaryContainerDark = Color(0xFF00522E),
-        onPrimaryContainerDark = Color(0xFF67F8A7),
-        primaryLight = Color(0xFF059669),
-        onPrimaryLight = Color(0xFFFFFFFF),
-        primaryContainerLight = Color(0xFFA7F3D0),
-        onPrimaryContainerLight = Color(0xFF002111)
+        primaryContainerLight = Color(0xFFE0E7FF),
+        onPrimaryContainerLight = Color(0xFF1E1B4B)
     ),
     CYAN(
         key = "cyan",
@@ -73,18 +60,57 @@ enum class AppAccentColor(
         primaryContainerLight = Color(0xFFE0F2FE),
         onPrimaryContainerLight = Color(0xFF001E2B)
     ),
-    CORAL(
-        key = "coral",
-        title = "Коралл",
-        previewColor = Color(0xFFFB7185),
-        primaryDark = Color(0xFFFB7185),
-        onPrimaryDark = Color(0xFF4C0018),
-        primaryContainerDark = Color(0xFF700027),
-        onPrimaryContainerDark = Color(0xFFFFD9DF),
-        primaryLight = Color(0xFFE11D48),
+    TEAL(
+        key = "teal",
+        title = "Бирюзовый",
+        previewColor = Color(0xFF2DD4BF),
+        primaryDark = Color(0xFF2DD4BF),
+        onPrimaryDark = Color(0xFF042F2E),
+        primaryContainerDark = Color(0xFF115E59),
+        onPrimaryContainerDark = Color(0xFFCCFBF1),
+        primaryLight = Color(0xFF0D9488),
         onPrimaryLight = Color(0xFFFFFFFF),
-        primaryContainerLight = Color(0xFFFFE4E6),
-        onPrimaryContainerLight = Color(0xFF3B0011)
+        primaryContainerLight = Color(0xFFCCFBF1),
+        onPrimaryContainerLight = Color(0xFF042F2E)
+    ),
+    EMERALD(
+        key = "emerald",
+        title = "Изумруд",
+        previewColor = Color(0xFF2DD881),
+        primaryDark = Color(0xFF2DD881),
+        onPrimaryDark = Color(0xFF00381E),
+        primaryContainerDark = Color(0xFF00522E),
+        onPrimaryContainerDark = Color(0xFF67F8A7),
+        primaryLight = Color(0xFF059669),
+        onPrimaryLight = Color(0xFFFFFFFF),
+        primaryContainerLight = Color(0xFFA7F3D0),
+        onPrimaryContainerLight = Color(0xFF002111)
+    ),
+    LIME(
+        key = "lime",
+        title = "Лайм",
+        previewColor = Color(0xFFA3E635),
+        primaryDark = Color(0xFFA3E635),
+        onPrimaryDark = Color(0xFF1A2E05),
+        primaryContainerDark = Color(0xFF3F6212),
+        onPrimaryContainerDark = Color(0xFFECFCCB),
+        primaryLight = Color(0xFF65A30D),
+        onPrimaryLight = Color(0xFFFFFFFF),
+        primaryContainerLight = Color(0xFFECFCCB),
+        onPrimaryContainerLight = Color(0xFF1A2E05)
+    ),
+    YANDEX(
+        key = "yandex",
+        title = "Жёлтый",
+        previewColor = Color(0xFFFFCC00),
+        primaryDark = Color(0xFFFFCC00),
+        onPrimaryDark = Color(0xFF241A00),
+        primaryContainerDark = Color(0xFF574300),
+        onPrimaryContainerDark = Color(0xFFFFE088),
+        primaryLight = Color(0xFFE6A100),
+        onPrimaryLight = Color(0xFFFFFFFF),
+        primaryContainerLight = Color(0xFFFFE799),
+        onPrimaryContainerLight = Color(0xFF2E2000)
     ),
     ORANGE(
         key = "orange",
@@ -99,18 +125,44 @@ enum class AppAccentColor(
         primaryContainerLight = Color(0xFFFFEDD5),
         onPrimaryContainerLight = Color(0xFF381000)
     ),
-    RUBY(
-        key = "ruby",
-        title = "Рубин",
-        previewColor = Color(0xFFF87171),
-        primaryDark = Color(0xFFF87171),
-        onPrimaryDark = Color(0xFF450A0A),
-        primaryContainerDark = Color(0xFF7F1D1D),
-        onPrimaryContainerDark = Color(0xFFFECACA),
-        primaryLight = Color(0xFFDC2626),
+    CORAL(
+        key = "coral",
+        title = "Коралл",
+        previewColor = Color(0xFFFB7185),
+        primaryDark = Color(0xFFFB7185),
+        onPrimaryDark = Color(0xFF4C0018),
+        primaryContainerDark = Color(0xFF700027),
+        onPrimaryContainerDark = Color(0xFFFFD9DF),
+        primaryLight = Color(0xFFE11D48),
         onPrimaryLight = Color(0xFFFFFFFF),
-        primaryContainerLight = Color(0xFFFEE2E2),
-        onPrimaryContainerLight = Color(0xFF450A0A)
+        primaryContainerLight = Color(0xFFFFE4E6),
+        onPrimaryContainerLight = Color(0xFF3B0011)
+    ),
+    PINK(
+        key = "pink",
+        title = "Розовый",
+        previewColor = Color(0xFFF472B6),
+        primaryDark = Color(0xFFF472B6),
+        onPrimaryDark = Color(0xFF500724),
+        primaryContainerDark = Color(0xFF9D174D),
+        onPrimaryContainerDark = Color(0xFFFCE7F3),
+        primaryLight = Color(0xFFDB2777),
+        onPrimaryLight = Color(0xFFFFFFFF),
+        primaryContainerLight = Color(0xFFFCE7F3),
+        onPrimaryContainerLight = Color(0xFF500724)
+    ),
+    FUCHSIA(
+        key = "fuchsia",
+        title = "Пурпурный",
+        previewColor = Color(0xFFE879F9),
+        primaryDark = Color(0xFFE879F9),
+        onPrimaryDark = Color(0xFF4A044E),
+        primaryContainerDark = Color(0xFF86198F),
+        onPrimaryContainerDark = Color(0xFFFAE8FF),
+        primaryLight = Color(0xFFC026D3),
+        onPrimaryLight = Color(0xFFFFFFFF),
+        primaryContainerLight = Color(0xFFFAE8FF),
+        onPrimaryContainerLight = Color(0xFF4A044E)
     ),
     SILVER(
         key = "silver",
@@ -128,7 +180,9 @@ enum class AppAccentColor(
 
     companion object {
         fun fromKey(key: String): AppAccentColor {
-            return entries.firstOrNull { it.key.equals(key, ignoreCase = true) } ?: PURPLE
+            // «Рубин» был объединён с «Кораллом» (слишком близкие оттенки)
+            val normalized = if (key.equals("ruby", ignoreCase = true)) "coral" else key
+            return entries.firstOrNull { it.key.equals(normalized, ignoreCase = true) } ?: PURPLE
         }
     }
 }

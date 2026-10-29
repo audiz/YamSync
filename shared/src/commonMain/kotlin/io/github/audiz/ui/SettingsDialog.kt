@@ -6,6 +6,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -444,61 +446,56 @@ fun SettingsDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                AppAccentColor.entries.forEach { accent ->
-                                    val isSelected = state.accentColor.equals(accent.key, ignoreCase = true)
-                                    Surface(
-                                        onClick = { actions.onSaveAccentColor(accent.key) },
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (isSelected) {
-                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                                        } else {
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                                        },
-                                        border = if (isSelected) {
-                                            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-                                        } else {
-                                            BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                                        },
-                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(18.dp)
-                                                    .background(accent.previewColor, CircleShape)
-                                                    .border(
-                                                        width = 1.dp,
-                                                        color = Color.White.copy(alpha = 0.35f),
-                                                        shape = CircleShape
-                                                    ),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                if (isSelected) {
+                            val selectedAccent = AppAccentColor.fromKey(state.accentColor)
+                            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                val columns = if (maxWidth >= 420.dp) 6 else 4
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    AppAccentColor.entries.chunked(columns).forEach { rowItems ->
+                                        Row(modifier = Modifier.fillMaxWidth()) {
+                                            rowItems.forEach { accent ->
+                                                val isSelected = accent == selectedAccent
+                                                Column(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .clickable { actions.onSaveAccentColor(accent.key) }
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .padding(vertical = 4.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
                                                     Box(
                                                         modifier = Modifier
-                                                            .size(6.dp)
-                                                            .background(
-                                                                if (accent == AppAccentColor.YANDEX || accent == AppAccentColor.SILVER) Color.Black else Color.White,
-                                                                CircleShape
+                                                            .size(42.dp)
+                                                            .border(
+                                                                width = 2.dp,
+                                                                color = if (isSelected) accent.previewColor else Color.Transparent,
+                                                                shape = CircleShape
                                                             )
+                                                            .padding(4.dp)
+                                                            .background(accent.previewColor, CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isSelected) {
+                                                            Icon(
+                                                                imageVector = Icons.Filled.Check,
+                                                                contentDescription = null,
+                                                                tint = Color.Black.copy(alpha = 0.75f),
+                                                                modifier = Modifier.size(18.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = accent.title,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
                                             }
-                                            Text(
-                                                text = accent.title,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
+                                            repeat(columns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
                                         }
                                     }
                                 }
