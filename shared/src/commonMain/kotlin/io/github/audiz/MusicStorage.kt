@@ -11,6 +11,18 @@ expect fun getDefaultMusicDir(): String
 /** Сохранить трек в структурированную папку */
 expect fun saveTrackFile(basePath: String, artist: String, fileName: String, bytes: ByteArray)
 
+/** Файл трека, открытый для последовательной записи кусками (без загрузки целиком в память). */
+interface TrackFileWriter {
+    fun write(buffer: ByteArray, length: Int)
+    /** Закрыть файл после успешной записи. */
+    fun close()
+    /** Закрыть и удалить недописанный файл. */
+    fun abort()
+}
+
+/** Открыть файл трека для потоковой записи: {basePath}/{Artist}/{fileName} */
+expect fun openTrackFileWriter(basePath: String, artist: String, fileName: String): TrackFileWriter
+
 /** Сохранить файл напрямую в указанную папку: {targetDir}/{fileName} */
 expect fun saveTrackToFolder(targetDir: String, fileName: String, bytes: ByteArray): String?
 

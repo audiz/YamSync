@@ -98,6 +98,38 @@ fun resolveIosLocalPath(path: String): String {
 
 actual fun resolveLocalPath(path: String): String = resolveIosLocalPath(path)
 
+@OptIn(ExperimentalForeignApi::class)
+actual fun openTrackFileWriter(basePath: String, artist: String, fileName: String): TrackFileWriter {
+    val artistDir = "$basePath/${sanitizeDirName(artist.ifBlank { "Unknown Artist" })}"
+    val fileManager = NSFileManager.defaultManager
+    if (!fileManager.fileExistsAtPath(artistDir)) {
+        fileManager.createDirectoryAtPath(artistDir, withIntermediateDirectories = true, attributes = null, error = null)
+    }
+    val filePath = "$artistDir/${sanitizeKeepSpaces(fileName)}"
+    val file = platform.posix.fopen(filePath, "wb") ?: error("Не удалось открыть файл для записи: $filePath")
+    return object : TrackFileWriter {
+        override fun write(buffer: ByteArray, length: Int) {
+            if (length <= 0) return
+            val written = buffer.usePinned { pinned ->
+                platform.posix.fwrite(pinned.addressOf(0), 1u, length.toULong(), file)
+            }
+            if (written != length.toULong()) error("Ошибка записи файла: $filePath")
+        }
+        override fun close() {
+            platform.posix.fclose(file)
+            io.github.audiz.player.LocalTrackResolver.invalidateAllCaches()
+            // Исключаем из резервной копии iCloud, как и при обычном сохранении трека
+            try {
+                NSURL.fileURLWithPath(filePath).setResourceValue(NSNumber(bool = true), forKey = NSURLIsExcludedFromBackupKey, error = null)
+            } catch (_: Throwable) {}
+        }
+        override fun abort() {
+            platform.posix.fclose(file)
+            platform.posix.remove(filePath)
+        }
+    }
+}
+
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual fun saveTrackFile(basePath: String, artist: String, fileName: String, bytes: ByteArray) {
     val cleanArtist = sanitizeDirName(artist.ifBlank { "Unknown Artist" })

@@ -1,5 +1,6 @@
 package io.github.audiz.sync
 
+import io.github.audiz.TrackFileWriter
 import io.github.audiz.currentTimeMillis
 import io.github.audiz.models.*
 import io.ktor.client.*
@@ -84,81 +85,66 @@ class YamSyncClient {
     }
 
     /**
-     * Потоковая загрузка аудиофайла по кусочкам с отправкой обновлений прогресса в UI
+     * Потоковая загрузка аудиофайла: данные пишутся в [writer] кусками по 128 КБ,
+     * прогресс отправляется в UI. Возвращает размер файла в байтах.
      */
-    suspend fun downloadTrackBytes(
+    suspend fun downloadTrackToFile(
         ip: String,
         port: Int,
         token: String,
         track: YamSyncTrack,
+        writer: TrackFileWriter,
         onProgress: (YamSyncTransferProgress) -> Unit
-    ): Result<ByteArray> = runCatching {
-        val response = httpClient.get("http://$ip:$port/yamsync/v1/file") {
-            parameter("name", track.fileName)
-            parameter("hash", track.checksum)
-            header("X-YamSync-Token", token)
-        }
-        if (!response.status.isSuccess()) {
-            error("Download error: HTTP ${response.status}")
-        }
+    ): Result<Long> = runCatching {
+        try {
+            httpClient.prepareGet("http://$ip:$port/yamsync/v1/file") {
+                parameter("name", track.fileName)
+                parameter("hash", track.checksum)
+                header("X-YamSync-Token", token)
+            }.execute { response ->
+                if (!response.status.isSuccess()) {
+                    error("Download error: HTTP ${response.status}")
+                }
 
-        val totalBytes = response.contentLength() ?: track.fileSize
-        val channel: ByteReadChannel = response.bodyAsChannel()
-        val buffer = ByteArray(32 * 1024)
-        val chunks = mutableListOf<ByteArray>()
-        var totalRead = 0
+                val totalBytes = response.contentLength() ?: track.fileSize
+                val channel: ByteReadChannel = response.bodyAsChannel()
+                val buffer = ByteArray(128 * 1024)
 
-        var downloaded = 0L
-        var lastTime = currentTimeMillis()
-        var lastDownloaded = 0L
-        var speed = 0L
+                var downloaded = 0L
+                var lastTime = currentTimeMillis()
+                var lastDownloaded = 0L
 
-        while (!channel.isClosedForRead) {
-            val read = channel.readAvailable(buffer, 0, buffer.size)
-            if (read <= 0) break
-            val chunk = buffer.copyOf(read)
-            chunks.add(chunk)
-            totalRead += read
-            downloaded += read
+                while (!channel.isClosedForRead) {
+                    val read = channel.readAvailable(buffer, 0, buffer.size)
+                    if (read <= 0) break
+                    writer.write(buffer, read)
+                    downloaded += read
 
-            val now = currentTimeMillis()
-            val timeDiff = now - lastTime
-            if (timeDiff >= 400) {
-                speed = ((downloaded - lastDownloaded) * 1000L) / timeDiff
-                lastTime = now
-                lastDownloaded = downloaded
-
-                onProgress(
-                    YamSyncTransferProgress(
-                        fileName = track.fileName,
-                        trackTitle = "${track.artist} — ${track.title}",
-                        bytesTransferred = downloaded,
-                        totalBytes = totalBytes,
-                        speedBytesPerSec = speed,
-                        isCompleted = false
-                    )
-                )
+                    val now = currentTimeMillis()
+                    val timeDiff = now - lastTime
+                    if (timeDiff >= 400) {
+                        val speed = ((downloaded - lastDownloaded) * 1000L) / timeDiff
+                        lastTime = now
+                        lastDownloaded = downloaded
+                        onProgress(
+                            YamSyncTransferProgress(
+                                fileName = track.fileName,
+                                trackTitle = "${track.artist} — ${track.title}",
+                                bytesTransferred = downloaded,
+                                totalBytes = totalBytes,
+                                speedBytesPerSec = speed,
+                                isCompleted = false
+                            )
+                        )
+                    }
+                }
+                writer.close()
+                downloaded
             }
+        } catch (e: Throwable) {
+            writer.abort()
+            throw e
         }
-
-        val finalBytes = ByteArray(totalRead)
-        var offset = 0
-        for (chunk in chunks) {
-            chunk.copyInto(finalBytes, offset)
-            offset += chunk.size
-        }
-        onProgress(
-            YamSyncTransferProgress(
-                fileName = track.fileName,
-                trackTitle = "${track.artist} — ${track.title}",
-                bytesTransferred = downloaded,
-                totalBytes = if (totalBytes > 0) totalBytes else downloaded,
-                speedBytesPerSec = 0L,
-                isCompleted = true
-            )
-        )
-
-        finalBytes
     }
 
     /** Отправить результат слияния плейлистов обратно на хост */

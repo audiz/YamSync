@@ -68,6 +68,24 @@ actual fun saveTrackFile(basePath: String, artist: String, fileName: String, byt
     println("MusicStorage: Сохранён файл: ${outputFile.absolutePath}")
 }
 
+actual fun openTrackFileWriter(basePath: String, artist: String, fileName: String): TrackFileWriter {
+    val artistDir = File(basePath, sanitizeDirName(artist.ifBlank { "Unknown Artist" }))
+    if (!artistDir.exists()) artistDir.mkdirs()
+    val outputFile = File(artistDir, sanitizeKeepSpaces(fileName))
+    val stream = outputFile.outputStream().buffered(128 * 1024)
+    return object : TrackFileWriter {
+        override fun write(buffer: ByteArray, length: Int) = stream.write(buffer, 0, length)
+        override fun close() {
+            stream.close()
+            io.github.audiz.player.LocalTrackResolver.invalidateAllCaches()
+        }
+        override fun abort() {
+            runCatching { stream.close() }
+            outputFile.delete()
+        }
+    }
+}
+
 /** Сохранить файл напрямую в указанную папку: {targetDir}/{fileName} */
 actual fun saveTrackToFolder(targetDir: String, fileName: String, bytes: ByteArray): String? {
     return try {

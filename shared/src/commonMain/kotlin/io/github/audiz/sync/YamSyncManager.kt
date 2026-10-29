@@ -1091,11 +1091,10 @@ class YamSyncManager(
             val savedFilePath = "${syncBasePath.trimEnd('/', '\\')}$sep$cleanArtist$sep$cleanFileName"
 
             val res = withContext(DispatcherIO) {
-                client.downloadTrackBytes(pair.ip, pair.port, pair.token, track) { progress ->
-                    fileTransfers[track.matchKey] = progress
-                }.mapCatching { bytes ->
-                    saveTrackFile(syncBasePath, cleanArtist, cleanFileName, bytes)
-                    bytes.size.toLong()
+                runCatching { openTrackFileWriter(syncBasePath, cleanArtist, cleanFileName) }.mapCatching { writer ->
+                    client.downloadTrackToFile(pair.ip, pair.port, pair.token, track, writer) { progress ->
+                        fileTransfers[track.matchKey] = progress
+                    }.getOrThrow()
                 }
             }
 
