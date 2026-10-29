@@ -82,7 +82,8 @@ internal fun SyncSegmentedControl(
                 val selected = index == selectedIndex
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        // Ширина пропорциональна длине подписи, чтобы «Плейлисты · 4» не обрезались рядом с коротким «Связь»
+                        .weight(title.length.coerceAtLeast(4).toFloat())
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(9.dp))
                         .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)

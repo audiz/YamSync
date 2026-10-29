@@ -1,6 +1,9 @@
 package io.github.audiz.ui.sync
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,7 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
@@ -83,7 +88,7 @@ internal fun YamSyncPlaylistTracksScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)) {
@@ -99,38 +104,79 @@ internal fun YamSyncPlaylistTracksScreen(
             )
         }
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("Поиск в плейлисте", maxLines = 1) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            trailingIcon = if (query.isNotEmpty()) {
-                {
-                    IconButton(onClick = { query = "" }, modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)) {
-                        Icon(Icons.Default.Close, contentDescription = "Очистить", modifier = Modifier.size(18.dp))
-                    }
+        // Компактная строка поиска в стиле поиска на главной
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .height(40.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                .padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (query.isEmpty()) {
+                    Text(
+                        "Поиск в плейлисте",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-            } else null,
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            textStyle = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-        )
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = { query = "" },
+                    modifier = Modifier.size(32.dp).pointerHoverIcon(PointerIcon.Hand)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Очистить", modifier = Modifier.size(16.dp))
+                }
+            }
+        }
 
+        // Фильтры — компактные капсулы, помещаются в одну строку на узком экране
         FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf(
                 TrackFilter.MISSING to "Нет здесь · $missingCount",
                 TrackFilter.LOCAL to "Есть · $localCount",
                 TrackFilter.ALL to "Все · ${rows.size}"
             ).forEach { (f, label) ->
-                FilterChip(
-                    selected = activeFilter == f,
-                    onClick = { filter = f },
-                    label = { Text(label, maxLines = 1) },
-                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                val selected = activeFilter == f
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable { filter = f }
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 )
             }
         }
