@@ -196,17 +196,27 @@ actual class AudioPlayer actual constructor() {
         itemEndObserver = null
     }
 
+    private fun discardPlayer(player: AVPlayer) {
+        try { player.pause() } catch (_: Throwable) {}
+        try { player.replaceCurrentItemWithPlayerItem(null) } catch (_: Throwable) {}
+    }
+
     private fun startIosCrossfade(newPlayer: AVPlayer, crossfadeMs: Long) {
         crossfadeJob?.cancel()
-        val outgoing = fadingAvPlayer ?: avPlayer
+        // Быстрое переключение треков: если предыдущий кроссфейд ещё не завершился, прежний «затухающий»
+        // плеер немедленно глушим. Иначе он остаётся без ссылки и продолжает звучать поверх новых треков.
+        val staleFading = fadingAvPlayer
+        fadingAvPlayer = null
+        if (staleFading != null && staleFading !== newPlayer) discardPlayer(staleFading)
+
+        val outgoing = avPlayer
         val canCrossfade = outgoing != null && outgoing !== newPlayer && crossfadeMs > 0L
 
         if (canCrossfade && outgoing != null) {
             fadingAvPlayer = outgoing
             avPlayer = newPlayer
             attachTimeObserver(newPlayer)
-            // Уходящий плеер продолжает звучать на полной громкости, пока новый плеер подготавливает и буферизует поток
-            try { outgoing.volume = volumeToGain(currentVolume) } catch (_: Throwable) {}
+            // Уходящий плеер продолжает звучать с текущей громкостью, пока новый плеер подготавливает и буферизует поток
             try { newPlayer.volume = 0f } catch (_: Throwable) {}
 
             val stepIntervalMs = 40L
@@ -237,16 +247,12 @@ actual class AudioPlayer actual constructor() {
                     try { newPlayer.volume = inGain } catch (_: Throwable) {}
                 }
 
-                try {
-                    fadingAvPlayer?.pause()
-                } catch (_: Throwable) {}
+                fadingAvPlayer?.let { discardPlayer(it) }
                 fadingAvPlayer = null
                 newPlayer.volume = volumeToGain(currentVolume)
             }
         } else {
-            try {
-                outgoing?.pause()
-            } catch (_: Throwable) {}
+            if (outgoing != null && outgoing !== newPlayer) discardPlayer(outgoing)
             fadingAvPlayer = null
             avPlayer = newPlayer
             attachTimeObserver(newPlayer)
