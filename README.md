@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/icon.png" width="128" height="128" alt="YamSync Logo" style="border-radius: 28px;">
+  <img src="docs/icon.png" width="128" height="128" alt="YamSync — неофициальный клиент Яндекс Музыки" style="border-radius: 28px;">
 </p>
 
-<h1 align="center">YamSync</h1>
+<h1 align="center">YamSync — альтернативный клиент Яндекс Музыки</h1>
 
 <p align="center">
-  <b>Автономный кроссплатформенный аудиоплеер, менеджер локальной медиатеки и загрузчик для Яндекс Музыки (Offline-First)</b><br>
-  Создан на базе <b>Kotlin Multiplatform (KMP)</b> и <b>Compose Multiplatform</b> для Desktop (Linux, Windows, macOS), iOS и Android.
+  <b>Неофициальный клиент Яндекс Музыки для Linux, Windows, macOS, Android и iOS: плеер, скачивание треков и плейлистов, офлайн-медиатека, «Моя Волна» и 10-полосный эквалайзер</b><br>
+  Unofficial open-source Yandex Music client and player. Создан на <b>Kotlin Multiplatform</b> и <b>Compose Multiplatform</b>.
 </p>
 
 <p align="center">
@@ -26,29 +26,44 @@
 
 ---
 
+## 🎵 Что такое YamSync
+
+**YamSync** — это альтернативный клиент Яндекс Музыки с открытым исходным кодом. Одно приложение работает на компьютере и телефоне: слушайте «Мою Волну» и плейлисты онлайн, сохраняйте музыку на устройство и включайте её без интернета, передавайте файлы между ПК и смартфоном по Wi-Fi.
+
+Подойдёт, если вам нужен:
+- **клиент Яндекс Музыки для Linux**, Windows или macOS с управлением мультимедиа-клавишами и из панели задач;
+- **плеер с офлайн-медиатекой**, где треки лежат обычными файлами с тегами и обложками;
+- **загрузчик плейлистов Яндекс Музыки** с вашего аккаунта;
+- **плеер с настройкой звука**: 10-полосный эквалайзер, фильтры и кроссфейд.
+
+> [!NOTE]
+> YamSync — независимый проект, он не связан с компанией Яндекс и не является её продуктом. Для входа используется ваш собственный аккаунт Яндекса.
+
+---
+
 ## 📸 Скриншоты
 
 <p align="center">
   <table align="center" style="border: none; border-collapse: collapse; margin: 0 auto;">
     <tr align="center" valign="top">
       <td align="center" style="border: none; padding: 6px;">
-        <img src="docs/screenshots/main_screen.png" width="175" alt="Моя Волна и Плеер" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
+        <img src="docs/screenshots/main_screen.png" width="175" alt="Клиент Яндекс Музыки YamSync: Моя Волна и плеер" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
         <sub><b>🌊 Моя Волна и Плеер</b></sub>
       </td>
       <td align="center" style="border: none; padding: 6px;">
-        <img src="docs/screenshots/tracks_list.png" width="175" alt="Плейлисты и Поиск" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
+        <img src="docs/screenshots/tracks_list.png" width="175" alt="Поиск и плейлисты Яндекс Музыки в YamSync" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
         <sub><b>📜 Плейлисты и Поиск</b></sub>
       </td>
       <td align="center" style="border: none; padding: 6px;">
-        <img src="docs/screenshots/equalizer.png" width="175" alt="10-полосный EQ и Срезы" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
+        <img src="docs/screenshots/equalizer.png" width="175" alt="10-полосный эквалайзер в плеере YamSync" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
         <sub><b>🎚️ 10-полосный EQ и Срезы</b></sub>
       </td>
       <td align="center" style="border: none; padding: 6px;">
-        <img src="docs/screenshots/pc.png" width="175" alt="Десктоп / Winamp вид" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
+        <img src="docs/screenshots/pc.png" width="175" alt="Десктопная версия YamSync для Linux и Windows" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
         <sub><b>🖥️ Десктоп / Winamp вид</b></sub>
       </td>
       <td align="center" style="border: none; padding: 6px;">
-        <img src="docs/screenshots/settings.png" width="175" alt="Настройки и Синхронизация" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
+        <img src="docs/screenshots/settings.png" width="175" alt="Настройки и синхронизация YamSync" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
         <sub><b>⚙️ Настройки и Синхронизация</b></sub>
       </td>
     </tr>
@@ -57,7 +72,7 @@
 
 ---
 
-## 📥 Скачать (Готовые сборки)
+## 📥 Скачать клиент для Android, iOS, Windows, Linux и macOS
 
 Готовые установочные пакеты доступны на странице **[GitHub Releases](https://github.com/audiz/YamSync/releases/latest)**:
 
@@ -65,7 +80,7 @@
 | :--- | :--- | :--- | :--- |
 | 🤖 **Android** | `.apk` | Смартфоны и планшеты (Android 8.0+) | [Скачать APK](https://github.com/audiz/YamSync/releases/latest) |
 | 🪟 **Windows** | `.msi` / `.exe` | Windows 10 / 11 (x64) | [Скачать для Windows](https://github.com/audiz/YamSync/releases/latest) |
-| 🐧 **Linux** | `.deb` / `.rpm` | Ubuntu, Debian, Fedora, Arch и др. | [Скачать для Linux](https://github.com/audiz/YamSync/releases/latest) |
+| 🐧 **Linux** | `.deb` | Ubuntu, Debian, Linux Mint и другие дистрибутивы на базе Debian | [Скачать для Linux](https://github.com/audiz/YamSync/releases/latest) |
 | 🍏 **macOS** | `.dmg` | macOS 12+ (Apple Silicon и Intel) | [Скачать DMG](https://github.com/audiz/YamSync/releases/latest) |
 | 📱 **iOS** | `.ipa` | iPhone & iPad (iOS 15+) | [Скачать IPA](https://github.com/audiz/YamSync/releases/latest) |
 
@@ -105,11 +120,12 @@ YamSync спроектирован по принципу **Offline-First**: пр
 ### ⚡ 3. Локальная P2P-синхронизация фонотеки (YamSync P2P Engine)
 Встроенный протокол прямой синхронизации медиатеки между устройствами без облачных серверов, проводов и ограничений скорости:
 - **Прямой обмен по Wi-Fi / LAN:** передача аудиофайлов и локальных плейлистов напрямую между компьютером (Windows, macOS, Linux) и смартфонами (Android, iOS) внутри домашней сети.
-- **Мгновенное сопряжение:** подключение через сканирование **QR-кода** камерой смартфона или автообнаружение устройств в локальной сети (mDNS/UDP).
+- **Мгновенное сопряжение:** подключение через сканирование **QR-кода** камерой смартфона, по ссылке или одной кнопкой к сохранённому устройству.
 - **Сравнение фонотек (Diff Engine):** наглядный двусторонний анализ медиатек двух устройств:
   - 🟢 Общие треки, уже присутствующие на обоих устройствах.
   - 🔵 Треки, имеющиеся только локально.
   - 🟣 Треки, имеющиеся только на удалённом устройстве.
+- **Отдельная синхронизация каждого плейлиста:** у плейлиста своя кнопка «Скачать», «Объединить» или «Отправить», а на экране плейлиста можно скачать треки по одному, с поиском и фильтром.
 - **Безопасное умное слияние (Merge):** синхронизация недостающих файлов с контролем контрольных сумм SHA-256, защитой от перезаписи и созданием резервных копий.
 - **Статус-виджет (`YamSyncPill`):** компактный индикатор подключения и статуса синхронизации прямо в главном окне плеера.
 
@@ -177,6 +193,27 @@ YamSync нативно интегрирован в мультимедийные 
 ## ❓ Часто задаваемые вопросы (FAQ)
 
 <details>
+<summary><b>🎵 Это официальное приложение Яндекс Музыки?</b></summary>
+<p>
+Нет. YamSync — неофициальный клиент Яндекс Музыки с открытым исходным кодом (GPL-3.0). Проект не связан с компанией Яндекс.
+</p>
+</details>
+
+<details>
+<summary><b>🐧 Есть ли клиент Яндекс Музыки для Linux?</b></summary>
+<p>
+Да. YamSync работает на Linux: готовый пакет <code>.deb</code> есть на странице релизов, на других дистрибутивах приложение можно собрать из исходников. Поддерживается управление через MPRIS2 — из панели задач GNOME и KDE, мультимедиа-клавишами и с экрана блокировки.
+</p>
+</details>
+
+<details>
+<summary><b>📥 Можно ли слушать Яндекс Музыку офлайн на компьютере?</b></summary>
+<p>
+Да. Сохранённые треки и плейлисты лежат на диске обычными файлами с тегами и обложками и воспроизводятся без интернета. Для загрузки в высоком качестве и доступа к вашей медиатеке нужна авторизация в аккаунте Яндекса.
+</p>
+</details>
+
+<details>
 <summary><b>✈️ Может ли приложение работать полностью без интернета и серверов Яндекса?</b></summary>
 <p>
 Да! YamSync спроектирован по принципу <b>Offline-First</b>. Все скачанные треки, созданные локальные плейлисты, добавленные пользовательские папки и плейлисты M3U воспроизводятся полностью автономно без обращения к сети. Приложение не требует обязательного подключения к серверам Яндекса для прослушивания локальной библиотеки.
@@ -197,9 +234,9 @@ YamSync нативно интегрирован в мультимедийные 
 <p>
 Используйте встроенный инструмент <b>YamSync P2P</b>:
 1. Подключите оба устройства к одной сети Wi-Fi (или мобильной точке доступа).
-2. На первом устройстве откройте раздел «Синхронизация».
-3. На втором устройстве отсканируйте отображённый QR-код (или введите локальный IP).
-4. Во встроенном диалоге выберите недостающие треки для скачивания либо нажмите кнопку «Объединить медиатеки» для автоматической синхронизации всех файлов и плейлистов.
+2. На первом устройстве откройте «Устройства» на главном экране и нажмите «Показать QR».
+3. На втором устройстве отсканируйте QR-код или вставьте ссылку на подключение.
+4. На вкладке «Плейлисты» синхронизируйте нужные плейлисты по отдельности, кнопкой «Синхронизировать всё» или откройте плейлист и скачайте отдельные треки.
 </p>
 </details>
 
@@ -218,9 +255,9 @@ YamSync нативно интегрирован в мультимедийные 
 </details>
 
 <details>
-<summary><b>🔒 Безопасно ли сохранять OAuth-токен в приложении?</b></summary>
+<summary><b>🔒 Где хранится OAuth-токен?</b></summary>
 <p>
-Да, полностью безопасно. Токен сохраняется исключительно в локальном зашифрованном хранилище вашего устройства и отправляется только напрямую на официальные серверы Яндекс Музыки по HTTPS. В приложении отсутствуют сторонние серверы, телеметрия или аналитические трекеры.
+Токен хранится в локальных настройках приложения на вашем устройстве и отправляется только напрямую на серверы Яндекс Музыки по HTTPS. В приложении отсутствуют сторонние серверы, телеметрия или аналитические трекеры.
 </p>
 </details>
 
@@ -264,7 +301,7 @@ YamSync нативно интегрирован в мультимедийные 
 ```bash
 ./gradlew :desktopApp:packageDistributionForCurrentOS
 ```
-> Готовые пакеты (`.deb` / `.rpm` для Linux, `.msi` / `.exe` для Windows, `.dmg` для macOS) будут сформированы в:  
+> Готовые пакеты (`.deb` для Linux, `.msi` / `.exe` для Windows, `.dmg` для macOS) будут сформированы в:  
 > `desktopApp/build/compose/binaries/main/`
 
 ---
@@ -348,6 +385,12 @@ YamSync нативно интегрирован в мультимедийные 
 
 ---
 
+## 🌍 English
+
+**YamSync** is an unofficial, open-source **Yandex Music client** and music player for **Linux, Windows, macOS, Android and iOS**, built with Kotlin Multiplatform and Compose Multiplatform. It supports My Wave radio, saving tracks and playlists for offline listening, a local music library, Wi-Fi sync between devices, a 10-band equalizer and crossfade. Not affiliated with Yandex.
+
+---
+
 ## 📄 Лицензия
 
 Проект распространяется под свободной лицензией **GNU General Public License v3.0 (GPL-3.0)**. Полный текст лицензии доступен в файле [LICENSE](LICENSE).
@@ -356,4 +399,4 @@ YamSync нативно интегрирован в мультимедийные 
 
 ## ⚖️ Дисклеймер
 
-Проект создан исключительно в ознакомительных и образовательных целях. Все права на товарные знаки и медиаконтент принадлежат их правообладателям и ООО «Яндекс».
+Проект создан исключительно в ознакомительных и образовательных целях. Проект является неофициальным и не связан с ООО «Яндекс». Все права на товарные знаки и медиаконтент принадлежат их правообладателям и ООО «Яндекс». Используйте приложение в соответствии с условиями сервиса и законодательством вашей страны.
