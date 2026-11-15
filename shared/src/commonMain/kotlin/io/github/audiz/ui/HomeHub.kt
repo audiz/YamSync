@@ -114,7 +114,7 @@ fun HomeHub(
                 LocalLibrarySection(
                     localPlaylists = viewModel.localPlaylists,
                     customSources = viewModel.customMediaSources,
-                    onOpenLocalPlaylist = { viewModel.openLocalPlaylist(it, autoPlayFirst = true) },
+                    onOpenLocalPlaylist = { viewModel.openLocalPlaylist(it) },
                     onOpenFolder = { path, name, src ->
                         viewModel.openFolderPlaylist(path, name, src, isRecursive = true)
                     },

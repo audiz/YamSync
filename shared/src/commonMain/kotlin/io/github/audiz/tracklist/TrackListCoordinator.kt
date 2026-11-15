@@ -638,22 +638,25 @@ class TrackListCoordinator(
     fun openLocalPlaylist(
         playlist: LocalPlaylist,
         restoreTrackId: String? = null,
-        autoPlayFirst: Boolean = false
+        autoPlayFirst: Boolean = false,
+        previewOnly: Boolean = false
     ) {
         if (isCoordinatorLoading) return
-        playbackSessionManager.recordSession(
-            LastPlaybackSession(
-                type = LastPlaybackType.LOCAL_PLAYLIST,
-                id = playlist.id,
-                title = playlist.title,
-                lastTrackId = restoreTrackId
+        if (!previewOnly) {
+            playbackSessionManager.recordSession(
+                LastPlaybackSession(
+                    type = LastPlaybackType.LOCAL_PLAYLIST,
+                    id = playlist.id,
+                    title = playlist.title,
+                    lastTrackId = restoreTrackId
+                )
             )
-        )
+        }
         currentScreenTitle = playlist.title
         isDownloadedTracksScreen = true
         onSetTracksListVisible(true)
         tracksListOrigin = TracksListOrigin.HOME
-        playlistManager.currentOpenUserPlaylist = null
+        if (!previewOnly) playlistManager.currentOpenUserPlaylist = null
         activeBrowsedFolderSource = null
         activeBrowsedFolderPath = null
         activeQueueSource = null
@@ -676,7 +679,7 @@ class TrackListCoordinator(
                     if (tracks.size < playlist.trackPaths.size) {
                         println("TrackListCoordinator: Найдено ${tracks.size} из ${playlist.trackPaths.size} треков плейлиста '${playlist.title}'")
                     }
-                    if (autoPlayFirst) {
+                    if (!previewOnly && autoPlayFirst) {
                         val target = restoreTrackId?.let { rid ->
                             tracks.firstOrNull { it.id == rid || it.realId == rid }
                         } ?: tracks.first()
@@ -689,12 +692,12 @@ class TrackListCoordinator(
                             false,
                             TrackPlaySource.PLAY
                         )
-                    } else if (restoreTrackId != null) {
+                    } else if (!previewOnly && restoreTrackId != null) {
                         val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
                         if (target != null) {
                             playbackManager.setInitialTrack(target)
                         }
-                    } else {
+                    } else if (!previewOnly) {
                         val first = tracks.firstOrNull()
                         if (first != null) {
                             playbackManager.setInitialTrack(first)
@@ -709,6 +712,8 @@ class TrackListCoordinator(
                         onError("В плейлисте '${playlist.title}' ${playlist.trackPaths.size} трек(ов), но файлы еще не скачаны на это устройство. Откройте YamSync («Синхронизация») для быстрой загрузки файлов.")
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 onError("Ошибка чтения плейлиста: ${e.message}")
             } finally {
@@ -844,19 +849,22 @@ class TrackListCoordinator(
         folderName: String,
         source: CustomMediaSource? = null,
         restoreTrackId: String? = null,
-        isRecursive: Boolean = true
+        isRecursive: Boolean = true,
+        previewOnly: Boolean = false
     ) {
         if (isCoordinatorLoading) return
-        playbackSessionManager.recordSession(
-            LastPlaybackSession(
-                type = LastPlaybackType.CUSTOM_FOLDER,
-                sourceId = source?.id,
-                path = folderPath,
-                title = folderName,
-                isRecursive = isRecursive,
-                lastTrackId = restoreTrackId
+        if (!previewOnly) {
+            playbackSessionManager.recordSession(
+                LastPlaybackSession(
+                    type = LastPlaybackType.CUSTOM_FOLDER,
+                    sourceId = source?.id,
+                    path = folderPath,
+                    title = folderName,
+                    isRecursive = isRecursive,
+                    lastTrackId = restoreTrackId
+                )
             )
-        )
+        }
         activeBrowsedFolderSource = source
         activeBrowsedFolderPath = folderPath
         tracksListOrigin = if (source != null) TracksListOrigin.FOLDER_BROWSER else TracksListOrigin.HOME
@@ -866,7 +874,7 @@ class TrackListCoordinator(
         currentScreenTitle = folderName
         isDownloadedTracksScreen = true
         onSetTracksListVisible(true)
-        playlistManager.currentOpenUserPlaylist = null
+        if (!previewOnly) playlistManager.currentOpenUserPlaylist = null
         launchSafe {
             setLoading(true)
             onError(null)
@@ -885,7 +893,7 @@ class TrackListCoordinator(
                     allTrackIds = tracks.map { it.id }
                     canLoadMore = false
                     println("TrackListCoordinator: Восстановлена папка '$folderName' (рекурсивно: $isRecursive, ${tracks.size} треков)")
-                    if (restoreTrackId != null) {
+                    if (!previewOnly && restoreTrackId != null) {
                         val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
                         if (target != null) {
                             playbackManager.setInitialTrack(target)
@@ -894,6 +902,8 @@ class TrackListCoordinator(
                 } else {
                     onError("В папке '$folderName' нет аудиофайлов.")
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 onError("Ошибка чтения папки: ${e.message}")
             } finally {

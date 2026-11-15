@@ -573,7 +573,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         return coordinator
     }
 
-    private fun closeArtistPreview() {
+    private fun closeTrackListPreview() {
         val preview = trackListNavigation.closePreview() ?: return
         preview.dispose()
         isLoading = false
@@ -581,7 +581,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     private fun playbackListForNavigation(): TrackListCoordinator {
         queueScrollRequest = null
-        closeArtistPreview()
+        closeTrackListPreview()
         return trackListNavigation.active
     }
 
@@ -601,6 +601,17 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     fun consumeQueueScrollRequest(request: TrackListScrollRequest) {
         if (queueScrollRequest == request) queueScrollRequest = null
+    }
+
+    val isPreviewingTrackList: Boolean
+        get() = trackListNavigation.isPreview
+
+    private fun browseTrackList(session: LastPlaybackSession, load: (TrackListCoordinator) -> Unit) {
+        queueScrollRequest = null
+        closeTrackListPreview()
+        val coordinator = createTrackListCoordinator()
+        trackListNavigation.browse(coordinator, session)
+        load(coordinator)
     }
 
     val hasPlaybackQueue: Boolean
@@ -911,7 +922,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             playbackListForNavigation().loadArtistTracks(artistId, artistName, restoreTrackId)
             return
         }
-        closeArtistPreview()
+        closeTrackListPreview()
         val coordinator = createTrackListCoordinator()
         trackListNavigation.browse(
             coordinator,
@@ -1151,13 +1162,21 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     /**
-     * 📂 Открыть локальный плейлист для воспроизведения
+     * 📂 Открыть локальный плейлист для просмотра; явный запуск задаётся через autoPlayFirst.
      */
     fun openLocalPlaylist(
         playlist: LocalPlaylist,
         restoreTrackId: String? = null,
         autoPlayFirst: Boolean = false
-    ) = playbackListForNavigation().openLocalPlaylist(playlist, restoreTrackId, autoPlayFirst)
+    ) {
+        if (!autoPlayFirst && restoreTrackId == null) {
+            browseTrackList(
+                LastPlaybackSession(type = LastPlaybackType.LOCAL_PLAYLIST, id = playlist.id, title = playlist.title)
+            ) { it.openLocalPlaylist(playlist, previewOnly = true) }
+        } else {
+            playbackListForNavigation().openLocalPlaylist(playlist, restoreTrackId, autoPlayFirst)
+        }
+    }
 
     // 📥 Активное состояние скачивания плейлиста в оффлайн
     val activePlaylistDownloadProgress: PlaylistDownloadProgress?
@@ -1222,7 +1241,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     ) = playbackListForNavigation().playFolder(folderPath, folderName, source, isRecursive)
 
     /**
-     * 📁 Открыть плейлист папки без автоматического начала воспроизведения (для восстановления сессии)
+     * 📁 Просмотреть треки папки или восстановить её сессию по restoreTrackId.
      */
     fun openFolderPlaylist(
         folderPath: String,
@@ -1230,7 +1249,21 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         source: CustomMediaSource? = null,
         restoreTrackId: String? = null,
         isRecursive: Boolean = true
-    ) = playbackListForNavigation().openFolderPlaylist(folderPath, folderName, source, restoreTrackId, isRecursive)
+    ) {
+        if (restoreTrackId == null) {
+            browseTrackList(
+                LastPlaybackSession(
+                    type = LastPlaybackType.CUSTOM_FOLDER,
+                    sourceId = source?.id,
+                    path = folderPath,
+                    title = folderName,
+                    isRecursive = isRecursive
+                )
+            ) { it.openFolderPlaylist(folderPath, folderName, source, isRecursive = isRecursive, previewOnly = true) }
+        } else {
+            playbackListForNavigation().openFolderPlaylist(folderPath, folderName, source, restoreTrackId, isRecursive)
+        }
+    }
 
     /**
      * 🎵 Воспроизвести отдельный локальный трек и сформировать очередь из треков папки
@@ -1330,7 +1363,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun closeArtistTracks() {
         queueScrollRequest = null
         val wasPreview = trackListNavigation.isPreview
-        closeArtistPreview()
+        closeTrackListPreview()
         isTracksListVisible = false
         if (!wasPreview) {
             isDownloadedTracksScreen = false
@@ -1345,7 +1378,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun toggleQueueView() {
         queueScrollRequest = null
         val wasPreview = trackListNavigation.isPreview
-        closeArtistPreview()
+        closeTrackListPreview()
         if (wasPreview) isTracksListVisible = false
         trackListCoordinator.toggleQueueView(
             isWaveMode = isWaveMode,
@@ -1362,7 +1395,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      */
     fun openQueueView(origin: TracksListOrigin = TracksListOrigin.HOME) {
         queueScrollRequest = null
-        closeArtistPreview()
+        closeTrackListPreview()
         trackListCoordinator.openQueueView(
             origin = origin,
             isWaveMode = isWaveMode,

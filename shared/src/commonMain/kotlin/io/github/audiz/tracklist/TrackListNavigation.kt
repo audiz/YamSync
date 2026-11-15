@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.audiz.models.LastPlaybackSession
 
-/** Хранит просмотр артиста отдельно от списка, из которого продолжает играть музыка. */
+/** Хранит просмотр плейлиста, папки или артиста отдельно от списка, из которого продолжает играть музыка. */
 internal class TrackListNavigation<T>(initial: T) {
     var active by mutableStateOf(initial)
         private set

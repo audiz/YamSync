@@ -79,6 +79,7 @@ fun ArtistTracksList(
     isTrackInPlaylist: ((FullTrackInfo) -> Boolean)? = null,
     scrollToTrackRequest: TrackListScrollRequest? = null,
     onScrollToTrackHandled: (TrackListScrollRequest) -> Unit = {},
+    isPlaybackQueue: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -250,7 +251,7 @@ fun ArtistTracksList(
                             (playingTrackId != null && track.id.removePrefix("local:") == playingTrackId.removePrefix("local:")) ||
                             (playingTrackId != null && track.realId?.removePrefix("local:") == playingTrackId.removePrefix("local:"))
                         ) && (isPlaying || isPaused)
-                        val isCurrentTrackPlaying = isCurrentTrackActive && isPlaying && !isPaused
+                        val isCurrentTrackPlaying = isCurrentTrackActive && isPlaying && !isPaused && isPlaybackQueue
                         val isDownloaded = track.isLocal || isTrackDownloaded(artistsString, track.title)
                         val isInPlaylist = isTrackInPlaylist?.invoke(track) ?: false
 
@@ -267,7 +268,10 @@ fun ArtistTracksList(
                             ),
                             actions = TrackItemActions(
                                 onPlay = { onPlayTrack(track.id, track.title, artistsString) },
-                                onTogglePlayPause = onTogglePlayPause,
+                                onTogglePlayPause = {
+                                    if (isPlaybackQueue) onTogglePlayPause()
+                                    else onPlayTrack(track.id, track.title, artistsString)
+                                },
                                 onSeek = onSeek,
                                 onDownload = { onDownloadTrack(track.id, track.title, artistsString) },
                                 onDelete = if (onDeleteTrack != null) {
