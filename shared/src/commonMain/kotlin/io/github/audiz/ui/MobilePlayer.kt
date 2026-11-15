@@ -694,6 +694,15 @@ fun MobileFullPlayerSheet(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = if (state.artistName.isNotBlank()) state.artistName else "Яндекс Музыка",
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .then(
+                                if (actions.onOpenArtist != null) Modifier
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .clickable(onClick = actions.onOpenArtist)
+                                else Modifier
+                            )
+                            .wrapContentHeight(Alignment.CenterVertically),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Medium,

@@ -255,7 +255,7 @@ fun App() {
                     equalizerInitialTab = 0
                     showEqualizerDialog = true
                 },
-                onOpenQueue = if (searchViewModel.loadedTracks.isNotEmpty() || (searchViewModel.isWaveMode && searchViewModel.waveTracks.isNotEmpty())) {
+                onOpenQueue = if (searchViewModel.hasPlaybackQueue) {
                     {
                         if (isMobileUi) {
                             searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
@@ -263,6 +263,12 @@ fun App() {
                         } else {
                             searchViewModel.toggleQueueView()
                         }
+                    }
+                } else null,
+                onOpenArtist = if (searchViewModel.getCurrentPlayingTrackInfo()?.artists?.any { it.id > 0 } == true) {
+                    {
+                        searchViewModel.openCurrentTrackArtist()
+                        updateMobilePlayerExpanded(false)
                     }
                 } else null,
                 onExpandMobilePlayer = { updateMobilePlayerExpanded(true) },
@@ -565,8 +571,7 @@ fun App() {
                                     searchViewModel.activeBrowsedFolderPath = targetPath
                                     updateShowPlaylistsDialog(true)
                                 } else if (isBackGoingToMobilePlayer) {
-                                    searchViewModel.isTracksListVisible = false
-                                    searchViewModel.tracksListOrigin = TracksListOrigin.HOME
+                                    searchViewModel.closeArtistTracks()
                                     updateMobilePlayerExpanded(true)
                                 } else {
                                     searchViewModel.closeArtistTracks()
@@ -578,16 +583,7 @@ fun App() {
                                 searchViewModel.downloadTrack(trackId, trackTitle, artistName)
                             },
                             onPlayTrack = { trackId, trackTitle, artistName ->
-                                if (searchViewModel.isWaveMode) {
-                                    val waveIdx = searchViewModel.waveTracks.indexOfFirst { it.id == trackId }
-                                    if (waveIdx >= 0) {
-                                        searchViewModel.playWaveTrack(waveIdx)
-                                    } else {
-                                        searchViewModel.playTrack(trackId, trackTitle, artistName)
-                                    }
-                                } else {
-                                    searchViewModel.playTrack(trackId, trackTitle, artistName)
-                                }
+                                searchViewModel.playTrackFromDisplayedList(trackId, trackTitle, artistName)
                             },
                             playingTrackId = searchViewModel.playerTrackId,
                             isPlaying = searchViewModel.playerIsPlaying,

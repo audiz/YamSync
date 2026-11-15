@@ -52,6 +52,12 @@ class TrackListCoordinator(
     private val onLoadingChanged: (Boolean) -> Unit,
     private val onError: (String?) -> Unit
 ) {
+    private val coordinatorScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+
+    fun dispose() {
+        coordinatorScope.cancel()
+    }
+
     // 📊 Список уже загруженных детальных треков
     val loadedTracks = mutableStateListOf<FullTrackInfo>()
 
@@ -128,7 +134,7 @@ class TrackListCoordinator(
     }
 
     private fun launchSafe(block: suspend CoroutineScope.() -> Unit): Job {
-        return scope.launch(Dispatchers.Main.immediate) {
+        return coordinatorScope.launch(Dispatchers.Main.immediate) {
             try {
                 block()
             } catch (t: Throwable) {
@@ -187,6 +193,7 @@ class TrackListCoordinator(
         restoreTrackId: String? = null,
         origin: TracksListOrigin? = null,
         cacheKey: String? = null,
+        updatePlaylistContext: Boolean = true,
         fetchIdsAndTracksBlock: (suspend () -> Pair<List<String>, List<FullTrackInfo>>)? = null,
         fetchIdsBlock: (suspend () -> List<String>)? = null
     ) {
@@ -194,7 +201,7 @@ class TrackListCoordinator(
         isDownloadedTracksScreen = false
         onSetTracksListVisible(true)
         tracksListOrigin = origin ?: if (getSearchResult() != null) TracksListOrigin.SEARCH else TracksListOrigin.HOME
-        playlistManager.currentOpenUserPlaylist = userPlaylist
+        if (updatePlaylistContext) playlistManager.currentOpenUserPlaylist = userPlaylist
         currentScreenTitle = title
         val cleanTitle = title.removeSuffix(" [Офлайн-кеш]").trim()
         val resolvedCacheKey = cacheKey ?: cleanTitle
@@ -313,6 +320,7 @@ class TrackListCoordinator(
             try {
                 loadNextPageChunk()
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 val cleanTitle = currentScreenTitle.removeSuffix(" [Офлайн-кеш]").trim()
                 val resolvedCacheKey = currentCacheKey ?: cleanTitle
                 if (loadedTracks.isEmpty()) {
@@ -354,6 +362,7 @@ class TrackListCoordinator(
                     delay(50)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 onError("Ошибка при загрузке треков: ${e.message}")
             } finally {
                 isLoadingAllPages = false
@@ -411,19 +420,31 @@ class TrackListCoordinator(
         }
     }
 
-    fun loadArtistTracks(artistId: String, artistName: String? = null, restoreTrackId: String? = null) {
+    fun loadArtistTracks(
+        artistId: String,
+        artistName: String? = null,
+        restoreTrackId: String? = null,
+        recordPlaybackSession: Boolean = true
+    ) {
         val title = if (!artistName.isNullOrBlank()) "Треки: $artistName" else "Треки исполнителя"
         val cacheKey = "artist_$artistId"
-        playbackSessionManager.recordSession(
-            LastPlaybackSession(
-                type = LastPlaybackType.ARTIST,
-                artistId = artistId,
-                artistName = artistName,
-                title = title,
-                lastTrackId = restoreTrackId
+        if (recordPlaybackSession) {
+            playbackSessionManager.recordSession(
+                LastPlaybackSession(
+                    type = LastPlaybackType.ARTIST,
+                    artistId = artistId,
+                    artistName = artistName,
+                    title = title,
+                    lastTrackId = restoreTrackId
+                )
             )
-        )
-        startPagination(title = title, cacheKey = cacheKey, restoreTrackId = restoreTrackId) {
+        }
+        startPagination(
+            title = title,
+            cacheKey = cacheKey,
+            restoreTrackId = restoreTrackId,
+            updatePlaylistContext = recordPlaybackSession
+        ) {
             withContext(DispatcherIO) {
                 repository.getTrackIds(artistId).result
             }

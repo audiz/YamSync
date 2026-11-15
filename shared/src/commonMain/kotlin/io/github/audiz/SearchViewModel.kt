@@ -31,6 +31,7 @@ import io.github.audiz.models.LastPlaybackSession
 import io.github.audiz.models.LastPlaybackType
 import io.github.audiz.player.PlaybackSessionManager
 import io.github.audiz.tracklist.TrackListCoordinator
+import io.github.audiz.tracklist.TrackListNavigation
 import io.github.audiz.util.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -140,7 +141,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     val isUserPlaylistsLoading: Boolean
         get() = playlistManager.isUserPlaylistsLoading
     var currentOpenUserPlaylist: PlaylistInfo?
-        get() = playlistManager.currentOpenUserPlaylist
+        get() = if (trackListNavigation.isPreview) null else playlistManager.currentOpenUserPlaylist
         set(value) { playlistManager.currentOpenUserPlaylist = value }
 
     // ☁️ Кеш идентификаторов треков пользовательских плейлистов Яндекс (kind -> Set<trackId>)
@@ -449,14 +450,16 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         onStopPlayback = { playbackManager.stopPlayback() },
         onTrackDeleted = { trackId, wasPlaying ->
             val cleanId = trackId.removePrefix("local:")
-            val removedIndex = loadedTracks.indexOfFirst {
+            val queueTracks = trackListNavigation.active.loadedTracks
+            val removedIndex = queueTracks.indexOfFirst {
                 it.id == trackId || it.realId == trackId ||
                 it.id.removePrefix("local:") == cleanId ||
                 it.realId?.removePrefix("local:") == cleanId
             }
 
             // Безусловно удаляем трек из текущего списка loadedTracks и allTrackIds
-            trackListCoordinator.removeTrack(trackId)
+            trackListNavigation.active.removeTrack(trackId)
+            if (trackListNavigation.isPreview) trackListCoordinator.removeTrack(trackId)
 
             // Очищаем трек из локальных плейлистов
             playlistManager.removeTrackFileFromAllPlaylists(cleanId)
@@ -464,9 +467,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             // Если удаленный трек играл прямо сейчас и в списке еще остались треки —
             // плавно переключаемся на следующий трек в очереди
             if (wasPlaying) {
-                if (loadedTracks.isNotEmpty()) {
-                    val nextIndex = if (removedIndex != -1) removedIndex.coerceIn(0, loadedTracks.size - 1) else 0
-                    val nextTrack = loadedTracks[nextIndex]
+                if (queueTracks.isNotEmpty()) {
+                    val nextIndex = if (removedIndex != -1) removedIndex.coerceIn(0, queueTracks.size - 1) else 0
+                    val nextTrack = queueTracks[nextIndex]
                     playTrack(
                         trackId = nextTrack.id,
                         trackTitle = nextTrack.title,
@@ -482,7 +485,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             }
         },
         onAllTracksCleared = {
-            trackListCoordinator.clearAll()
+            trackListNavigation.active.clearAll()
+            if (trackListNavigation.isPreview) trackListCoordinator.clearAll()
             stopPlayback()
         },
         onError = { errorMessage = it },
@@ -500,10 +504,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         repository = repository,
         localTrackResolver = localTrackResolver,
         queueSource = object : PlaybackQueueSource {
-            override fun getLoadedTracks(): List<FullTrackInfo> = trackListCoordinator.loadedTracks
+            override fun getLoadedTracks(): List<FullTrackInfo> = trackListNavigation.active.loadedTracks
             override fun getSearchTracks(): List<FullTrackInfo> =
                 searchResult?.result?.results?.filter { it.type == "track" }?.mapNotNull { it.track?.toFullTrackInfo() } ?: emptyList()
-            override suspend fun loadMoreTracks(): Boolean = trackListCoordinator.loadNextPageChunk()
+            override suspend fun loadMoreTracks(): Boolean = trackListNavigation.active.loadNextPageChunk()
         },
         waveBridge = waveManager,
         getSelectedQuality = { settingsManager.selectedQuality },
@@ -535,22 +539,45 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     )
 
     // 📋 КООРДИНАТОР СПИСКА ТРЕКОВ, ОЧЕРЕДЕЙ И ПАГИНАЦИИ:
-    val trackListCoordinator: TrackListCoordinator = TrackListCoordinator(
-        scope = viewModelScope,
-        repository = repository,
-        playbackManager = playbackManager,
-        playbackSessionManager = playbackSessionManager,
-        playlistManager = playlistManager,
-        localMediaManager = localMediaManager,
-        getMusicStoragePath = { settingsManager.musicStoragePath },
-        getSearchResult = { searchResult },
-        onPlayTrack = { trackId, trackTitle, artistName, albumId, isManual, isWave, source ->
-            playTrack(trackId, trackTitle, artistName, albumId, isManual, isWave, source)
-        },
-        onSetTracksListVisible = { isTracksListVisible = it },
-        onLoadingChanged = { isLoading = it },
-        onError = { errorMessage = it }
-    )
+    private val trackListNavigation = TrackListNavigation(createTrackListCoordinator())
+
+    val trackListCoordinator: TrackListCoordinator
+        get() = trackListNavigation.displayed
+
+    private fun createTrackListCoordinator(): TrackListCoordinator {
+        lateinit var coordinator: TrackListCoordinator
+        coordinator = TrackListCoordinator(
+            scope = viewModelScope,
+            repository = repository,
+            playbackManager = playbackManager,
+            playbackSessionManager = playbackSessionManager,
+            playlistManager = playlistManager,
+            localMediaManager = localMediaManager,
+            getMusicStoragePath = { settingsManager.musicStoragePath },
+            getSearchResult = { searchResult },
+            onPlayTrack = { trackId, trackTitle, artistName, albumId, isManual, isWave, source ->
+                playTrack(trackId, trackTitle, artistName, albumId, isManual, isWave, source)
+            },
+            onSetTracksListVisible = { if (trackListCoordinator === coordinator) isTracksListVisible = it },
+            onLoadingChanged = { if (trackListCoordinator === coordinator) isLoading = it },
+            onError = { if (trackListCoordinator === coordinator) errorMessage = it }
+        )
+        return coordinator
+    }
+
+    private fun closeArtistPreview() {
+        val preview = trackListNavigation.closePreview() ?: return
+        preview.dispose()
+        isLoading = false
+    }
+
+    private fun playbackListForNavigation(): TrackListCoordinator {
+        closeArtistPreview()
+        return trackListNavigation.active
+    }
+
+    val hasPlaybackQueue: Boolean
+        get() = trackListNavigation.active.loadedTracks.isNotEmpty() || (isWaveMode && waveTracks.isNotEmpty())
 
     // ⚡ МЕНЕДЖЕР P2P СИНХРОНИЗАЦИИ YAMSYNC:
     val yamSyncManager: io.github.audiz.sync.YamSyncManager = io.github.audiz.sync.YamSyncManager(
@@ -606,7 +633,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun getCurrentPlayingTrackInfo(): FullTrackInfo? {
         val id = playerTrackId
         if (id != null) {
-            val loaded = loadedTracks.firstOrNull { it.id == id || it.realId == id }
+            val loaded = playbackManager.findTrackInfo(id)
+                ?: loadedTracks.firstOrNull { it.id == id || it.realId == id }
             if (loaded != null) return loaded
             if (currentWaveTrack?.id == id) return currentWaveTrack
             val cleanArtist = playerArtistName.ifBlank { "Unknown Artist" }
@@ -729,7 +757,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 loadInitialWave(autoPlay = true)
             }
         } else {
-            trackListCoordinator.restorePlaylistSession(session, wasTracksListVisible = true)
+            playbackListForNavigation().restorePlaylistSession(session, wasTracksListVisible = true)
         }
     }
 
@@ -737,7 +765,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         if (session.type == LastPlaybackType.WAVE) {
             resumeLastSession(session)
         } else {
-            trackListCoordinator.restorePlaylistSession(session, wasTracksListVisible)
+            playbackListForNavigation().restorePlaylistSession(session, wasTracksListVisible)
         }
     }
 
@@ -843,32 +871,71 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         searchQuery = ""
         searchResult = null
         errorMessage = null
-        currentOpenUserPlaylist = null
+        if (!trackListNavigation.isPreview) currentOpenUserPlaylist = null
     }
 
     fun loadDownloadedTracksPlaylist(restoreTrackId: String? = null) =
-        trackListCoordinator.loadDownloadedTracksPlaylist(restoreTrackId)
+        playbackListForNavigation().loadDownloadedTracksPlaylist(restoreTrackId)
 
-    fun loadArtistTracks(artistId: String, artistName: String? = null, restoreTrackId: String? = null) =
-        trackListCoordinator.loadArtistTracks(artistId, artistName, restoreTrackId)
+    fun loadArtistTracks(artistId: String, artistName: String? = null, restoreTrackId: String? = null) {
+        val origin = tracksListOrigin
+        if (restoreTrackId != null) {
+            playbackListForNavigation().loadArtistTracks(artistId, artistName, restoreTrackId)
+            return
+        }
+        closeArtistPreview()
+        val coordinator = createTrackListCoordinator()
+        trackListNavigation.browse(
+            coordinator,
+            LastPlaybackSession(
+                type = LastPlaybackType.ARTIST,
+                artistId = artistId,
+                artistName = artistName,
+                title = if (!artistName.isNullOrBlank()) "Треки: $artistName" else "Треки исполнителя"
+            )
+        )
+        coordinator.loadArtistTracks(artistId, artistName, recordPlaybackSession = false)
+        coordinator.tracksListOrigin = if (searchResult != null) TracksListOrigin.SEARCH else origin
+    }
+
+    fun playTrackFromDisplayedList(trackId: String, trackTitle: String, artistName: String) {
+        if (trackListNavigation.isPreview) {
+            val previousQueue = trackListNavigation.active
+            val session = trackListNavigation.selectTrack()
+            previousQueue.dispose()
+            if (session != null) playbackSessionManager.recordSession(session)
+            playlistManager.currentOpenUserPlaylist = null
+            playTrack(trackId, trackTitle, artistName)
+        } else {
+            val waveIndex = if (isWaveMode) waveTracks.indexOfFirst { it.id == trackId } else -1
+            if (waveIndex >= 0) playWaveTrack(waveIndex)
+            else playTrack(trackId, trackTitle, artistName)
+        }
+    }
+
+    fun openCurrentTrackArtist() {
+        val artist = getCurrentPlayingTrackInfo()?.artists?.firstOrNull { it.id > 0 } ?: return
+        loadArtistTracks(artist.id.toString(), artist.name)
+        tracksListOrigin = TracksListOrigin.MOBILE_PLAYER
+    }
 
     fun loadPlaylist(playlist: PlaylistInfo, restoreTrackId: String? = null) =
-        trackListCoordinator.loadPlaylist(playlist, restoreTrackId)
+        playbackListForNavigation().loadPlaylist(playlist, restoreTrackId)
 
     fun loadAlbumTracks(albumId: Long, albumTitle: String, restoreTrackId: String? = null) =
-        trackListCoordinator.loadAlbumTracks(albumId, albumTitle, restoreTrackId)
+        playbackListForNavigation().loadAlbumTracks(albumId, albumTitle, restoreTrackId)
 
     fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null, restoreTrackId: String? = null) =
-        trackListCoordinator.loadPlaylistTracks(uid, kind, playlistTitle, restoreTrackId)
+        playbackListForNavigation().loadPlaylistTracks(uid, kind, playlistTitle, restoreTrackId)
 
     fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null, restoreTrackId: String? = null) =
-        trackListCoordinator.loadPlaylistByUuid(uuid, playlistTitle, restoreTrackId)
+        playbackListForNavigation().loadPlaylistByUuid(uuid, playlistTitle, restoreTrackId)
 
     fun loadLikesPlaylist(restoreTrackId: String? = null) =
-        trackListCoordinator.loadLikesPlaylist(restoreTrackId)
+        playbackListForNavigation().loadLikesPlaylist(restoreTrackId)
 
     fun loadHistory(restoreTrackId: String? = null) =
-        trackListCoordinator.loadHistory(restoreTrackId)
+        playbackListForNavigation().loadHistory(restoreTrackId)
 
     /**
      * 🎵 Загрузка персональных плейлистов (Плейлист дня, Премьера, Дежавю и др.)
@@ -1035,7 +1102,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         playlist: LocalPlaylist,
         restoreTrackId: String? = null,
         autoPlayFirst: Boolean = false
-    ) = trackListCoordinator.openLocalPlaylist(playlist, restoreTrackId, autoPlayFirst)
+    ) = playbackListForNavigation().openLocalPlaylist(playlist, restoreTrackId, autoPlayFirst)
 
     // 📥 Активное состояние скачивания плейлиста в оффлайн
     val activePlaylistDownloadProgress: PlaylistDownloadProgress?
@@ -1080,7 +1147,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      * 📂 Открыть пользовательский источник (папку, отдельный аудиофайл или M3U-плейлист)
      */
     fun openCustomSource(source: CustomMediaSource, restoreTrackId: String? = null) =
-        trackListCoordinator.openCustomSource(source, restoreTrackId)
+        playbackListForNavigation().openCustomSource(source, restoreTrackId)
 
     /**
      * 🔍 Получить листинг содержимого директории для проводника
@@ -1097,7 +1164,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         folderName: String,
         source: CustomMediaSource? = null,
         isRecursive: Boolean = true
-    ) = trackListCoordinator.playFolder(folderPath, folderName, source, isRecursive)
+    ) = playbackListForNavigation().playFolder(folderPath, folderName, source, isRecursive)
 
     /**
      * 📁 Открыть плейлист папки без автоматического начала воспроизведения (для восстановления сессии)
@@ -1108,7 +1175,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         source: CustomMediaSource? = null,
         restoreTrackId: String? = null,
         isRecursive: Boolean = true
-    ) = trackListCoordinator.openFolderPlaylist(folderPath, folderName, source, restoreTrackId, isRecursive)
+    ) = playbackListForNavigation().openFolderPlaylist(folderPath, folderName, source, restoreTrackId, isRecursive)
 
     /**
      * 🎵 Воспроизвести отдельный локальный трек и сформировать очередь из треков папки
@@ -1119,7 +1186,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         folderName: String? = null,
         folderPath: String? = null,
         source: CustomMediaSource? = null
-    ) = trackListCoordinator.playSingleLocalTrack(track, folderTracks, folderName, folderPath, source)
+    ) = playbackListForNavigation().playSingleLocalTrack(track, folderTracks, folderName, folderPath, source)
 
     /**
      * Догружает следующую пачку треков (вызывается при скролле)
@@ -1206,16 +1273,23 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     private fun resetPagination() = trackListCoordinator.resetPagination()
 
     fun closeArtistTracks() {
-        isDownloadedTracksScreen = false
+        val wasPreview = trackListNavigation.isPreview
+        closeArtistPreview()
         isTracksListVisible = false
-        tracksListOrigin = TracksListOrigin.HOME
-        resetBrowsedFolder()
+        if (!wasPreview) {
+            isDownloadedTracksScreen = false
+            tracksListOrigin = TracksListOrigin.HOME
+            resetBrowsedFolder()
+        }
     }
 
     /**
      * 🎶 Переключить отображение экрана очереди воспроизведения
      */
     fun toggleQueueView() {
+        val wasPreview = trackListNavigation.isPreview
+        closeArtistPreview()
+        if (wasPreview) isTracksListVisible = false
         trackListCoordinator.toggleQueueView(
             isWaveMode = isWaveMode,
             waveTracks = waveTracks,
@@ -1229,6 +1303,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      * 🎶 Открыть экран очереди воспроизведения
      */
     fun openQueueView(origin: TracksListOrigin = TracksListOrigin.HOME) {
+        closeArtistPreview()
         trackListCoordinator.openQueueView(
             origin = origin,
             isWaveMode = isWaveMode,
@@ -1291,7 +1366,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     /** Запуск трека по внешнему ID (например, из Deep Link) */
     fun playTrackByExternalId(trackId: String) =
-        trackListCoordinator.playTrackByExternalId(trackId)
+        playbackListForNavigation().playTrackByExternalId(trackId)
 
     fun playTrackForceLQ(
         trackId: String,

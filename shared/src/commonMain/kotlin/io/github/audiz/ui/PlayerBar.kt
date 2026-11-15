@@ -73,6 +73,7 @@ data class PlayerBarActions(
     val onToggleDislike: (() -> Unit)? = null,
     val onOpenEqualizer: (() -> Unit)? = null,
     val onOpenQueue: (() -> Unit)? = null,
+    val onOpenArtist: (() -> Unit)? = null,
     val onExpandMobilePlayer: (() -> Unit)? = null,
     val onResetWave: (() -> Unit)? = null,
 )
