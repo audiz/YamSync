@@ -65,6 +65,7 @@ class ApiSessionContext(
         }
         header(HttpHeaders.UserAgent, baseUserAgent)
         header("X-Yandex-Music-Client", clientHeader)
+        header(HttpHeaders.AcceptLanguage, "en-US,en;q=0.9,ru;q=0.8")
     }
 
     /**
