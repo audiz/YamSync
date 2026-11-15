@@ -28,6 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.isLocal
+import io.github.audiz.player.PlaybackQueueManager
+import io.github.audiz.tracklist.TrackListScrollRequest
 
 @Composable
 private fun LazyListState.OnBottomReached(buffer: Int = 2, onLoadMore: () -> Unit) {
@@ -75,10 +77,28 @@ fun ArtistTracksList(
     onRemoveFromPlaylist: ((FullTrackInfo) -> Unit)? = null,
     onArtistClick: ((artistId: String, artistName: String) -> Unit)? = null,
     isTrackInPlaylist: ((FullTrackInfo) -> Boolean)? = null,
+    scrollToTrackRequest: TrackListScrollRequest? = null,
+    onScrollToTrackHandled: (TrackListScrollRequest) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
     listState.OnBottomReached { if (canLoadMore) onLoadMore() }
+
+    val scrollTargetIndex = scrollToTrackRequest?.let { request ->
+        tracks.indexOfFirst { PlaybackQueueManager.isSameTrack(it, request.trackId) }
+    } ?: -1
+    LaunchedEffect(scrollToTrackRequest, scrollTargetIndex, tracks.size, isLoading, canLoadMore) {
+        val request = scrollToTrackRequest ?: return@LaunchedEffect
+        when {
+            scrollTargetIndex >= 0 -> {
+                listState.scrollToItem(scrollTargetIndex)
+                onScrollToTrackHandled(request)
+            }
+            isLoading -> Unit
+            canLoadMore -> onLoadMore()
+            else -> onScrollToTrackHandled(request)
+        }
+    }
 
     val commonArtist = remember(tracks, title) {
         if (tracks.isNotEmpty() && !title.startsWith("Треки:")) {

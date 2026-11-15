@@ -18,6 +18,7 @@ import io.github.audiz.download.DownloadManager
 import io.github.audiz.player.LocalTrackResolver
 import io.github.audiz.player.PlaybackManager
 import io.github.audiz.player.PlaybackQueueSource
+import io.github.audiz.player.PlaybackQueueManager
 import io.github.audiz.player.PlayerUiState
 import io.github.audiz.playlist.PlaylistManager
 import io.github.audiz.playlist.PlaylistDownloadProgress
@@ -32,6 +33,7 @@ import io.github.audiz.models.LastPlaybackType
 import io.github.audiz.player.PlaybackSessionManager
 import io.github.audiz.tracklist.TrackListCoordinator
 import io.github.audiz.tracklist.TrackListNavigation
+import io.github.audiz.tracklist.TrackListScrollRequest
 import io.github.audiz.util.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -560,7 +562,12 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             },
             onSetTracksListVisible = { if (trackListCoordinator === coordinator) isTracksListVisible = it },
             onLoadingChanged = { if (trackListCoordinator === coordinator) isLoading = it },
-            onError = { if (trackListCoordinator === coordinator) errorMessage = it }
+            onError = {
+                if (trackListCoordinator === coordinator) {
+                    errorMessage = it
+                    if (it != null) queueScrollRequest = null
+                }
+            }
         )
         return coordinator
     }
@@ -572,8 +579,27 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     private fun playbackListForNavigation(): TrackListCoordinator {
+        queueScrollRequest = null
         closeArtistPreview()
         return trackListNavigation.active
+    }
+
+    var queueScrollRequest by mutableStateOf<TrackListScrollRequest?>(null)
+        private set
+    private var queueScrollRequestId = 0L
+
+    private fun requestScrollToPlayingTrack() {
+        val trackId = playerTrackId ?: currentWaveTrack?.id ?: return
+        val queue = trackListNavigation.active
+        val isInQueue = queue.loadedTracks.any { PlaybackQueueManager.isSameTrack(it, trackId) } ||
+            queue.allTrackIds.any { PlaybackQueueManager.isSameTrackId(it, trackId) }
+        if (isInQueue) {
+            queueScrollRequest = TrackListScrollRequest(++queueScrollRequestId, trackId)
+        }
+    }
+
+    fun consumeQueueScrollRequest(request: TrackListScrollRequest) {
+        if (queueScrollRequest == request) queueScrollRequest = null
     }
 
     val hasPlaybackQueue: Boolean
@@ -878,6 +904,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         playbackListForNavigation().loadDownloadedTracksPlaylist(restoreTrackId)
 
     fun loadArtistTracks(artistId: String, artistName: String? = null, restoreTrackId: String? = null) {
+        queueScrollRequest = null
         val origin = tracksListOrigin
         if (restoreTrackId != null) {
             playbackListForNavigation().loadArtistTracks(artistId, artistName, restoreTrackId)
@@ -1273,6 +1300,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     private fun resetPagination() = trackListCoordinator.resetPagination()
 
     fun closeArtistTracks() {
+        queueScrollRequest = null
         val wasPreview = trackListNavigation.isPreview
         closeArtistPreview()
         isTracksListVisible = false
@@ -1287,6 +1315,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
      * 🎶 Переключить отображение экрана очереди воспроизведения
      */
     fun toggleQueueView() {
+        queueScrollRequest = null
         val wasPreview = trackListNavigation.isPreview
         closeArtistPreview()
         if (wasPreview) isTracksListVisible = false
@@ -1297,12 +1326,14 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             isTracksListVisible = isTracksListVisible,
             setTracksListVisible = { isTracksListVisible = it }
         )
+        if (isTracksListVisible) requestScrollToPlayingTrack()
     }
 
     /**
      * 🎶 Открыть экран очереди воспроизведения
      */
     fun openQueueView(origin: TracksListOrigin = TracksListOrigin.HOME) {
+        queueScrollRequest = null
         closeArtistPreview()
         trackListCoordinator.openQueueView(
             origin = origin,
@@ -1310,6 +1341,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             waveTracks = waveTracks,
             waveTitle = waveManager.currentWaveTitle
         )
+        if (isTracksListVisible) requestScrollToPlayingTrack()
     }
 
     // ==========================================

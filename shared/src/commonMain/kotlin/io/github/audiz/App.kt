@@ -553,6 +553,8 @@ fun App() {
                         // 🎵 ЭКРАН Б: БЕСКОНЕЧНЫЙ СПИСОК ТРЕКОВ ИСПОЛНИТЕЛЯ
                         // ==================================================
                         ArtistTracksList(
+                            scrollToTrackRequest = searchViewModel.queueScrollRequest,
+                            onScrollToTrackHandled = searchViewModel::consumeQueueScrollRequest,
                             tracks = searchViewModel.loadedTracks,
                             canLoadMore = searchViewModel.canLoadMore,
                             onLoadMore = { searchViewModel.loadNextPage() },

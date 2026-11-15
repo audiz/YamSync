@@ -33,3 +33,6 @@ internal class TrackListNavigation<T>(initial: T) {
 
     private data class Preview<T>(val list: T, val session: LastPlaybackSession)
 }
+
+/** Однократная прокрутка к треку при открытии очереди из плеера. */
+data class TrackListScrollRequest(val requestId: Long, val trackId: String)
