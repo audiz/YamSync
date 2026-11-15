@@ -20,6 +20,7 @@ import io.github.audiz.player.PlaybackManager
 import io.github.audiz.player.PlaybackQueueSource
 import io.github.audiz.player.PlaybackQueueManager
 import io.github.audiz.player.PlayerUiState
+import io.github.audiz.player.resolvePlayerArtist
 import io.github.audiz.playlist.PlaylistManager
 import io.github.audiz.playlist.PlaylistDownloadProgress
 import io.github.audiz.settings.SettingsManager
@@ -940,10 +941,37 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         }
     }
 
-    fun openCurrentTrackArtist() {
-        val artist = getCurrentPlayingTrackInfo()?.artists?.firstOrNull { it.id > 0 } ?: return
-        loadArtistTracks(artist.id.toString(), artist.name)
-        tracksListOrigin = TracksListOrigin.MOBILE_PLAYER
+    private var artistLookupJob: Job? = null
+
+    fun openCurrentTrackArtist(onOpened: () -> Unit = {}) {
+        val track = getCurrentPlayingTrackInfo() ?: return
+        val artistName = playerArtistName
+        artistLookupJob?.cancel()
+        artistLookupJob = launchSafe {
+            try {
+                val artist = withContext(DispatcherIO) {
+                    resolvePlayerArtist(
+                        track = track,
+                        fallbackName = artistName,
+                        getTrackDetails = { repository.getTracksDetails(listOf(it)).result.firstOrNull() },
+                        searchArtists = { name ->
+                            repository.searchInstant(name).result?.results?.mapNotNull { it.artist }.orEmpty()
+                        }
+                    )
+                }
+                if (artist == null) {
+                    errorMessage = "Не удалось найти исполнителя «$artistName» в каталоге Яндекс Музыки."
+                    return@launchSafe
+                }
+                loadArtistTracks(artist.id.toString(), artist.name)
+                tracksListOrigin = TracksListOrigin.MOBILE_PLAYER
+                onOpened()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                errorMessage = "Не удалось открыть треки исполнителя: ${e.message}"
+            }
+        }
     }
 
     fun loadPlaylist(playlist: PlaylistInfo, restoreTrackId: String? = null) =

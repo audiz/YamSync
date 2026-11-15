@@ -265,10 +265,11 @@ fun App() {
                         }
                     }
                 } else null,
-                onOpenArtist = if (searchViewModel.getCurrentPlayingTrackInfo()?.artists?.any { it.id > 0 } == true) {
+                onOpenArtist = if (displayArtist.isNotBlank()) {
                     {
-                        searchViewModel.openCurrentTrackArtist()
-                        updateMobilePlayerExpanded(false)
+                        searchViewModel.openCurrentTrackArtist {
+                            updateMobilePlayerExpanded(false)
+                        }
                     }
                 } else null,
                 onExpandMobilePlayer = { updateMobilePlayerExpanded(true) },
