@@ -12,20 +12,18 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 
-/**
- * 🚀 HTTP-клиент YamSync для взаимодействия с удалённым сервером по Wi-Fi.
- */
-class YamSyncClient {
-    private val jsonConfig = Json {
+private fun createYamSyncHttpClient(): HttpClient {
+    val jsonConfig = Json {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
     }
 
-    private val httpClient = HttpClient {
+    return HttpClient {
         followRedirects = true
         expectSuccess = false
         install(ContentNegotiation) {
@@ -37,7 +35,10 @@ class YamSyncClient {
             socketTimeoutMillis = 30_000
         }
     }
+}
 
+/** HTTP-клиент YamSync для взаимодействия с удалённым сервером по Wi-Fi. */
+class YamSyncClient(private val httpClient: HttpClient = createYamSyncHttpClient()) {
     /** Проверить доступность удаленного устройства */
     suspend fun ping(ip: String, port: Int): Result<YamSyncDevice> = runCatching {
         val response = httpClient.get("http://$ip:$port/yamsync/v1/ping")
@@ -103,12 +104,20 @@ class YamSyncClient {
         writer: TrackFileWriter,
         onProgress: (YamSyncTransferProgress) -> Unit
     ): Result<Long> = runCatching {
+        var downloaded = 0L
+        val startedAt = currentTimeMillis()
+        YamSyncDiagnostics.record("http_file_request", "file" to track.fileName, "manifestBytes" to track.fileSize)
         try {
             httpClient.prepareGet("http://$ip:$port/yamsync/v1/file") {
                 parameter("name", track.fileName)
                 parameter("hash", track.checksum)
                 header("X-YamSync-Token", token)
             }.execute { response ->
+                YamSyncDiagnostics.record(
+                    "http_file_response", "file" to track.fileName,
+                    "status" to response.status.value, "contentLength" to response.contentLength(),
+                    "manifestBytes" to track.fileSize, "contentType" to response.contentType()
+                )
                 if (!response.status.isSuccess()) {
                     error("Download error: HTTP ${response.status}")
                 }
@@ -117,7 +126,6 @@ class YamSyncClient {
                 val channel: ByteReadChannel = response.bodyAsChannel()
                 val buffer = ByteArray(128 * 1024)
 
-                var downloaded = 0L
                 var lastTime = currentTimeMillis()
                 var lastDownloaded = 0L
 
@@ -145,13 +153,38 @@ class YamSyncClient {
                         )
                     }
                 }
+                YamSyncDiagnostics.record(
+                    "http_file_body_finished", "file" to track.fileName,
+                    "receivedBytes" to downloaded, "expectedBytes" to totalBytes,
+                    "sizeMatches" to (totalBytes <= 0 || downloaded == totalBytes),
+                    "manifestSizeMatches" to (track.fileSize <= 0 || downloaded == track.fileSize),
+                    "channelClosed" to channel.isClosedForRead,
+                    "channelFailure" to channel.closedCause?.let { it::class.simpleName }
+                )
                 writer.close()
+                YamSyncDiagnostics.record(
+                    "file_writer_closed", "file" to track.fileName,
+                    "receivedBytes" to downloaded, "elapsedMs" to (currentTimeMillis() - startedAt)
+                )
                 downloaded
             }
         } catch (e: Throwable) {
-            writer.abort()
+            try {
+                writer.abort()
+            } catch (cleanupError: Throwable) {
+                if (cleanupError is CancellationException) throw cleanupError
+                YamSyncDiagnostics.record("file_abort_failed", "file" to track.fileName, "errorType" to cleanupError::class.simpleName)
+            }
+            YamSyncDiagnostics.record(
+                "file_transfer_failed", "file" to track.fileName, "receivedBytes" to downloaded,
+                "manifestBytes" to track.fileSize, "errorType" to e::class.simpleName,
+                "cancelled" to (e is CancellationException), "elapsedMs" to (currentTimeMillis() - startedAt)
+            )
             throw e
         }
+    }.also { result ->
+        val error = result.exceptionOrNull()
+        if (error is CancellationException) throw error
     }
 
     /** Отправить результат слияния плейлистов обратно на хост */
