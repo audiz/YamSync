@@ -109,8 +109,11 @@ class YamSyncClient(private val httpClient: HttpClient = createYamSyncHttpClient
         YamSyncDiagnostics.record("http_file_request", "file" to track.fileName, "manifestBytes" to track.fileSize)
         try {
             httpClient.prepareGet("http://$ip:$port/yamsync/v1/file") {
-                parameter("name", track.fileName)
-                parameter("hash", track.checksum)
+                // Совместимость с iOS-сервером: пробелы передаём как %20, буквальный плюс — как %2B.
+                url {
+                    encodedParameters.append("name", track.fileName.encodeURLQueryComponent(encodeFull = true, spaceToPlus = false))
+                    encodedParameters.append("hash", track.checksum.encodeURLQueryComponent(encodeFull = true, spaceToPlus = false))
+                }
                 header("X-YamSync-Token", token)
             }.execute { response ->
                 YamSyncDiagnostics.record(

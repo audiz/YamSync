@@ -50,11 +50,23 @@ class YamSyncTransferDiagnosticsTest {
 
     private fun logText() = java.io.File(temporaryHome, "Music/YandexDownloader/yamusic.log").readText()
 
-    private fun withServer(status: Int, payload: ByteArray, block: (Int) -> Unit) {
+    private fun withServer(
+        status: Int,
+        payload: ByteArray,
+        expectedQuery: Map<String, String>? = null,
+        block: (Int) -> Unit
+    ) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/yamsync/v1/file") { exchange ->
             exchange.use {
-                it.sendResponseHeaders(status, if (payload.isEmpty()) -1L else payload.size.toLong())
+                // Повторяем текущий разбор параметров сервером iOS: %XX декодируется, '+' остаётся плюсом.
+                val query = it.requestURI.rawQuery.orEmpty().split('&').associate { part ->
+                    val key = part.substringBefore('=')
+                    val value = part.substringAfter('=', "").replace("+", "%2B")
+                    key to java.net.URLDecoder.decode(value, "UTF-8")
+                }
+                val responseStatus = if (expectedQuery != null && query != expectedQuery) 404 else status
+                it.sendResponseHeaders(responseStatus, if (payload.isEmpty()) -1L else payload.size.toLong())
                 if (payload.isNotEmpty()) it.responseBody.write(payload)
             }
         }
@@ -133,4 +145,25 @@ class YamSyncTransferDiagnosticsTest {
             } finally { http.close() }
         }
     }
+
+    @Test
+    fun fileRequestPreservesSpacesUnicodeAndLiteralPlusForIosPeer() {
+        val fileName = "Kingdom Come — Should I + Живой концерт & More.m4a"
+        val checksum = "kingdom come_should i + live & more"
+        withServer(200, "test-audio".toByteArray(), mapOf("name" to fileName, "hash" to checksum)) { port ->
+            runBlocking {
+                val http = HttpClient()
+                try {
+                    val writer = RecordingWriter()
+                    val track = YamSyncTrack(fileName, "Kingdom Come", "Should I", fileSize = 10, checksum = checksum)
+                    val result = YamSyncClient(http).downloadTrackToFile("127.0.0.1", port, testToken, track, writer) {}
+                    assertEquals(10L, result.getOrThrow())
+                    assertContentEquals("test-audio".toByteArray(), writer.bytes.toByteArray())
+                    assertTrue(writer.closed)
+                    assertFalse(writer.aborted)
+                } finally { http.close() }
+            }
+        }
+    }
+
 }
