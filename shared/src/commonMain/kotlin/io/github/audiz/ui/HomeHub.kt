@@ -4,6 +4,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,8 +22,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,13 +39,12 @@ import io.github.audiz.pickDirectory
 
 /**
  * 🏠 Главный экран-хаб приложения (Home Hub).
- * Организован с автоматическим переносом элементов на следующую строку (FlowRow),
- * чтобы на мобильных устройствах ни один элемент не скрывался за правый край экрана:
+ * Адаптирует сетки и прокручиваемые подборки под доступную ширину экрана:
  * 1. Герой-баннер «Моя Волна» (чипы стилей переносятся на новую строку).
  * 2. Плитки быстрого доступа (перенос 2x2 на смартфонах).
  * 3. Карточка быстрого продолжения последней сессии (если есть).
- * 4. Персональные подборки Яндекса (карточки переносятся на новую строку).
- * 5. Локальные плейлисты и папки (карточки переносятся на новую строку).
+ * 4. Персональные подборки Яндекса (горизонтальная лента).
+ * 5. Локальные плейлисты и папки (сетка на всю ширину).
  */
 @Composable
 fun HomeHub(
@@ -615,20 +616,20 @@ private fun ResumeSessionCard(
 }
 
 // ============================================================================
-// ✨ 4. ПЕРСОНАЛЬНЫЕ ПОДБОРКИ ЯНДЕКСА (FlowRow с автопереносом на новую строку)
+// ✨ 4. ПЕРСОНАЛЬНЫЕ ПОДБОРКИ ЯНДЕКСА (горизонтальная лента)
 // ============================================================================
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PersonalPlaylistsSection(
     items: List<PersonalPlaylistItemData>,
     onSelect: (uuid: String, title: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val visibleItems = items.filter { it.playlist != null }
     Column(modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp)
         ) {
             Icon(
                 imageVector = Icons.Filled.AutoAwesome,
@@ -641,33 +642,51 @@ private fun PersonalPlaylistsSection(
                 text = "Персональные подборки",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items.forEach { item ->
-                val playlist = item.playlist ?: return@forEach
-                val title = playlist.title.ifBlank {
-                    when (item.playlistType) {
-                        "playlistOfTheDay" -> "Плейлист дня"
-                        "recentTracks" -> "Премьера"
-                        "neverHeard" -> "Дежавю"
-                        else -> "Подборка"
-                    }
-                }
-                val coverUri = playlist.cover?.uri
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val gap = 10.dp
+            val preferredCardWidth = 142.dp
+            val allCardsWidth = preferredCardWidth * visibleItems.size +
+                gap * (visibleItems.size - 1).coerceAtLeast(0)
+            // При прокрутке оставляем видимыми 32 dp следующей карточки.
+            val fullCards = when {
+                visibleItems.size <= 2 -> 1
+                maxWidth < 540.dp -> 2
+                else -> ((maxWidth - 32.dp) / (preferredCardWidth + gap)).toInt().coerceAtLeast(1)
+            }
+            val cardWidth = if (allCardsWidth <= maxWidth) {
+                preferredCardWidth
+            } else {
+                ((maxWidth - 32.dp - gap * fullCards) / fullCards).coerceAtLeast(1.dp)
+            }
 
-                PersonalPlaylistCard(
-                    title = title,
-                    description = item.description ?: "Собрано для вас",
-                    coverUri = coverUri,
-                    onClick = { onSelect(playlist.playlistUuid, title) }
-                )
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gap)
+            ) {
+                items(visibleItems, key = { it.playlist!!.playlistUuid }) { item ->
+                    val playlist = item.playlist!!
+                    val title = playlist.title.ifBlank {
+                        when (item.playlistType) {
+                            "playlistOfTheDay" -> "Плейлист дня"
+                            "recentTracks" -> "Премьера"
+                            "neverHeard" -> "Дежавю"
+                            else -> "Подборка"
+                        }
+                    }
+                    PersonalPlaylistCard(
+                        title = title,
+                        description = item.description ?: "Собрано для вас",
+                        coverUri = playlist.cover?.uri,
+                        onClick = { onSelect(playlist.playlistUuid, title) },
+                        modifier = Modifier.width(cardWidth)
+                    )
+                }
             }
         }
     }
@@ -685,7 +704,6 @@ private fun PersonalPlaylistCard(
 
     Card(
         modifier = modifier
-            .width(112.dp)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
@@ -695,7 +713,7 @@ private fun PersonalPlaylistCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            // Квадратная обложка (96x96dp)
+            // Обложка подстраивается под ширину карточки.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -732,7 +750,7 @@ private fun PersonalPlaylistCard(
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -743,7 +761,7 @@ private fun PersonalPlaylistCard(
 
             Text(
                 text = description,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -769,113 +787,88 @@ private fun LocalLibrarySection(
 ) {
     Column(modifier = modifier) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.Folder,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Мои папки и плейлисты",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            TextButton(
-                onClick = onOpenMediaLibrary,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                modifier = Modifier.height(28.dp).pointerHoverIcon(PointerIcon.Hand)
-            ) {
-                Text("Все", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-            }
+            Icon(
+                imageVector = Icons.Filled.Folder,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Мои папки и плейлисты",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
         FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically
         ) {
-            // Кнопка добавления новой папки
             if (isPlatformPickerSupported) {
-                AddFolderCard(
+                OutlinedButton(
                     onClick = onAddFolder,
-                    modifier = Modifier.width(112.dp)
-                )
+                    modifier = Modifier.heightIn(min = 44.dp).pointerHoverIcon(PointerIcon.Hand),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Добавить папку", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
-
-            // Добавленные папки пользователя
-            customSources.forEach { src ->
-                FolderCard(
-                    title = src.name,
-                    subtitle = src.path.substringAfterLast('/').ifBlank { "Папка" },
-                    onClick = { onOpenFolder(src.path, src.name, src) },
-                    modifier = Modifier.width(112.dp)
-                )
-            }
-
-            // Локальные плейлисты
-            localPlaylists.forEach { pl ->
-                LocalPlaylistCard(
-                    playlist = pl,
-                    onClick = { onOpenLocalPlaylist(pl) },
-                    modifier = Modifier.width(112.dp)
-                )
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(
+                onClick = onOpenMediaLibrary,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.heightIn(min = 44.dp).pointerHoverIcon(PointerIcon.Hand)
+            ) {
+                Text("Все", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-    }
-}
 
-@Composable
-private fun AddFolderCard(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .height(88.dp)
-            .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val gap = 10.dp
+            val columns = if (maxWidth < 540.dp) 2 else ((maxWidth + gap) / 170.dp).toInt().coerceAtLeast(2)
+            // Округляем вниз до пикселя, чтобы последний столбец не переносился из-за округления.
+            val cardWidth = with(LocalDensity.current) {
+                ((constraints.maxWidth - gap.roundToPx() * (columns - 1)) / columns)
+                    .coerceAtLeast(1).toDp()
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Добавить папку",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center
-            )
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                maxItemsInEachRow = columns,
+                horizontalArrangement = Arrangement.spacedBy(gap),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                customSources.forEach { src ->
+                    key(src.id) {
+                        FolderCard(
+                            title = src.name,
+                            subtitle = src.path.substringAfterLast('/').ifBlank { "Папка" },
+                            onClick = { onOpenFolder(src.path, src.name, src) },
+                            modifier = Modifier.width(cardWidth)
+                        )
+                    }
+                }
+                localPlaylists.forEach { playlist ->
+                    key(playlist.id) {
+                        LocalPlaylistCard(
+                            playlist = playlist,
+                            onClick = { onOpenLocalPlaylist(playlist) },
+                            modifier = Modifier.width(cardWidth)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -889,7 +882,7 @@ private fun FolderCard(
 ) {
     Card(
         modifier = modifier
-            .height(88.dp)
+            .heightIn(min = 88.dp)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
@@ -899,8 +892,8 @@ private fun FolderCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(10.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -920,7 +913,7 @@ private fun FolderCard(
             Column {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -928,7 +921,7 @@ private fun FolderCard(
                 )
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -946,7 +939,7 @@ private fun LocalPlaylistCard(
 ) {
     Card(
         modifier = modifier
-            .height(88.dp)
+            .heightIn(min = 88.dp)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
@@ -956,8 +949,8 @@ private fun LocalPlaylistCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(10.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -977,7 +970,7 @@ private fun LocalPlaylistCard(
             Column {
                 Text(
                     text = playlist.title,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -985,9 +978,10 @@ private fun LocalPlaylistCard(
                 )
                 Text(
                     text = "${playlist.trackPaths.size} треков",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
