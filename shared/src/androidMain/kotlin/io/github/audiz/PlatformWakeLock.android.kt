@@ -39,3 +39,5 @@ actual fun releasePlaybackWakeLock() {
         println("PlatformWakeLock Android: Ошибка освобождения WakeLock: ${e.message}")
     }
 }
+
+actual fun acquireSyncScreenWakeLock(): () -> Unit = {}

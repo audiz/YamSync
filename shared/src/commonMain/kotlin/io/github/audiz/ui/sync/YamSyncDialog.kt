@@ -10,6 +10,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import io.github.audiz.acquireSyncScreenWakeLock
 import io.github.audiz.models.YamSyncDiffState
 import io.github.audiz.sync.YamSyncManager
 import io.github.audiz.ui.BackHandler
@@ -22,6 +23,12 @@ fun YamSyncDialog(
     syncManager: YamSyncManager,
     onDismiss: () -> Unit
 ) {
+    val keepScreenAwake = syncManager.isConnected
+    DisposableEffect(keepScreenAwake) {
+        val release = if (keepScreenAwake) acquireSyncScreenWakeLock() else ({})
+        onDispose { release() }
+    }
+
     BackHandler(enabled = true, onBack = onDismiss)
     Dialog(
         onDismissRequest = onDismiss,

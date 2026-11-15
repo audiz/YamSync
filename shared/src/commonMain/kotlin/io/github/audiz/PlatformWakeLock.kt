@@ -6,3 +6,6 @@ package io.github.audiz
  */
 expect fun acquirePlaybackWakeLock()
 expect fun releasePlaybackWakeLock()
+
+/** Удерживать экран во время открытой сессии синхронизации. Захват и освобождение — в UI-потоке. */
+expect fun acquireSyncScreenWakeLock(): () -> Unit
