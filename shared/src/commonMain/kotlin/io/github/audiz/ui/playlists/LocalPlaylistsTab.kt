@@ -427,21 +427,21 @@ internal fun LocalPlaylistsTab(
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                    .heightIn(min = 56.dp)
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                    modifier = Modifier.weight(1f)
+                                                Icon(
+                                                    imageVector = if (isFileAvailable) Icons.Filled.MusicNote else Icons.Filled.CloudOff,
+                                                    contentDescription = null,
+                                                    tint = if (isFileAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                                Column(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalArrangement = Arrangement.spacedBy(2.dp)
                                                 ) {
-                                                    Icon(
-                                                        imageVector = if (isFileAvailable) Icons.Filled.MusicNote else Icons.Filled.CloudOff,
-                                                        contentDescription = null,
-                                                        tint = if (isFileAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
                                                     Text(
                                                         text = filename,
                                                         style = MaterialTheme.typography.bodySmall,
@@ -451,10 +451,12 @@ internal fun LocalPlaylistsTab(
                                                     )
                                                     if (!isFileAvailable) {
                                                         Text(
-                                                            text = "(не скачан)",
+                                                            text = "Не скачан",
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = MaterialTheme.colorScheme.error,
-                                                            fontSize = 10.sp
+                                                            fontSize = 11.sp,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
                                                         )
                                                     }
                                                 }
@@ -463,7 +465,7 @@ internal fun LocalPlaylistsTab(
                                                     onClick = {
                                                         viewModel.removeTrackFromLocalPlaylist(playlist.id, trackPath)
                                                     },
-                                                    modifier = Modifier.size(24.dp).pointerHoverIcon(PointerIcon.Hand)
+                                                    modifier = Modifier.size(40.dp).pointerHoverIcon(PointerIcon.Hand)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Filled.Close,
