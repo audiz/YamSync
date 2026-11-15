@@ -34,10 +34,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Path
 import kotlin.math.exp
 import kotlin.math.cos
 import kotlin.math.sin
@@ -56,6 +54,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -357,6 +356,8 @@ fun MobileFullPlayerSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val coverCornerRadius = 24.dp
+
     // Поддержка системной кнопки "Назад" (Android)
     BackHandler(enabled = true, onBack = onDismiss)
 
@@ -578,7 +579,7 @@ fun MobileFullPlayerSheet(
                     if (w <= 0f || h <= 0f) return@Canvas
 
                     val maxDistance = 46.dp.toPx()
-                    val baseCornerRadius = 24.dp.toPx()
+                    val baseCornerRadius = coverCornerRadius.toPx()
                     val steps = 24
 
                     for (i in steps downTo 1) {
@@ -607,7 +608,7 @@ fun MobileFullPlayerSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(24.dp))
+                        .clip(RoundedCornerShape(coverCornerRadius))
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(
@@ -620,7 +621,7 @@ fun MobileFullPlayerSheet(
                         .border(
                             1.dp,
                             MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
-                            RoundedCornerShape(24.dp)
+                            RoundedCornerShape(coverCornerRadius)
                         )
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -667,6 +668,7 @@ fun MobileFullPlayerSheet(
                         glowLeft = glowLeft,
                         glowRight = glowRight,
                         onOpenEqualizer = actions.onOpenEqualizer,
+                        coverCornerRadius = coverCornerRadius,
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 }
@@ -1164,6 +1166,7 @@ fun CoverSpectrumVisualizer(
     glowLeft: Color,
     glowRight: Color,
     onOpenEqualizer: (() -> Unit)?,
+    coverCornerRadius: Dp = 24.dp,
     modifier: Modifier = Modifier
 ) {
     var frame by remember {
@@ -1217,19 +1220,22 @@ fun CoverSpectrumVisualizer(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(40.dp)
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 8.dp)
         ) {
             val totalW = size.width
             val maxH = size.height
             if (totalW <= 0f || maxH <= 0f) return@Canvas
 
-            val spacing = if (numBars >= 25) 2.dp.toPx() else 4.dp.toPx()
-            val availableW = totalW - 16.dp.toPx()
-            val barW = ((availableW - (numBars - 1) * spacing) / numBars).coerceIn(2.5f.dp.toPx(), 14.dp.toPx())
-            val totalBarsW = numBars * barW + (numBars - 1) * spacing
-            val startX = (totalW - totalBarsW) / 2f
+            // Полосы занимают только прямой участок нижней границы обложки.
+            val sideInset = coverCornerRadius.toPx().coerceIn(0f, totalW / 2f)
+            val availableW = totalW - 2f * sideInset
+            if (availableW <= 0f) return@Canvas
+            val preferredSpacing = if (numBars >= 25) 2.dp.toPx() else 4.dp.toPx()
+            val spacing = minOf(preferredSpacing, availableW / (numBars * 2f))
+            val barW = (availableW - (numBars - 1) * spacing) / numBars
+            val totalBarsW = availableW
+            val startX = sideInset
             val peakH = 2.dp.toPx()
 
             val barBrush = Brush.horizontalGradient(
@@ -1243,37 +1249,16 @@ fun CoverSpectrumVisualizer(
 
             for (i in 0 until numBars) {
                 val level = if (i < barLevels.size) barLevels[i] else AudioVisualizer.RESTING_LEVEL
-                val h = (maxH * level.coerceIn(0.08f, 1f)).coerceAtLeast(barW)
+                val h = (maxH * level.coerceIn(0.08f, 1f)).coerceAtLeast(minOf(barW, maxH))
                 val x = startX + i * (barW + spacing)
                 val y = maxH - h
 
-                // 1. Основной частотный столбик (прямоугольный, с закруглением нижнего внешнего уголка для крайних полос)
-                if (i == 0 || i == numBars - 1) {
-                    val cornerR = (barW * 0.75f).coerceAtMost(h)
-                    val roundRect = RoundRect(
-                        x,
-                        y,
-                        x + barW,
-                        y + h,
-                        CornerRadius.Zero,
-                        CornerRadius.Zero,
-                        if (i == numBars - 1) CornerRadius(cornerR, cornerR) else CornerRadius.Zero,
-                        if (i == 0) CornerRadius(cornerR, cornerR) else CornerRadius.Zero
-                    )
-                    val barPath = Path().apply {
-                        addRoundRect(roundRect)
-                    }
-                    drawPath(
-                        path = barPath,
-                        brush = barBrush
-                    )
-                } else {
-                    drawRect(
-                        brush = barBrush,
-                        topLeft = Offset(x, y),
-                        size = Size(barW, h)
-                    )
-                }
+                // Все столбики имеют общую плоскую нижнюю границу.
+                drawRect(
+                    brush = barBrush,
+                    topLeft = Offset(x, y),
+                    size = Size(barW, h)
+                )
 
                 // 2. Парящая пиковая засечка (Winamp Peak Cap, прямоугольная)
                 val capLevel = if (i < capLevels.size) capLevels[i].coerceAtLeast(level) else level
