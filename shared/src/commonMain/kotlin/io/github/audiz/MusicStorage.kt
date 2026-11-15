@@ -60,11 +60,16 @@ expect fun scanDownloadedTracks(basePath: String): List<io.github.audiz.models.F
 /** Быстро получить список всех существующих путей к скачанным аудиофайлам (без чтения метаданных и длительности) */
 expect fun scanDownloadedTrackPaths(basePath: String): List<String>
 
+const val PLAYLIST_CACHE_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000L // 7 дней
+
 /** Сохранить список треков плейлиста в локальный кеш на диске: {basePath}/playlists_cache/{cacheKey}.json */
 expect fun savePlaylistTracksCache(basePath: String, cacheKey: String, tracks: List<io.github.audiz.models.FullTrackInfo>)
 
 /** Загрузить список треков плейлиста из локального кеша на диске */
 expect fun loadPlaylistTracksCache(basePath: String, cacheKey: String): List<io.github.audiz.models.FullTrackInfo>
+
+/** Удалить устаревшие файлы кеша плейлистов старше maxAgeMs (по умолчанию 7 дней) */
+expect fun cleanExpiredPlaylistCaches(basePath: String, maxAgeMs: Long = PLAYLIST_CACHE_MAX_AGE_MS): Int
 
 /** Сохранить список персональных плейлистов в кеш для бокового меню */
 expect fun savePersonalPlaylistsCache(basePath: String, items: List<io.github.audiz.models.PersonalPlaylistItemData>)

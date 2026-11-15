@@ -212,28 +212,6 @@ class TrackListCoordinator(
             onError(null)
             yield()
             try {
-                if (resolvedCacheKey.isNotBlank() && resolvedCacheKey != "Поиск" && resolvedCacheKey != "Результаты поиска") {
-                    val cached = withContext(DispatcherIO) {
-                        try {
-                            loadPlaylistTracksCache(getMusicStoragePath(), resolvedCacheKey)
-                        } catch (_: Throwable) {
-                            emptyList()
-                        }
-                    }
-                    if (cached.isNotEmpty() && loadedTracks.isEmpty()) {
-                        loadedTracks.addAll(cached)
-                        allTrackIds = cached.map { it.id }
-                        currentOffset = cached.size
-                        canLoadMore = false
-                        if (restoreTrackId != null) {
-                            val target = cached.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: cached.firstOrNull()
-                            if (target != null) {
-                                playbackManager.setInitialTrack(target)
-                            }
-                        }
-                    }
-                }
-
                 if (fetchIdsAndTracksBlock != null) {
                     val (ids, richTracks) = fetchIdsAndTracksBlock()
                     allTrackIds = ids
@@ -251,6 +229,7 @@ class TrackListCoordinator(
                             }
                         }
                     } else if (allTrackIds.isNotEmpty()) {
+                        loadedTracks.clear()
                         currentOffset = 0
                         loadNextPageChunk()
                         canLoadMore = currentOffset < allTrackIds.size
@@ -262,17 +241,10 @@ class TrackListCoordinator(
                 } else if (fetchIdsBlock != null) {
                     allTrackIds = fetchIdsBlock()
                     if (allTrackIds.isNotEmpty()) {
-                        val validCached = loadedTracks.filter { it.id in allTrackIds || (it.realId != null && it.realId in allTrackIds) }
                         loadedTracks.clear()
-                        if (validCached.isNotEmpty()) {
-                            loadedTracks.addAll(validCached)
-                            currentOffset = validCached.size
-                            canLoadMore = currentOffset < allTrackIds.size
-                        } else {
-                            currentOffset = 0
-                            loadNextPageChunk()
-                            canLoadMore = currentOffset < allTrackIds.size
-                        }
+                        currentOffset = 0
+                        loadNextPageChunk()
+                        canLoadMore = currentOffset < allTrackIds.size
                     } else {
                         if (loadedTracks.isEmpty()) {
                             onError("Треков не найдено.")
@@ -296,10 +268,15 @@ class TrackListCoordinator(
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 println("TrackListCoordinator: Ошибка загрузки плейлиста '$cleanTitle': ${e.message}")
                 if (loadedTracks.isEmpty()) {
                     val fallbackCached = withContext(DispatcherIO) {
-                        loadPlaylistTracksCache(getMusicStoragePath(), resolvedCacheKey)
+                        try {
+                            loadPlaylistTracksCache(getMusicStoragePath(), resolvedCacheKey)
+                        } catch (_: Throwable) {
+                            emptyList()
+                        }
                     }
                     if (fallbackCached.isNotEmpty()) {
                         loadedTracks.clear()
@@ -309,6 +286,12 @@ class TrackListCoordinator(
                         canLoadMore = false
                         currentScreenTitle = "$cleanTitle [Офлайн-кеш]"
                         onError(null)
+                        if (restoreTrackId != null) {
+                            val target = fallbackCached.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: fallbackCached.firstOrNull()
+                            if (target != null) {
+                                playbackManager.setInitialTrack(target)
+                            }
+                        }
                     } else {
                         onError("Не удалось подключиться к интернету и нет сохранённого кеша для '$cleanTitle'")
                     }

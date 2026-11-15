@@ -80,6 +80,17 @@ class MusicStorageTest {
             assertTrue(clearedCount >= 1, "At least one cache file should be cleared")
             val cacheAfter = loadPlaylistTracksCache(tempDir.absolutePath, playlistName)
             assertTrue(cacheAfter.isEmpty(), "Cache should be empty after clear")
+
+            // 7. Test expired cache (> 7 days) automatic deletion
+            val expiredPlaylist = "Old Playlist"
+            savePlaylistTracksCache(tempDir.absolutePath, expiredPlaylist, testTracks)
+            val cacheFile = java.io.File(tempDir, "playlists_cache").listFiles()?.firstOrNull { it.name.startsWith("Old Playlist") }
+            assertTrue(cacheFile != null && cacheFile.exists(), "Cache file should exist")
+            // Искусственно устанавливаем дату создания/модификации 8 дней назад
+            cacheFile.setLastModified(System.currentTimeMillis() - 8L * 24 * 60 * 60 * 1000L)
+            val loadedExpired = loadPlaylistTracksCache(tempDir.absolutePath, expiredPlaylist)
+            assertTrue(loadedExpired.isEmpty(), "Expired cache (> 7 days) should not be loaded")
+            assertTrue(!cacheFile.exists(), "Expired cache file should be deleted automatically")
         } finally {
             tempDir.deleteRecursively()
         }

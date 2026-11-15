@@ -423,6 +423,7 @@ actual fun savePlaylistTracksCache(basePath: String, cacheKey: String, tracks: L
         )
         file.writeText(jsonStr)
         println("MusicStorage: Кеш плейлиста сохранен (${tracks.size} треков): ${file.absolutePath}")
+        cleanExpiredPlaylistCaches(basePath)
     } catch (e: Exception) {
         println("MusicStorage: Ошибка сохранения кеша плейлиста '$cacheKey': ${e.message}")
     }
@@ -435,6 +436,15 @@ actual fun loadPlaylistTracksCache(basePath: String, cacheKey: String): List<Ful
         val cacheDir = File(basePath, "playlists_cache")
         val file = File(cacheDir, "${sanitizePlaylistFileName(cacheKey)}.json")
         if (!file.exists() || file.length() == 0L) return emptyList()
+
+        // Проверяем срок жизни кеша: кеши старше 7 дней удаляются
+        val now = System.currentTimeMillis()
+        if ((now - file.lastModified()) > PLAYLIST_CACHE_MAX_AGE_MS) {
+            println("MusicStorage: Кеш плейлиста '$cacheKey' устарел (> 7 дней) и удален")
+            file.delete()
+            return emptyList()
+        }
+
         val jsonStr = file.readText()
         val list = playlistJson.decodeFromString(
             ListSerializer(FullTrackInfo.serializer()),
@@ -446,6 +456,32 @@ actual fun loadPlaylistTracksCache(basePath: String, cacheKey: String): List<Ful
         println("MusicStorage: Ошибка чтения кеша плейлиста '$cacheKey': ${e.message}")
         return emptyList()
     }
+}
+
+/** Удалить устаревшие файлы кеша плейлистов старше maxAgeMs (по умолчанию 7 дней) */
+actual fun cleanExpiredPlaylistCaches(basePath: String, maxAgeMs: Long): Int {
+    if (basePath.isBlank()) return 0
+    var count = 0
+    try {
+        val cacheDir = File(basePath, "playlists_cache")
+        if (cacheDir.exists() && cacheDir.isDirectory) {
+            val now = System.currentTimeMillis()
+            val files = cacheDir.listFiles() ?: return 0
+            for (file in files) {
+                if (file.isFile && file.name.endsWith(".json") && (now - file.lastModified()) > maxAgeMs) {
+                    if (file.delete()) {
+                        count++
+                    }
+                }
+            }
+            if (count > 0) {
+                println("MusicStorage: Удалено $count устаревших файлов кеша плейлистов (> 7 дней)")
+            }
+        }
+    } catch (e: Exception) {
+        println("MusicStorage: Ошибка очистки устаревшего кеша плейлистов: ${e.message}")
+    }
+    return count
 }
 
 /** Сохранить список персональных плейлистов в кеш для бокового меню */

@@ -413,6 +413,7 @@ actual fun savePlaylistTracksCache(basePath: String, cacheKey: String, tracks: L
         )
         val nsStr = NSString.create(string = jsonStr)
         nsStr.writeToFile(filePath, atomically = true, encoding = NSUTF8StringEncoding, error = null)
+        cleanExpiredPlaylistCaches(basePath)
     } catch (e: Throwable) {
         println("iOS Storage: Ошибка сохранения кеша плейлиста: ${e.message}")
     }
@@ -426,6 +427,19 @@ actual fun loadPlaylistTracksCache(basePath: String, cacheKey: String): List<Ful
         val filePath = "$basePath/playlists_cache/$cleanKey.json"
         val fileManager = NSFileManager.defaultManager
         if (!fileManager.fileExistsAtPath(filePath)) return emptyList()
+
+        // Проверяем срок жизни кеша: кеши старше 7 дней удаляются
+        val attrs = fileManager.attributesOfItemAtPath(filePath, error = null)
+        val modDate = attrs?.get(NSFileModificationDate) as? NSDate
+        if (modDate != null) {
+            val nowMs = NSDate().timeIntervalSince1970 * 1000.0
+            val fileTimeMs = modDate.timeIntervalSince1970 * 1000.0
+            if ((nowMs - fileTimeMs) > PLAYLIST_CACHE_MAX_AGE_MS) {
+                fileManager.removeItemAtPath(filePath, error = null)
+                return emptyList()
+            }
+        }
+
         val nsStr = NSString.stringWithContentsOfFile(filePath, encoding = NSUTF8StringEncoding, error = null) ?: return emptyList()
         return playlistJson.decodeFromString(
             kotlinx.serialization.builtins.ListSerializer(FullTrackInfo.serializer()),
@@ -435,6 +449,32 @@ actual fun loadPlaylistTracksCache(basePath: String, cacheKey: String): List<Ful
         println("iOS Storage: Ошибка чтения кеша плейлиста: ${e.message}")
         return emptyList()
     }
+}
+
+@OptIn(BetaInteropApi::class)
+actual fun cleanExpiredPlaylistCaches(basePath: String, maxAgeMs: Long): Int {
+    if (basePath.isBlank()) return 0
+    val cacheDir = "$basePath/playlists_cache"
+    val fileManager = NSFileManager.defaultManager
+    if (!fileManager.fileExistsAtPath(cacheDir)) return 0
+    val items = fileManager.contentsOfDirectoryAtPath(cacheDir, error = null) as? List<String> ?: return 0
+    val nowMs = NSDate().timeIntervalSince1970 * 1000.0
+    var count = 0
+    for (item in items) {
+        if (!item.endsWith(".json")) continue
+        val filePath = "$cacheDir/$item"
+        val attrs = fileManager.attributesOfItemAtPath(filePath, error = null)
+        val modDate = attrs?.get(NSFileModificationDate) as? NSDate
+        if (modDate != null) {
+            val fileTimeMs = modDate.timeIntervalSince1970 * 1000.0
+            if ((nowMs - fileTimeMs) > maxAgeMs) {
+                if (fileManager.removeItemAtPath(filePath, error = null)) {
+                    count++
+                }
+            }
+        }
+    }
+    return count
 }
 
 @OptIn(BetaInteropApi::class)
