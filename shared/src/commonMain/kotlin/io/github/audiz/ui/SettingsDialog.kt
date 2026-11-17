@@ -17,7 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -939,20 +939,20 @@ fun SettingsDialog(
                                 )
                             }
 
-                            // 💬 Сообщество и отзывы (Telegram)
+                            // ⭐ Оценить на GitHub
                             Spacer(modifier = Modifier.height(16.dp))
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                             Spacer(modifier = Modifier.height(16.dp))
 
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    text = "Сообщество и отзывы",
+                                    text = "Оценить проект",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Чат пользователей: обсуждение, идеи, предложения и помощь",
+                                    text = "Поставьте звезду на GitHub — это помогает развитию проекта и привлекает новых слушателей",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -967,32 +967,35 @@ fun SettingsDialog(
                                 ) {
                                     Button(
                                         onClick = {
-                                            uriHandler.openUri("https://t.me/+5PT1eAkb7CxjYzNi")
+                                            uriHandler.openUri("https://github.com/audiz/YamSync")
                                         },
                                         modifier = Modifier.weight(1f).pointerHoverIcon(PointerIcon.Hand),
                                         shape = RoundedCornerShape(8.dp),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF2AABEE),
+                                            containerColor = Color(0xFF24292F),
                                             contentColor = Color.White
                                         ),
+                                        border = BorderStroke(1.dp, Color(0xFF444C56)),
                                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.Send,
+                                            imageVector = Icons.Filled.Star,
                                             contentDescription = null,
+                                            tint = Color(0xFFFFC107),
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Перейти в Telegram-чат",
+                                            text = "⭐ Оценить на GitHub",
                                             maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
 
                                     OutlinedButton(
                                         onClick = {
-                                            clipboardManager.setText(AnnotatedString("https://t.me/+5PT1eAkb7CxjYzNi"))
+                                            clipboardManager.setText(AnnotatedString("https://github.com/audiz/YamSync"))
                                             copiedLink = true
                                         },
                                         shape = RoundedCornerShape(8.dp),
