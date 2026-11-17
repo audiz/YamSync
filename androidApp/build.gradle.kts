@@ -30,6 +30,19 @@ android {
         }
     }
 
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val output = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            val baseName = "yamsync"
+            output?.outputFileName = if (variant.buildType.name == "release") {
+                "$baseName-$appVersion.apk"
+            } else {
+                "$baseName-$appVersion-debug.apk"
+            }
+        }
+    }
+
     buildFeatures {
         compose = true
     }

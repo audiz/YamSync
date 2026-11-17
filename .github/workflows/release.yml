@@ -110,12 +110,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build Android APK
-        run: ./gradlew :androidApp:assembleDebug --stacktrace
+        run: ./gradlew :androidApp:assembleRelease --stacktrace
 
       - name: Collect Android Artifacts
         run: |
           mkdir -p release-android
-          cp androidApp/build/outputs/apk/debug/*.apk release-android/
+          VERSION="${APP_VERSION#v}"
+          [ -z "$VERSION" ] && VERSION="1.0.0"
+          APK_FILE=$(find androidApp/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            APK_FILE=$(find androidApp/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -n 1)
+          fi
+          cp "$APK_FILE" "release-android/yamsync-${VERSION}.apk"
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v4
@@ -193,15 +199,17 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
+          VERSION="${APP_VERSION#v}"
+          [ -z "$VERSION" ] && VERSION="1.0.0"
           mkdir -p release-ios/Payload
           cp -r build/iosApp.xcarchive/Products/Applications/*.app release-ios/Payload/
-          cd release-ios && zip -r yamusic-ios.ipa Payload
+          cd release-ios && zip -r "yamsync-${VERSION}.ipa" Payload
 
       - name: Upload iOS Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ios-binaries
-          path: release-ios/yamusic-ios.ipa
+          path: release-ios/*.ipa
 
   # ========================================================
   # 6. Публикация GitHub Release со всеми собранными файлами

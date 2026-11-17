@@ -322,12 +322,19 @@ YamSync нативно интегрирован в мультимедийные 
 
 ### 🤖 Android
 
+**Сборка Release APK:**
+```bash
+./gradlew :androidApp:assembleRelease
+```
+> Готовый APK файл:  
+> `androidApp/build/outputs/apk/release/yamsync-1.0.0.apk`
+
 **Сборка Debug APK:**
 ```bash
 ./gradlew :androidApp:assembleDebug
 ```
 > Готовый APK файл:  
-> `androidApp/build/outputs/apk/debug/androidApp-debug.apk`
+> `androidApp/build/outputs/apk/debug/yamsync-1.0.0-debug.apk`
 
 **Установка на подключенное Android-устройство:**
 ```bash
