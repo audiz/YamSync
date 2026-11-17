@@ -5,6 +5,7 @@ package io.github.audiz
  * Устраняют опечатки и централизуют доступ к настройкам приложения.
  */
 object AppConfigKeys {
+    const val STAR_PROMPT_STATE = "star_prompt_state"
     const val DOWNLOAD_QUALITY = "download_quality"
     const val APP_THEME = "app_theme"
     const val ACCENT_COLOR = "accent_color"

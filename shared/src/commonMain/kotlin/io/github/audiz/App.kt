@@ -51,6 +51,7 @@ import io.github.audiz.ui.EqualizerDialog
 import io.github.audiz.ui.MobileFullPlayerSheet
 import io.github.audiz.ui.BackHandler
 import io.github.audiz.dsp.EqualizerEngine
+import kotlinx.coroutines.launch
 
 private data class TrackDeleteConfirmInfo(
     val trackId: String,
@@ -62,6 +63,9 @@ private data class TrackDeleteConfirmInfo(
 fun App() {
     // Инициализируем вьюмодель реактивного состояния приложения
     val searchViewModel: SearchViewModel = viewModel { SearchViewModel() }
+
+    val supportScope = rememberCoroutineScope()
+    val starPromptManager = remember { io.github.audiz.support.StarPromptManager() }
 
     // 🔄 Фоновая проверка новой версии (ошибки сети игнорируются)
     val updateManager = remember { io.github.audiz.update.UpdateManager() }
@@ -285,6 +289,19 @@ fun App() {
                             .padding(horizontal = if (isMobileUi) 10.dp else 16.dp)
                             .padding(bottom = if (isMobileUi) 6.dp else 16.dp)
                     ) {
+                        io.github.audiz.support.StarSupportPrompt(
+                            manager = starPromptManager,
+                            canShow = !settingsExpanded && !showEqualizerDialog && !showPlaylistsDialog &&
+                                !showYamSyncDialog && !showLogsDialog && trackForPlaylistDialog == null &&
+                                trackToDelete == null && !(isMobileUi && isMobilePlayerExpanded) &&
+                                searchViewModel.errorMessage == null && !searchViewModel.isLoading &&
+                                !searchViewModel.isPlayTrackLoading,
+                            isPlaying = searchViewModel.playerIsPlaying && !searchViewModel.playerIsPaused &&
+                                !searchViewModel.isPlayTrackLoading,
+                            trackId = searchViewModel.playerTrackId,
+                            isLiked = searchViewModel.isCurrentTrackLiked,
+                            isSaved = searchViewModel.isCurrentTrackSavedToDisk
+                        )
                         // 🌊 Надпись над плеером: Моя Волна (на десктопе сохраняем прежнее поведение, на мобильных название уже внутри мини-плеера)
                         if (!isMobileUi && (searchViewModel.isWaveMode || (isFirstPage && searchViewModel.playerTrackId == null))) {
                             Row(
@@ -718,7 +735,8 @@ fun App() {
                     onSaveUiMode = { searchViewModel.saveUiMode(it) },
                     onSaveCrossfade = { searchViewModel.changeCrossfade(it) },
                     onToggleUiWatchdog = { searchViewModel.toggleUiWatchdog(it) },
-                    onRefreshPlusSubscription = { searchViewModel.refreshPlusSubscription() }
+                    onRefreshPlusSubscription = { searchViewModel.refreshPlusSubscription() },
+                    onProjectOpened = { supportScope.launch { starPromptManager.complete() } }
                 )
             )
 

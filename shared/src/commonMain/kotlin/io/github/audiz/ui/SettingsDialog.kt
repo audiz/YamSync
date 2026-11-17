@@ -93,6 +93,7 @@ data class SettingsActions(
     val onSaveCrossfade: (Int) -> Unit = {},
     val onToggleUiWatchdog: (Boolean) -> Unit = {},
     val onRefreshPlusSubscription: () -> Unit = {},
+    val onProjectOpened: () -> Unit = {},
 )
 
 /**
@@ -959,17 +960,29 @@ fun SettingsDialog(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 var copiedLink by remember { mutableStateOf(false) }
+                                var projectOpenFailed by remember { mutableStateOf(false) }
+                                if (projectOpenFailed) {
+                                    Text("Не удалось открыть браузер. Попробуйте ещё раз.", style = MaterialTheme.typography.bodySmall)
+                                }
 
-                                Row(
+                                FlowRow(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Button(
                                         onClick = {
-                                            uriHandler.openUri("https://github.com/audiz/YamSync")
+                                            try {
+                                                uriHandler.openUri(io.github.audiz.support.PROJECT_GITHUB_URL)
+                                                projectOpenFailed = false
+                                                actions.onProjectOpened()
+                                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                                throw e
+                                            } catch (_: Exception) {
+                                                projectOpenFailed = true
+                                            }
                                         },
-                                        modifier = Modifier.weight(1f).pointerHoverIcon(PointerIcon.Hand),
+                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                                         shape = RoundedCornerShape(8.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = Color(0xFF24292F),
@@ -995,7 +1008,7 @@ fun SettingsDialog(
 
                                     OutlinedButton(
                                         onClick = {
-                                            clipboardManager.setText(AnnotatedString("https://github.com/audiz/YamSync"))
+                                            clipboardManager.setText(AnnotatedString(io.github.audiz.support.PROJECT_GITHUB_URL))
                                             copiedLink = true
                                         },
                                         shape = RoundedCornerShape(8.dp),
