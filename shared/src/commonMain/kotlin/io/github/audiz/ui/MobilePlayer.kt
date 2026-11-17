@@ -46,6 +46,7 @@ import kotlinx.coroutines.delay
 import io.github.audiz.dsp.AudioVisualizer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -662,7 +663,7 @@ fun MobileFullPlayerSheet(
                         }
                     }
 
-                    // 🎛️ Вариант 1: Неоновый спектральный эквалайзер вдоль нижнего края обложки
+                    // Спектр почти во всю ширину обложки с небольшим отступом от нижнего края.
                     CoverSpectrumVisualizer(
                         isPlaying = state.isPlaying && !state.isPaused,
                         glowLeft = glowLeft,
@@ -1149,14 +1150,8 @@ fun extractAmbilightPalette(bitmap: androidx.compose.ui.graphics.ImageBitmap?): 
 }
 
 /**
- * 🎛️ Неоновый спектральный визуализатор Winamp Pro вдоль нижнего края обложки альбома (Вариант 1)
- *
- * Особенности:
- * - 19 честных аппаратных частотных полос Winamp Pro (20 Гц .. 20 кГц), рассчитанных прямо из аудиопотока.
- * - Парящие пиковые засечки (Peak Caps) с физикой свободного падения Winamp Pro.
- * - Цветовой градиент от левого к правому цвету текущей палитры обложки (Ambilight glowLeft -> glowRight).
- * - Полупрозрачный темный градиент-подложка снизу карточки для четкой видимости на любых обложках.
- * - Клик по любой точке спектра открывает 10-полосный эквалайзер.
+ * Спектр вдоль нижнего края обложки: ширина 94%, высота до 20% её стороны.
+ * Цвета следуют палитре обложки; клик открывает эквалайзер.
  */
 @Composable
 fun CoverSpectrumVisualizer(
@@ -1192,17 +1187,18 @@ fun CoverSpectrumVisualizer(
     val barLevels = frame.levels
     val capLevels = frame.peakCaps
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(78.dp)
+            .aspectRatio(1f / 0.28f)
+            .clip(RoundedCornerShape(bottomStart = coverCornerRadius, bottomEnd = coverCornerRadius))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color(0x33080C16),
-                        Color(0x99080C16),
-                        Color(0xDE080C16)
+                        Color(0x08000000),
+                        Color(0x33000000),
+                        Color(0x80000000)
                     )
                 )
             )
@@ -1214,19 +1210,21 @@ fun CoverSpectrumVisualizer(
             )
             .pointerHoverIcon(if (onOpenEqualizer != null) PointerIcon.Hand else PointerIcon.Default)
     ) {
-        // 📊 Спектральные столбики с парящими пиками (30 полос Winamp Pro / 1/3 октавы)
+        // Размеры следуют фактической ширине квадратной обложки.
+        val bottomInset = maxWidth * 0.03f
+        val spectrumHeight = maxWidth * 0.20f
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(spectrumHeight + bottomInset)
                 .align(Alignment.BottomCenter)
+                .padding(bottom = bottomInset)
         ) {
             val totalW = size.width
             val maxH = size.height
             if (totalW <= 0f || maxH <= 0f) return@Canvas
 
-            // Полосы занимают только прямой участок нижней границы обложки.
-            val sideInset = coverCornerRadius.toPx().coerceIn(0f, totalW / 2f)
+            val sideInset = totalW * 0.03f
             val availableW = totalW - 2f * sideInset
             if (availableW <= 0f) return@Canvas
             val preferredSpacing = if (numBars >= 25) 2.dp.toPx() else 4.dp.toPx()
@@ -1238,8 +1236,8 @@ fun CoverSpectrumVisualizer(
 
             val barBrush = Brush.horizontalGradient(
                 colors = listOf(
-                    glowLeft.copy(alpha = 0.92f),
-                    glowRight.copy(alpha = 0.92f)
+                    lerp(glowLeft, Color(0xFFFFF3D4), 0.55f).copy(alpha = 0.92f),
+                    lerp(glowRight, Color(0xFFFFF3D4), 0.55f).copy(alpha = 0.92f)
                 ),
                 startX = startX,
                 endX = startX + totalBarsW
@@ -1252,10 +1250,11 @@ fun CoverSpectrumVisualizer(
                 val y = maxH - h
 
                 // Все столбики имеют общую плоскую нижнюю границу.
-                drawRect(
+                drawRoundRect(
                     brush = barBrush,
                     topLeft = Offset(x, y),
-                    size = Size(barW, h)
+                    size = Size(barW, h),
+                    cornerRadius = CornerRadius(minOf(1.dp.toPx(), barW * 0.2f))
                 )
 
                 // 2. Парящая пиковая засечка (Winamp Peak Cap, прямоугольная)
