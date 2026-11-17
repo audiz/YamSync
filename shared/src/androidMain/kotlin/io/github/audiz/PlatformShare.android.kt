@@ -14,11 +14,7 @@ actual fun shareTrackFile(
 ) {
     val context = try { AppContextHolder.appContext } catch (_: Throwable) { return }
     val file = File(filePath)
-    val caption = buildString {
-        append("🎵 ").append(if (artist.isNotBlank()) "$artist — $title" else title).append("\n")
-        append("🔗 Deep Link: yamsync://track/$trackId\n")
-        append("🌐 Яндекс Музыка: https://music.yandex.ru/track/$trackId")
-    }
+    val caption = buildTrackShareCaption(title, artist, trackId)
 
     try {
         if (file.exists()) {

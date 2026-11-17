@@ -13,11 +13,7 @@ actual fun shareTrackFile(
     trackId: String,
     albumId: Long?
 ) {
-    val caption = buildString {
-        append("🎵 ").append(if (artist.isNotBlank()) "$artist — $title" else title).append("\n")
-        append("🔗 Deep Link: yamsync://track/$trackId\n")
-        append("🌐 Яндекс Музыка: https://music.yandex.ru/track/$trackId")
-    }
+    val caption = buildTrackShareCaption(title, artist, trackId)
 
     // 1. Копируем текст в системный буфер обмена iOS
     try {

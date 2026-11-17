@@ -13,12 +13,7 @@ actual fun shareTrackFile(
     albumId: Long?
 ) {
     val file = File(filePath)
-    val caption = buildString {
-        append("🎵 ").append(if (artist.isNotBlank()) "$artist — $title" else title).append("\n")
-        append("▶️ Открыть в YamSync: http://127.0.0.1:48293/track/$trackId\n")
-        append("🔗 Deep Link: yamsync://track/$trackId\n")
-        append("🌐 Яндекс Музыка: https://music.yandex.ru/track/$trackId")
-    }
+    val caption = buildTrackShareCaption(title, artist, trackId, includeLocalLink = true)
 
     try {
         if (file.exists()) {
