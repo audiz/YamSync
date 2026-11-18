@@ -58,6 +58,9 @@ class MusicRepository(
     suspend fun searchInstant(query: String): YandexMusicResponse =
         searchClient.searchInstant(query)
 
+    suspend fun searchSuggestions(query: String): YandexMusicResponse =
+        searchClient.searchInstant(query, pageSize = 6, types = "artist,track")
+
     suspend fun getTrackIds(artistId: String): YandexArtistTrackIdsResponse =
         searchClient.getTrackIds(artistId)
 

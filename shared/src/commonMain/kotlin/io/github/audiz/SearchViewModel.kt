@@ -36,6 +36,9 @@ import io.github.audiz.tracklist.TrackListCoordinator
 import io.github.audiz.tracklist.TrackListNavigation
 import io.github.audiz.tracklist.TrackListScrollRequest
 import io.github.audiz.util.AppLogger
+import io.github.audiz.search.SearchSuggestion
+import io.github.audiz.search.SearchSuggestionType
+import io.github.audiz.search.buildSearchSuggestions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -868,6 +871,32 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         settingsManager.saveMusicPath(newPath)
     }
 
+    suspend fun getSearchSuggestions(query: String): List<SearchSuggestion> {
+        val text = query.trim()
+        if (text.isEmpty() || DeepLinkHandler.extractTrackId(text) != null) return emptyList()
+        return withContext(DispatcherIO) {
+            val results = if (currentAccessToken.isBlank()) emptyList() else try {
+                repository.searchSuggestions(text).result?.results.orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
+            buildSearchSuggestions(text, results)
+        }
+    }
+
+    fun selectSearchSuggestion(suggestion: SearchSuggestion) {
+        searchQuery = suggestion.title
+        when (suggestion.type) {
+            SearchSuggestionType.ARTIST -> suggestion.artist?.let { loadArtistTracks(it.id, it.name) }
+            SearchSuggestionType.TRACK -> suggestion.track?.let {
+                playTrack(it.id, it.title, it.artists.joinToString(", ") { artist -> artist.name })
+            }
+            SearchSuggestionType.QUERY -> performSearch()
+        }
+    }
+
     fun performSearch() {
         val query = searchQuery.trim()
         if (query.isBlank() || isLoading) return
@@ -894,6 +923,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     repository.searchInstant(query)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 errorMessage = e.message ?: e.toString()
                 AppLogger.e("SearchViewModel", "Ошибка поиска: ${e.message}")
             } finally {

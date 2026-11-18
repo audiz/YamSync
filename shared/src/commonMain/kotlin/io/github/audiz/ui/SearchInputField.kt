@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,6 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -31,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import io.github.audiz.getPlatform
+import io.github.audiz.search.SearchSuggestion
+import kotlinx.coroutines.delay
 
 @Composable
 fun SearchInputField(
@@ -40,7 +48,9 @@ fun SearchInputField(
     isLoading: Boolean,
     onClear: (() -> Unit)? = null,
     onSettingsClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    loadSuggestions: suspend (String) -> List<SearchSuggestion> = { emptyList() },
+    onSuggestionClick: (SearchSuggestion) -> Unit = {}
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -50,8 +60,30 @@ fun SearchInputField(
     val parsedTrackId = remember(query) { io.github.audiz.DeepLinkHandler.extractTrackId(query) }
     val isLink = parsedTrackId != null
     val isMobile = remember { getPlatform().isMobile }
+    var suggestions by remember(query, isFocused, isLink, isLoading) {
+        mutableStateOf<List<SearchSuggestion>>(emptyList())
+    }
+    var suggestionsDismissed by remember(query, isFocused) { mutableStateOf(false) }
+    var selectedSuggestion by remember(query, suggestions) { mutableStateOf(-1) }
+    val suggestionsExpanded = isFocused && !isLink && !isLoading && !suggestionsDismissed && suggestions.isNotEmpty()
+
+    LaunchedEffect(query, isFocused, isLink, isLoading, suggestionsDismissed) {
+        suggestions = emptyList()
+        if (isFocused && query.isNotBlank() && !isLink && !isLoading && !suggestionsDismissed) {
+            delay(300)
+            suggestions = loadSuggestions(query)
+        }
+    }
+
+    val selectSuggestion: (SearchSuggestion) -> Unit = { suggestion ->
+        suggestionsDismissed = true
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        onSuggestionClick(suggestion)
+    }
 
     val handleSearch = {
+        suggestionsDismissed = true
         keyboardController?.hide()
         focusManager.clearFocus()
         if (query.isNotBlank() && !isLoading) {
@@ -101,7 +133,29 @@ fun SearchInputField(
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown || !suggestionsExpanded) {
+                            false
+                        } else when (event.key) {
+                            Key.DirectionDown -> {
+                                selectedSuggestion = (selectedSuggestion + 1) % suggestions.size
+                                true
+                            }
+                            Key.DirectionUp -> {
+                                selectedSuggestion = if (selectedSuggestion <= 0) suggestions.lastIndex else selectedSuggestion - 1
+                                true
+                            }
+                            Key.Enter, Key.NumPadEnter -> {
+                                suggestions.getOrNull(selectedSuggestion)?.let(selectSuggestion) ?: handleSearch()
+                                true
+                            }
+                            Key.Escape -> {
+                                suggestionsDismissed = true
+                                true
+                            }
+                            else -> false
+                        }
+                    },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurface
@@ -110,7 +164,11 @@ fun SearchInputField(
                     interactionSource = interactionSource,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(
-                        onSearch = { handleSearch() }
+                        onSearch = {
+                            if (suggestionsExpanded && selectedSuggestion >= 0) {
+                                suggestions.getOrNull(selectedSuggestion)?.let(selectSuggestion)
+                            } else handleSearch()
+                        }
                     )
                 )
             }
@@ -276,5 +334,14 @@ fun SearchInputField(
                 trailingButton()
             }
         }
+        SearchSuggestionsMenu(
+            expanded = suggestionsExpanded,
+            suggestions = suggestions,
+            query = query,
+            selectedIndex = selectedSuggestion,
+            width = maxWidth,
+            onDismiss = { suggestionsDismissed = true },
+            onSelect = selectSuggestion
+        )
     }
 }

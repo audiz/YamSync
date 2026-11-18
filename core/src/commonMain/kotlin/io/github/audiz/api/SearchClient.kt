@@ -21,14 +21,18 @@ class SearchClient(
         with(context) { applyAuthHeaders() }
     }
 
-    suspend fun searchInstant(query: String): YandexMusicResponse {
+    suspend fun searchInstant(
+        query: String,
+        pageSize: Int = 36,
+        types: String = "album,artist,playlist,track,wave,podcast,podcast_episode,clip,concert"
+    ): YandexMusicResponse {
         val response = client.get(ApiUrls.SEARCH_URL) {
             applyAuthHeaders()
 
             parameter("text", query)
-            parameter("type", "album,artist,playlist,track,wave,podcast,podcast_episode,clip,concert")
+            parameter("type", types)
             parameter("page", 0)
-            parameter("pageSize", 36)
+            parameter("pageSize", pageSize)
             parameter("withLikesCount", true)
             parameter("withBestResults", true)
         }

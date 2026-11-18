@@ -393,7 +393,9 @@ fun App() {
                                             onSearchClick = { searchViewModel.performSearch() },
                                             onClear = { searchViewModel.clearSearch() },
                                             isLoading = searchViewModel.isLoading,
-                                            onSettingsClick = { settingsExpanded = true }
+                                            onSettingsClick = { settingsExpanded = true },
+                                            loadSuggestions = searchViewModel::getSearchSuggestions,
+                                            onSuggestionClick = searchViewModel::selectSearchSuggestion
                                         )
                                     }
 
