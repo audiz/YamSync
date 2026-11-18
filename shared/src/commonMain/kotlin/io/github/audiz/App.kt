@@ -302,62 +302,6 @@ fun App() {
                             isLiked = searchViewModel.isCurrentTrackLiked,
                             isSaved = searchViewModel.isCurrentTrackSavedToDisk
                         )
-                        // 🌊 Надпись над плеером: Моя Волна (на десктопе сохраняем прежнее поведение, на мобильных название уже внутри мини-плеера)
-                        if (!isMobileUi && (searchViewModel.isWaveMode || (isFirstPage && searchViewModel.playerTrackId == null))) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 4.dp, end = 4.dp, bottom = 4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Waves,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                val thematicWaveTitle = searchViewModel.currentWaveTitle?.takeIf {
-                                    it.isNotBlank() && !it.equals("Моя Волна", ignoreCase = true)
-                                }
-                                Text(
-                                    text = if (thematicWaveTitle != null) {
-                                        "Моя Волна • $thematicWaveTitle"
-                                    } else {
-                                        "Моя Волна"
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                if (thematicWaveTitle != null) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { searchViewModel.resetToDefaultWave() }
-                                            )
-                                            .pointerHoverIcon(PointerIcon.Hand),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Close,
-                                            contentDescription = "Сбросить к персональной Волне",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
                         PlayerBar(
                             state = playerBarState,
                             actions = playerBarActions
