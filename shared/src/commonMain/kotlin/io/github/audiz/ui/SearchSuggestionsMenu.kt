@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -14,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.SpanStyle
@@ -79,12 +81,13 @@ internal fun SearchSuggestionsMenu(
                 ) {
                     Icon(
                         imageVector = when (suggestion.type) {
+                            SearchSuggestionType.LOCAL_TRACK -> Icons.Filled.DownloadDone
                             SearchSuggestionType.ARTIST -> Icons.Filled.Person
                             SearchSuggestionType.TRACK -> Icons.Filled.MusicNote
                             SearchSuggestionType.QUERY -> Icons.Filled.Search
                         },
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (suggestion.type == SearchSuggestionType.LOCAL_TRACK) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
                     Column(
@@ -109,9 +112,15 @@ internal fun SearchSuggestionsMenu(
                     }
                     Text(
                         text = suggestion.type.label,
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.background(
+                            if (suggestion.type == SearchSuggestionType.LOCAL_TRACK) {
+                                Color(0xFF10B981).copy(alpha = 0.15f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            RoundedCornerShape(5.dp)
+                        ).padding(horizontal = 6.dp, vertical = 3.dp),
+                        color = if (suggestion.type == SearchSuggestionType.LOCAL_TRACK) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

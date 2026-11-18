@@ -592,6 +592,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         private set
     private var queueScrollRequestId = 0L
 
+    fun requestScrollToTrack(trackId: String) {
+        queueScrollRequest = TrackListScrollRequest(++queueScrollRequestId, trackId)
+    }
+
     private fun requestScrollToPlayingTrack() {
         val trackId = playerTrackId ?: currentWaveTrack?.id ?: return
         val queue = trackListNavigation.active
@@ -871,10 +875,45 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         settingsManager.saveMusicPath(newPath)
     }
 
+    var highlightedTrackId by mutableStateOf<String?>(null)
+        private set
+
+    fun highlightTrack(trackId: String) {
+        highlightedTrackId = trackId
+        viewModelScope.launch {
+            delay(2500)
+            if (highlightedTrackId == trackId) {
+                highlightedTrackId = null
+            }
+        }
+    }
+
+    private var cachedLocalTracks: List<FullTrackInfo> = emptyList()
+    private var cachedLocalTracksPath: String = ""
+    private var cachedLocalTracksVersion: Long = -1L
+    private val localTracksLock = Any()
+
+    fun getCachedLocalTracks(): List<FullTrackInfo> {
+        val storagePath = settingsManager.musicStoragePath.trim()
+        if (storagePath.isBlank()) return emptyList()
+        val currentVersion = LocalTrackResolver.globalCacheVersion
+        synchronized(localTracksLock) {
+            if (cachedLocalTracksVersion == currentVersion && cachedLocalTracksPath == storagePath && cachedLocalTracks.isNotEmpty()) {
+                return cachedLocalTracks
+            }
+            val scanned = scanDownloadedTracks(storagePath)
+            cachedLocalTracks = scanned
+            cachedLocalTracksPath = storagePath
+            cachedLocalTracksVersion = currentVersion
+            return scanned
+        }
+    }
+
     suspend fun getSearchSuggestions(query: String): List<SearchSuggestion> {
         val text = query.trim()
         if (text.isEmpty() || DeepLinkHandler.extractTrackId(text) != null) return emptyList()
         return withContext(DispatcherIO) {
+            val localTracks = getCachedLocalTracks()
             val results = if (currentAccessToken.isBlank()) emptyList() else try {
                 repository.searchSuggestions(text).result?.results.orEmpty()
             } catch (e: CancellationException) {
@@ -882,19 +921,31 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             } catch (_: Exception) {
                 emptyList()
             }
-            buildSearchSuggestions(text, results)
+            buildSearchSuggestions(text, results, localTracks)
         }
     }
 
     fun selectSearchSuggestion(suggestion: SearchSuggestion) {
         searchQuery = suggestion.title
         when (suggestion.type) {
+            SearchSuggestionType.LOCAL_TRACK -> suggestion.localTrack?.let {
+                openLocalTrackInDownloadedList(it)
+            } ?: performSearch()
             SearchSuggestionType.ARTIST -> suggestion.artist?.let {
                 loadArtistTracks(it.id, it.name)
             } ?: performSearch()
             SearchSuggestionType.TRACK,
             SearchSuggestionType.QUERY -> performSearch()
         }
+    }
+
+    fun openLocalTrackInDownloadedList(track: FullTrackInfo) {
+        searchQuery = track.title
+        clearSearch()
+        closeArtistTracks()
+        loadDownloadedTracksPlaylist()
+        requestScrollToTrack(track.id)
+        highlightTrack(track.id)
     }
 
     fun performSearch() {

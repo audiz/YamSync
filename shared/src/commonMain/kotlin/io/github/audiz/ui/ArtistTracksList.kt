@@ -79,6 +79,7 @@ fun ArtistTracksList(
     isTrackInPlaylist: ((FullTrackInfo) -> Boolean)? = null,
     scrollToTrackRequest: TrackListScrollRequest? = null,
     onScrollToTrackHandled: (TrackListScrollRequest) -> Unit = {},
+    highlightedTrackId: String? = null,
     isPlaybackQueue: Boolean = true,
     modifier: Modifier = Modifier
 ) {
@@ -255,6 +256,8 @@ fun ArtistTracksList(
                         val isDownloaded = track.isLocal || isTrackDownloaded(artistsString, track.title)
                         val isInPlaylist = isTrackInPlaylist?.invoke(track) ?: false
 
+                        val isHighlighted = highlightedTrackId != null && PlaybackQueueManager.isSameTrack(track, highlightedTrackId)
+
                         TrackItemCard(
                             track = track,
                             state = TrackItemState(
@@ -265,6 +268,7 @@ fun ArtistTracksList(
                                 isInPlaylist = isInPlaylist,
                                 playbackPositionMs = playbackPositionMs,
                                 playbackDurationMs = playbackDurationMs,
+                                isHighlighted = isHighlighted
                             ),
                             actions = TrackItemActions(
                                 onPlay = { onPlayTrack(track.id, track.title, artistsString) },

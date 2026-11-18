@@ -1,5 +1,6 @@
 package io.github.audiz.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,6 +33,7 @@ data class TrackItemState(
     val isInPlaylist: Boolean = false,
     val playbackPositionMs: Long = 0L,
     val playbackDurationMs: Long = 0L,
+    val isHighlighted: Boolean = false
 )
 
 /**
@@ -63,9 +65,12 @@ fun TrackItemCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
+        border = if (state.isHighlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(
             containerColor = if (state.isActive) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+            } else if (state.isHighlighted) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
             } else {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             }

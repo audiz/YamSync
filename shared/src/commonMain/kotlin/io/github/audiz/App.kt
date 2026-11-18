@@ -520,6 +520,7 @@ fun App() {
                             isPlaybackQueue = !searchViewModel.isPreviewingTrackList,
                             scrollToTrackRequest = searchViewModel.queueScrollRequest,
                             onScrollToTrackHandled = searchViewModel::consumeQueueScrollRequest,
+                            highlightedTrackId = searchViewModel.highlightedTrackId,
                             tracks = searchViewModel.loadedTracks,
                             canLoadMore = searchViewModel.canLoadMore,
                             onLoadMore = { searchViewModel.loadNextPage() },

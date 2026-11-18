@@ -2,6 +2,8 @@ package io.github.audiz.search
 
 import io.github.audiz.models.ArtistCounts
 import io.github.audiz.models.ArtistInfo
+import io.github.audiz.models.FullArtistInfo
+import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.TrackArtistInfo
 import io.github.audiz.models.TrackInfo
 import io.github.audiz.models.TypedResult
@@ -76,6 +78,28 @@ class SearchSuggestionTest {
 
         assertEquals("Rock, alternative • 120 треков • 450K лайков", suggestions[0].subtitle)
         assertEquals("Garbage", suggestions[1].subtitle)
+    }
+
+    @Test
+    fun prioritizesLocalTracksWithSpecialBadgeAndSubtitle() {
+        val localTrack = FullTrackInfo(
+            id = "local:/music/Queen - Bohemian Rhapsody.mp3",
+            title = "Bohemian Rhapsody",
+            artists = listOf(FullArtistInfo(id = 1L, name = "Queen")),
+            durationMs = 354_000
+        )
+        val suggestions = buildSearchSuggestions(
+            query = "bohem",
+            results = emptyList(),
+            localTracks = listOf(localTrack)
+        )
+
+        assertEquals(2, suggestions.size)
+        assertEquals("Bohemian Rhapsody", suggestions[0].title)
+        assertEquals(SearchSuggestionType.LOCAL_TRACK, suggestions[0].type)
+        assertEquals("Queen • На диске", suggestions[0].subtitle)
+        assertEquals(localTrack, suggestions[0].localTrack)
+        assertEquals(SearchSuggestionType.QUERY, suggestions[1].type)
     }
 
     @Test
