@@ -60,12 +60,12 @@
         <sub><b>🎚️ 10-полосный EQ и Срезы</b></sub>
       </td>
       <td align="center" style="border: none; padding: 6px;">
-        <img src="docs/screenshots/pc.png" width="175" alt="Десктопная версия YamSync для Linux и Windows" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
-        <sub><b>🖥️ Десктоп / Winamp вид</b></sub>
+        <img src="docs/screenshots/sync.png" width="175" alt="P2P синхронизация фонотеки YamSync по Wi-Fi" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
+        <sub><b>⚡ Wi-Fi Синхронизация</b></sub>
       </td>
       <td align="center" style="border: none; padding: 6px;">
-        <img src="docs/screenshots/settings.png" width="175" alt="Настройки и синхронизация YamSync" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
-        <sub><b>⚙️ Настройки и Синхронизация</b></sub>
+        <img src="docs/screenshots/settings.png" width="175" alt="Настройки, темы и кроссфейд в YamSync" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"><br>
+        <sub><b>⚙️ Настройки и Темы</b></sub>
       </td>
     </tr>
   </table>
