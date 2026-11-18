@@ -41,7 +41,7 @@ internal fun SearchSuggestionsMenu(
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
-        modifier = Modifier.width(width).heightIn(max = 280.dp),
+        modifier = Modifier.width(width).heightIn(max = 320.dp),
         offset = DpOffset(0.dp, 6.dp),
         shape = RoundedCornerShape(12.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -87,13 +87,26 @@ internal fun SearchSuggestionsMenu(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
-                    Text(
-                        text = text,
+                    Column(
                         modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (!suggestion.subtitle.isNullOrBlank()) {
+                            Text(
+                                text = suggestion.subtitle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                            )
+                        }
+                    }
                     Text(
                         text = suggestion.type.label,
                         modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))

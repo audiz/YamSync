@@ -1,6 +1,8 @@
 package io.github.audiz.search
 
+import io.github.audiz.models.ArtistCounts
 import io.github.audiz.models.ArtistInfo
+import io.github.audiz.models.TrackArtistInfo
 import io.github.audiz.models.TrackInfo
 import io.github.audiz.models.TypedResult
 import kotlin.test.Test
@@ -50,6 +52,30 @@ class SearchSuggestionTest {
         assertEquals(5, suggestions.size)
         assertEquals("Artist 4", suggestions[3].title)
         assertEquals(SearchSuggestionType.QUERY, suggestions.last().type)
+    }
+
+    @Test
+    fun formatsSubtitlesForArtistsAndTracks() {
+        val artist = ArtistInfo(
+            id = "1",
+            name = "Garbage",
+            genres = listOf("rock", "alternative"),
+            counts = ArtistCounts(tracks = 120),
+            likesCount = 450_000
+        )
+        val track = TrackInfo(
+            id = "2",
+            title = "Cherry Lips",
+            durationMs = 190_000,
+            artists = listOf(TrackArtistInfo(id = 1L, name = "Garbage"))
+        )
+        val suggestions = buildSearchSuggestions("gar", listOf(
+            TypedResult("artist", artist = artist),
+            TypedResult("track", track = track)
+        ))
+
+        assertEquals("Rock, alternative • 120 треков • 450K лайков", suggestions[0].subtitle)
+        assertEquals("Garbage", suggestions[1].subtitle)
     }
 
     @Test
