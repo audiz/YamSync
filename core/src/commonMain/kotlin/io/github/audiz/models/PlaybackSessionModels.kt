@@ -16,6 +16,7 @@ enum class LastPlaybackType {
     YANDEX_UUID,           // Персональный или кураторский плейлист Яндекс по UUID
     YANDEX_LIKES,          // Плейлист «Мне нравится»
     YANDEX_HISTORY,        // Плейлист «История прослушиваний»
+    ALBUM,
     ARTIST                 // Популярные треки артиста
 }
 
@@ -34,6 +35,7 @@ data class LastPlaybackSession(
     val uuid: String? = null,
     val uid: Long? = null,
     val kind: Long? = null,
+    val albumId: Long? = null,
     val artistId: String? = null,
     val artistName: String? = null,
     val waveTitle: String? = null,

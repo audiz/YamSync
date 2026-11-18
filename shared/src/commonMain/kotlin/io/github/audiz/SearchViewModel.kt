@@ -150,7 +150,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     val isUserPlaylistsLoading: Boolean
         get() = playlistManager.isUserPlaylistsLoading
     var currentOpenUserPlaylist: PlaylistInfo?
-        get() = if (trackListNavigation.isPreview) null else playlistManager.currentOpenUserPlaylist
+        get() = if (trackListNavigation.isPreview) trackListCoordinator.viewedUserPlaylist else playlistManager.currentOpenUserPlaylist
         set(value) { playlistManager.currentOpenUserPlaylist = value }
 
     // ☁️ Кеш идентификаторов треков пользовательских плейлистов Яндекс (kind -> Set<trackId>)
@@ -526,7 +526,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             if (isWave) {
                 playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
             }
-            playbackSessionManager.updateLastTrack(
+            if (playbackManager.upNextQueue.state.current?.inserted != true) playbackSessionManager.updateLastTrack(
                 trackId = trackId,
                 trackTitle = title,
                 artistName = artist,
@@ -619,7 +619,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     private fun browseTrackList(session: LastPlaybackSession, load: (TrackListCoordinator) -> Unit) {
         queueScrollRequest = null
         closeTrackListPreview()
-        val coordinator = createTrackListCoordinator()
+        val coordinator = createTrackListCoordinator().apply { isBrowsingPreview = true }
         trackListNavigation.browse(coordinator, session)
         load(coordinator)
     }
@@ -754,7 +754,10 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             loadPersonalPlaylists()
             loadUserPlaylists()
         }
-        restoreLastPlaybackSession()
+        viewModelScope.launch {
+            playbackManager.restoreUpNextQueue()
+            restoreLastPlaybackSession()
+        }
     }
 
     /**
@@ -822,10 +825,12 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     fun loadInitialWave(autoPlay: Boolean = false, source: TrackPlaySource = TrackPlaySource.PLAY) {
+        if (autoPlay) playbackManager.clearUpNextForSelection()
         waveManager.loadInitialWave(autoPlay, source)
     }
 
     fun playWaveTrack(index: Int = waveCurrentIndex, source: TrackPlaySource = TrackPlaySource.PLAY) {
+        playbackManager.clearUpNextForSelection()
         playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
         waveManager.playWaveTrack(index, source)
     }
@@ -849,6 +854,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     fun startThematicWave(title: String?, seeds: List<String>, autoPlay: Boolean = true) {
+        if (autoPlay) playbackManager.clearUpNextForSelection()
         playbackSessionManager.recordWave(title, seeds)
         waveManager.startThematicWave(title, seeds, autoPlay = autoPlay)
     }
@@ -858,6 +864,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     fun resetToDefaultWave() {
+        playbackManager.clearUpNextForSelection()
         playbackSessionManager.recordWave(null, emptyList())
         waveManager.resetToDefaultWave()
     }
@@ -1128,8 +1135,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         if (!trackListNavigation.isPreview) currentOpenUserPlaylist = null
     }
 
-    fun loadDownloadedTracksPlaylist(restoreTrackId: String? = null) =
-        playbackListForNavigation().loadDownloadedTracksPlaylist(restoreTrackId)
+    fun loadDownloadedTracksPlaylist(restoreTrackId: String? = null) {
+        if (restoreTrackId == null) {
+            browseTrackList(LastPlaybackSession(type = LastPlaybackType.DOWNLOADED, title = "Загруженная музыка")) {
+                it.loadDownloadedTracksPlaylist(previewOnly = true)
+            }
+        } else {
+            playbackListForNavigation().loadDownloadedTracksPlaylist(restoreTrackId)
+        }
+    }
 
     fun loadArtistTracks(artistId: String, artistName: String? = null, restoreTrackId: String? = null) {
         queueScrollRequest = null
@@ -1139,7 +1153,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             return
         }
         closeTrackListPreview()
-        val coordinator = createTrackListCoordinator()
+        val coordinator = createTrackListCoordinator().apply { isBrowsingPreview = true }
         trackListNavigation.browse(
             coordinator,
             LastPlaybackSession(
@@ -1159,7 +1173,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             val session = trackListNavigation.selectTrack()
             previousQueue.dispose()
             if (session != null) playbackSessionManager.recordSession(session)
-            playlistManager.currentOpenUserPlaylist = null
+            trackListCoordinator.isBrowsingPreview = false
+            playlistManager.currentOpenUserPlaylist = trackListCoordinator.viewedUserPlaylist
             playTrack(trackId, trackTitle, artistName)
         } else {
             val waveIndex = if (isWaveMode) waveTracks.indexOfFirst { it.id == trackId } else -1
@@ -1201,23 +1216,38 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         }
     }
 
-    fun loadPlaylist(playlist: PlaylistInfo, restoreTrackId: String? = null) =
-        playbackListForNavigation().loadPlaylist(playlist, restoreTrackId)
+    private fun browseOrRestore(
+        session: LastPlaybackSession,
+        restoreTrackId: String?,
+        load: (TrackListCoordinator) -> Unit
+    ) {
+        if (restoreTrackId == null) browseTrackList(session, load) else load(playbackListForNavigation())
+    }
 
-    fun loadAlbumTracks(albumId: Long, albumTitle: String, restoreTrackId: String? = null) =
-        playbackListForNavigation().loadAlbumTracks(albumId, albumTitle, restoreTrackId)
+    fun loadPlaylist(playlist: PlaylistInfo, restoreTrackId: String? = null) = browseOrRestore(
+        LastPlaybackSession(type = LastPlaybackType.YANDEX_USER_PLAYLIST, uid = playlist.uid,
+            kind = playlist.kind, uuid = playlist.playlistUuid, title = playlist.title), restoreTrackId
+    ) { it.loadPlaylist(playlist, restoreTrackId) }
 
-    fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null, restoreTrackId: String? = null) =
-        playbackListForNavigation().loadPlaylistTracks(uid, kind, playlistTitle, restoreTrackId)
+    fun loadAlbumTracks(albumId: Long, albumTitle: String, restoreTrackId: String? = null) = browseOrRestore(
+        LastPlaybackSession(type = LastPlaybackType.ALBUM, albumId = albumId, title = albumTitle), restoreTrackId
+    ) { it.loadAlbumTracks(albumId, albumTitle, restoreTrackId) }
 
-    fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null, restoreTrackId: String? = null) =
-        playbackListForNavigation().loadPlaylistByUuid(uuid, playlistTitle, restoreTrackId)
+    fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null, restoreTrackId: String? = null) = browseOrRestore(
+        LastPlaybackSession(type = LastPlaybackType.YANDEX_USER_PLAYLIST, uid = uid, kind = kind, title = playlistTitle), restoreTrackId
+    ) { it.loadPlaylistTracks(uid, kind, playlistTitle, restoreTrackId) }
 
-    fun loadLikesPlaylist(restoreTrackId: String? = null) =
-        playbackListForNavigation().loadLikesPlaylist(restoreTrackId)
+    fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null, restoreTrackId: String? = null) = browseOrRestore(
+        LastPlaybackSession(type = LastPlaybackType.YANDEX_UUID, uuid = uuid, title = playlistTitle), restoreTrackId
+    ) { it.loadPlaylistByUuid(uuid, playlistTitle, restoreTrackId) }
 
-    fun loadHistory(restoreTrackId: String? = null) =
-        playbackListForNavigation().loadHistory(restoreTrackId)
+    fun loadLikesPlaylist(restoreTrackId: String? = null) = browseOrRestore(
+        LastPlaybackSession(type = LastPlaybackType.YANDEX_LIKES, title = "Мне нравится"), restoreTrackId
+    ) { it.loadLikesPlaylist(restoreTrackId) }
+
+    fun loadHistory(restoreTrackId: String? = null) = browseOrRestore(
+        LastPlaybackSession(type = LastPlaybackType.YANDEX_HISTORY, title = "История прослушиваний"), restoreTrackId
+    ) { it.loadHistory(restoreTrackId) }
 
     /**
      * 🎵 Загрузка персональных плейлистов (Плейлист дня, Премьера, Дежавю и др.)
@@ -1436,8 +1466,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     /**
      * 📂 Открыть пользовательский источник (папку, отдельный аудиофайл или M3U-плейлист)
      */
-    fun openCustomSource(source: CustomMediaSource, restoreTrackId: String? = null) =
-        playbackListForNavigation().openCustomSource(source, restoreTrackId)
+    fun openCustomSource(source: CustomMediaSource, restoreTrackId: String? = null) {
+        if (restoreTrackId == null) {
+            browseTrackList(LastPlaybackSession(
+                type = LastPlaybackType.CUSTOM_SOURCE, sourceId = source.id, path = source.path, title = source.name
+            )) { it.openCustomSource(source, previewOnly = true) }
+        } else {
+            playbackListForNavigation().openCustomSource(source, restoreTrackId)
+        }
+    }
 
     /**
      * 🔍 Получить листинг содержимого директории для проводника
@@ -1703,6 +1740,30 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun stopPlayback() = playbackManager.stopPlayback()
 
     fun seekPlayer(positionMs: Long) = playbackManager.seekTo(positionMs)
+
+    val upNextState get() = playbackManager.upNextQueue.state
+    val upNextContinuationTitle get() = if (isWaveMode) currentWaveTitle ?: "Моя Волна"
+        else trackListNavigation.active.currentScreenTitle
+
+    fun addToUpNext(track: FullTrackInfo, first: Boolean = false) {
+        playbackManager.addToUpNext(track, first)
+        storageStatusMessage = if (first) "Трек будет играть следующим" else "Трек добавлен в очередь «Далее»"
+    }
+
+    fun removeFromUpNext(key: Long) {
+        playbackManager.upNextQueue.remove(key)
+        playbackManager.refreshUpNextPreload()
+    }
+
+    fun moveUpNext(key: Long, offset: Int) {
+        playbackManager.upNextQueue.move(key, offset)
+        playbackManager.refreshUpNextPreload()
+    }
+
+    fun clearUpNext() {
+        playbackManager.upNextQueue.clearPending()
+        playbackManager.refreshUpNextPreload()
+    }
 
     fun playNextTrack(currentId: String? = playerTrackId, source: TrackPlaySource = TrackPlaySource.NEXT) {
         try {

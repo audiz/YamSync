@@ -22,6 +22,12 @@ import io.github.audiz.models.DownloadedTrackAudio
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.ui.CoverImageLoader
 import io.github.audiz.util.AudioMetadataTagger
+import io.github.audiz.DispatcherIO
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -58,6 +64,99 @@ class PlaybackManager(
     private val onTrackStarted: ((trackId: String, title: String, artist: String, coverUri: String?, isWave: Boolean) -> Unit)? = null,
     private val onError: (String) -> Unit = {}
 ) {
+    val upNextQueue = UpNextQueue()
+    private var restoringUpNext = false
+    private val queueJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    suspend fun restoreUpNextQueue() {
+        val saved = withContext(DispatcherIO) {
+            try {
+                loadAppConfig(AppConfigKeys.PLAYER_UP_NEXT)?.let { queueJson.decodeFromString(UpNextState.serializer(), it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) { null }
+        }
+        if (saved != null && upNextQueue.state == UpNextState()) {
+            upNextQueue.restore(saved)
+            queueManager.playedInCycleTrackIds.addAll(saved.shuffleCycle)
+            restoringUpNext = saved.current != null
+            saved.current?.track?.let { setInitialTrack(it) }
+        }
+        scope.launch {
+            snapshotFlow { upNextQueue.state }.collect { state ->
+                withContext(DispatcherIO) {
+                    saveAppConfig(AppConfigKeys.PLAYER_UP_NEXT, queueJson.encodeToString(UpNextState.serializer(), state))
+                }
+            }
+        }
+    }
+
+    fun addToUpNext(track: FullTrackInfo, first: Boolean = false) {
+        val state = upNextQueue.state
+        if (state.pending.isEmpty() && !state.suspended && state.forward.isEmpty()) {
+            val resume = calculateResumeTrack(trackId)
+            upNextQueue.prepareResume(resume, trackId, queueManager.playedInCycleTrackIds)
+        }
+        upNextQueue.add(track, first)
+        refreshUpNextPreload()
+    }
+
+    fun refreshUpNextPreload() {
+        preloadJob?.cancel()
+        preloadedAudio = null
+        plannedNextTrack = null
+        plannedNextTrack = calculateNextTrackCandidate()
+        if (isPlaying) schedulePreload()
+    }
+
+    fun clearUpNextForSelection() {
+        restoringUpNext = false
+        upNextQueue.reset()
+        plannedNextTrack = null
+    }
+
+    private fun playUpNextTrack(track: FullTrackInfo, source: TrackPlaySource, crossfadeMs: Long = 0L) {
+        val waveIndex = waveBridge?.waveTracks?.indexOfFirst { PlaybackQueueManager.isSameTrack(it, track.id) } ?: -1
+        if (waveBridge?.isWaveMode == true && upNextQueue.state.current?.inserted == false && waveIndex >= 0) {
+            waveBridge.playWaveTrack(waveIndex, source, crossfadeMs)
+        } else {
+            playTrack(track.id, track.title, track.artists.joinToString { it.name },
+                targetAlbumId = track.albums.firstOrNull()?.id, targetCoverUri = track.coverUri,
+                isManualSelection = false, source = source, crossfadeMs = crossfadeMs, queueSelection = true)
+        }
+    }
+
+    private fun calculateResumeTrack(activeId: String?): FullTrackInfo? {
+        val originalTracks = queueSource.getLoadedTracks()
+        return if (waveBridge?.isWaveMode != true && !isShuffleEnabled &&
+            originalTracks.lastOrNull()?.let { PlaybackQueueManager.isSameTrack(it, activeId) } == true) {
+            null
+        } else calculateBaseNextTrackCandidate(activeId)
+    }
+
+    private fun historyBeforeUpNext(): List<FullTrackInfo> {
+        if (upNextQueue.state.started || upNextQueue.state.pending.isEmpty()) return emptyList()
+        val index = buildMap<String, FullTrackInfo> {
+            val tracks = queueSource.getLoadedTracks() + queueSource.getSearchTracks() + waveBridge?.waveTracks.orEmpty()
+            for (track in tracks) {
+                put(track.id.removePrefix("local:"), track)
+                track.realId?.let { put(it.removePrefix("local:"), track) }
+            }
+        }
+        return queueManager.playbackHistory.mapNotNull { index[it.removePrefix("local:")] }
+    }
+
+    private val hasUpNextTransition: Boolean get() = upNextQueue.state.let {
+        it.pending.isNotEmpty() || it.forward.isNotEmpty() || it.suspended || it.current?.inserted == true
+    }
+
+    private fun skipFailedUpNext(id: String) {
+        if (upNextQueue.state.current?.inserted == true && upNextQueue.state.current?.track?.id == id) {
+            upNextQueue.discardFailedCurrent()
+            scope.launch { playNextTrack(id, TrackPlaySource.PLAY) }
+        }
+    }
+
     /**
      * Вторичный конструктор для 100% обратной совместимости с тестами и существующим кодом.
      */
@@ -307,6 +406,7 @@ class PlaybackManager(
 
     fun toggleShuffle() {
         queueManager.toggleShuffle()
+        upNextQueue.captureShuffleCycle(queueManager.playedInCycleTrackIds)
         preloadJob?.cancel()
         preloadedAudio = null
         queueManager.plannedNextTrack = null
@@ -398,6 +498,10 @@ class PlaybackManager(
             systemMediaControls.updatePlaybackState(true, false, positionMs)
             startProgressPolling()
         } else if (trackId == null) {
+            if (upNextQueue.state.pending.isNotEmpty()) {
+                playNextTrack(source = TrackPlaySource.PLAY)
+                return
+            }
             isPlayLoading = true
             val waveTracks = waveBridge?.waveTracks ?: emptyList()
             if (waveTracks.isNotEmpty()) {
@@ -413,7 +517,8 @@ class PlaybackManager(
                 targetArtistName = artistName,
                 targetAlbumId = albumId,
                 isManualSelection = false,
-                source = TrackPlaySource.PLAY
+                source = TrackPlaySource.PLAY,
+                queueSelection = upNextQueue.state.current?.inserted == true
             )
         }
     }
@@ -422,7 +527,8 @@ class PlaybackManager(
      * 🎵 Установить начальный трек (для восстановления сессии при рестарте).
      * Выставляет метаданные трека в плеере в состоянии готовности к запуску.
      */
-    fun setInitialTrack(track: FullTrackInfo) {
+    fun setInitialTrack(initial: FullTrackInfo) {
+        val track = if (restoringUpNext) upNextQueue.state.current?.track ?: initial else initial
         trackId = track.id
         trackTitle = track.title
         artistName = track.artists.joinToString { it.name }.ifBlank { "Unknown Artist" }
@@ -443,7 +549,8 @@ class PlaybackManager(
                    it.id.removePrefix("local:") == cleanTarget ||
                    it.realId?.removePrefix("local:") == cleanTarget
         }
-        return queueSource.getLoadedTracks().firstOrNull(::matches)
+        return upNextQueue.findTrack(targetTrackId)
+            ?: queueSource.getLoadedTracks().firstOrNull(::matches)
             ?: waveBridge?.waveTracks?.firstOrNull(::matches)
             ?: queueSource.getSearchTracks().firstOrNull(::matches)
     }
@@ -460,8 +567,15 @@ class PlaybackManager(
         isManualSelection: Boolean = true,
         isWave: Boolean = false,
         source: TrackPlaySource = TrackPlaySource.PLAY,
-        crossfadeMs: Long = 0L
+        crossfadeMs: Long = 0L,
+        queueSelection: Boolean = false
     ) {
+        if (isManualSelection) clearUpNextForSelection()
+        restoringUpNext = false
+        if (!isManualSelection && !queueSelection) {
+            val info = findTrackInfo(targetTrackId) ?: FullTrackInfo(id = targetTrackId, title = targetTrackTitle)
+            upNextQueue.normalTrackSelected(info)
+        }
         if (crossfadeMs <= 0L) {
             hasTriggeredAutoAdvance = false
             transitionLead.cancel()
@@ -594,6 +708,7 @@ class PlaybackManager(
                 // 2. Если трек локальный, но файла нет — не запрашиваем сеть
                 if (targetTrackId.startsWith("local:")) {
                     onError("Локальный файл не найден на диске: ${targetTrackId.removePrefix("local:")}")
+                    skipFailedUpNext(targetTrackId)
                     releasePlaybackWakeLock()
                     isNextLoading = false
                     isPrevLoading = false
@@ -729,6 +844,8 @@ class PlaybackManager(
                 queueManager.plannedNextTrack = calculateNextTrackCandidate()
                 schedulePreload()
 
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 releasePlaybackWakeLock()
                 isNextLoading = false
@@ -737,6 +854,7 @@ class PlaybackManager(
                 val errorMsg = e.message?.takeIf { it.isNotBlank() } ?: e::class.simpleName ?: "Неизвестная ошибка"
                 io.github.audiz.util.AppLogger.e("PlaybackManager", "Ошибка воспроизведения '$cleanTitle': $errorMsg", e)
                 onError("Ошибка воспроизведения: $errorMsg")
+                skipFailedUpNext(targetTrackId)
             } finally {
                 if (!isStreamingStarted) {
                     val currentJob = coroutineContext[Job]
@@ -1028,7 +1146,7 @@ class PlaybackManager(
                             transitionLead.onTransitionRequested(isNextLocal, isNextPreloaded)
                         }
                         println("PlaybackManager: 📻 Автопереключение на следующий трек (кроссфейд: ${effectiveCrossfadeMs}мс, позиция: $positionMs / $totalDur мс, тишина: $isSilenceAtTail)")
-                        if (waveBridge?.isWaveMode == true) {
+                        if (waveBridge?.isWaveMode == true && !hasUpNextTransition) {
                             waveBridge.onWaveTrackFinished(effectiveCrossfadeMs)
                         } else {
                             playNextTrack(source = TrackPlaySource.PLAY, crossfadeMs = effectiveCrossfadeMs)
@@ -1176,6 +1294,7 @@ class PlaybackManager(
         val fullError = "Ошибка воспроизведения: $errorMsg"
         io.github.audiz.util.AppLogger.e("PlaybackManager", fullError)
         onError(fullError)
+        trackId?.let { skipFailedUpNext(it) }
     }
 
     fun handleTrackFinished(isNaturalCompletion: Boolean = false) {
@@ -1205,12 +1324,17 @@ class PlaybackManager(
                     } else {
                         0L // Если трек физически уже завершился (EOF) до автоперехода — играем следующий сразу на 100% громкости
                     }
-                    if (waveBridge?.isWaveMode == true) {
+                    if (waveBridge?.isWaveMode == true && !hasUpNextTransition) {
                         waveBridge.onWaveTrackFinished(naturalCrossfadeMs)
                     } else {
                         playNextTrack(prevId, source = TrackPlaySource.PLAY, crossfadeMs = naturalCrossfadeMs)
                     }
                 } else {
+                    if (upNextQueue.state.current?.inserted == true) {
+                        onError("Не удалось воспроизвести трек очереди: $prevTitle")
+                        skipFailedUpNext(prevId)
+                        return@launch
+                    }
                     println("⚠️ Трек упал или не смог запуститься.")
                     if (prevId.startsWith("local:")) {
                         onError("Ошибка: не удалось воспроизвести локальный файл.")
@@ -1242,17 +1366,29 @@ class PlaybackManager(
             isPrevLoading = false
             isPlayLoading = false
         }
+        val resumeAnchor = upNextQueue.state.let {
+            it.anchorId.takeIf { _ -> it.suspended && it.pending.isEmpty() && it.forward.isEmpty() }
+        }
+        val currentInfo = (currentId ?: trackId)?.let { findTrackInfo(it) }
+        val queued = upNextQueue.next(currentInfo, resume = {
+            queueManager.plannedNextTrack = null
+            calculateResumeTrack(currentId ?: trackId)
+        }, shuffleCycle = { queueManager.playedInCycleTrackIds }, past = historyBeforeUpNext())
+        if (queued != null) {
+            playUpNextTrack(queued, source, crossfadeMs)
+            return
+        }
         if (waveBridge?.isWaveMode == true) {
             waveBridge.playNextWaveTrack(crossfadeMs)
             return
         }
 
-        val activeId = currentId ?: trackId
+        val activeId = resumeAnchor ?: currentId ?: trackId
         val loadedTracks = queueSource.getLoadedTracks()
         val searchTracks = queueSource.getSearchTracks()
 
         // 1. История перемотки вперед
-        val fromForward = queueManager.popNextFromForwardHistory(activeId, loadedTracks, searchTracks)
+        val fromForward = if (!upNextQueue.state.started) queueManager.popNextFromForwardHistory(activeId, loadedTracks, searchTracks) else null
         if (fromForward != null) {
             playTrack(
                 targetTrackId = fromForward.id,
@@ -1266,7 +1402,7 @@ class PlaybackManager(
             return
         }
 
-        if (activeId != null) {
+        if (activeId != null && !upNextQueue.state.started) {
             queueManager.recordPlayed(activeId)
         }
 
@@ -1319,6 +1455,8 @@ class PlaybackManager(
                                 )
                                 return@launch
                             }
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             println("PlaybackManager: Ошибка догрузки следующей страницы: ${e.message}")
                             if (source == TrackPlaySource.NEXT) isNextLoading = false
@@ -1416,6 +1554,15 @@ class PlaybackManager(
                 isNextLoading = false
                 isPlayLoading = false
             }
+            val queuedPrevious = upNextQueue.previous()
+            if (queuedPrevious != null) {
+                playUpNextTrack(queuedPrevious, source)
+                return
+            }
+            if (upNextQueue.state.started) {
+                isPrevLoading = false
+                return
+            }
             if (waveBridge?.isWaveMode == true) {
                 waveBridge.playPrevWaveTrack()
                 return
@@ -1479,6 +1626,8 @@ class PlaybackManager(
             } else {
                 isPrevLoading = false
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
             io.github.audiz.util.AppLogger.e("PlaybackManager", "Ошибка playPrevTrack: ${t.message}", t)
             isPrevLoading = false
@@ -1493,8 +1642,17 @@ class PlaybackManager(
      * 4. Результаты поиска (searchTracks)
      */
     fun calculateNextTrackCandidate(): FullTrackInfo? {
+        upNextQueue.peek()?.let { return it }
+        val candidate = calculateBaseNextTrackCandidate(if (upNextQueue.state.suspended) upNextQueue.state.anchorId else trackId)
+        if (upNextQueue.state.current?.inserted != true) {
+            upNextQueue.captureShuffleCycle(queueManager.playedInCycleTrackIds)
+        }
+        return candidate
+    }
+
+    private fun calculateBaseNextTrackCandidate(activeId: String?): FullTrackInfo? {
         return queueManager.calculateNextCandidate(
-            activeId = trackId,
+            activeId = activeId,
             isWaveMode = waveBridge?.isWaveMode == true,
             nextWaveTrack = waveBridge?.getNextWaveTrackCandidate(),
             loadedTracks = queueSource.getLoadedTracks(),

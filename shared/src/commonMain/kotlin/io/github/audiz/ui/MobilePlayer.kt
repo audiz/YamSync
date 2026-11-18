@@ -916,17 +916,21 @@ fun MobileFullPlayerSheet(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    GhostIconButton(
-                        icon = Icons.AutoMirrored.Filled.FormatListBulleted,
-                        contentDescription = "Очередь воспроизведения",
-                        size = actionButtonSize,
-                        iconSize = actionIconSize,
-                        contentColor = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else defaultActionTint,
-                        onClick = {
-                            actions.onOpenQueue?.invoke()
-                            onDismiss()
-                        }
-                    )
+                    BadgedBox(badge = {
+                        if (state.upNextCount > 0) Badge { Text(state.upNextCount.toString()) }
+                    }) {
+                        GhostIconButton(
+                            icon = Icons.AutoMirrored.Filled.FormatListBulleted,
+                            contentDescription = "Очередь воспроизведения",
+                            size = actionButtonSize,
+                            iconSize = actionIconSize,
+                            contentColor = if (state.isQueueOpen) MaterialTheme.colorScheme.primary else defaultActionTint,
+                            onClick = {
+                                actions.onOpenQueue?.invoke()
+                                onDismiss()
+                            }
+                        )
+                    }
                 }
 
                 // 3. Эквалайзер

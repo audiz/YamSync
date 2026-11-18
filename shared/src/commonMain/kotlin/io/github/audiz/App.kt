@@ -37,6 +37,7 @@ import io.github.audiz.ui.SearchResultsList
 import io.github.audiz.ui.ArtistTracksList
 import io.github.audiz.ui.HomeHub
 import io.github.audiz.ui.PlaylistsDialog
+import io.github.audiz.ui.UpNextDialog
 import io.github.audiz.ui.AddToPlaylistDialog
 import io.github.audiz.ui.LogsDialog
 import io.github.audiz.ui.PlayerBar
@@ -113,6 +114,7 @@ fun App() {
                 saveAppConfig(AppConfigKeys.MOBILE_PLAYER_EXPANDED, expanded.toString())
             }
 
+            var showUpNextDialog by remember { mutableStateOf(false) }
             var showEqualizerDialog by remember { mutableStateOf(false) }
             var equalizerInitialTab by remember { mutableStateOf(0) }
             var showPlaylistsDialog by remember { mutableStateOf(false) }
@@ -198,7 +200,8 @@ fun App() {
                 } else null,
                 coverUri = searchViewModel.playerCoverUri ?: if (isWaveActiveOrPreloaded) currentWave?.coverUri else null,
                 isMobile = isMobileUi,
-                isQueueOpen = showTracksScreen,
+                isQueueOpen = showUpNextDialog,
+                upNextCount = searchViewModel.upNextState.pending.size,
                 isDownloadedOrLocal = isCurrentTrackDownloadedOrLocal
             )
 
@@ -259,16 +262,7 @@ fun App() {
                     equalizerInitialTab = 0
                     showEqualizerDialog = true
                 },
-                onOpenQueue = if (searchViewModel.hasPlaybackQueue) {
-                    {
-                        if (isMobileUi) {
-                            searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
-                            updateMobilePlayerExpanded(false)
-                        } else {
-                            searchViewModel.toggleQueueView()
-                        }
-                    }
-                } else null,
+                onOpenQueue = { showUpNextDialog = true },
                 onOpenArtist = if (displayArtist.isNotBlank()) {
                     {
                         searchViewModel.openCurrentTrackArtist {
@@ -692,6 +686,22 @@ fun App() {
                 EqualizerDialog(
                     initialTab = equalizerInitialTab,
                     onDismissRequest = { showEqualizerDialog = false }
+                )
+            }
+
+            if (showUpNextDialog) {
+                UpNextDialog(
+                    viewModel = searchViewModel,
+                    onDismiss = { showUpNextDialog = false },
+                    onOpenPlaylist = {
+                        showUpNextDialog = false
+                        if (isMobileUi) {
+                            searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
+                            updateMobilePlayerExpanded(false)
+                        } else {
+                            searchViewModel.openQueueView(TracksListOrigin.HOME)
+                        }
+                    }
                 )
             }
 

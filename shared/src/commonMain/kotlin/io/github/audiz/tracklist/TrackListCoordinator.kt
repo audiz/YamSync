@@ -77,6 +77,14 @@ class TrackListCoordinator(
     // 📁 Флаг экрана плейлиста загруженной музыки (локальные файлы на диске)
     var isDownloadedTracksScreen by mutableStateOf(false)
 
+    var isBrowsingPreview = false
+    var viewedUserPlaylist by mutableStateOf<PlaylistInfo?>(null)
+        private set
+
+    private fun recordSession(session: LastPlaybackSession) {
+        if (!isBrowsingPreview) playbackSessionManager.recordSession(session)
+    }
+
     var currentScreenTitle by mutableStateOf("Загружено треков")
 
     var tracksListOrigin by mutableStateOf(TracksListOrigin.HOME)
@@ -201,7 +209,8 @@ class TrackListCoordinator(
         isDownloadedTracksScreen = false
         onSetTracksListVisible(true)
         tracksListOrigin = origin ?: if (getSearchResult() != null) TracksListOrigin.SEARCH else TracksListOrigin.HOME
-        if (updatePlaylistContext) playlistManager.currentOpenUserPlaylist = userPlaylist
+        viewedUserPlaylist = userPlaylist
+        if (updatePlaylistContext && !isBrowsingPreview) playlistManager.currentOpenUserPlaylist = userPlaylist
         currentScreenTitle = title
         val cleanTitle = title.removeSuffix(" [Офлайн-кеш]").trim()
         val resolvedCacheKey = cacheKey ?: cleanTitle
@@ -370,19 +379,19 @@ class TrackListCoordinator(
         }
     }
 
-    fun loadDownloadedTracksPlaylist(restoreTrackId: String? = null) {
+    fun loadDownloadedTracksPlaylist(restoreTrackId: String? = null, previewOnly: Boolean = false) {
         if (isCoordinatorLoading) return
         currentScreenTitle = "Загруженная музыка"
         isDownloadedTracksScreen = true
         onSetTracksListVisible(true)
         tracksListOrigin = TracksListOrigin.HOME
-        playlistManager.currentOpenUserPlaylist = null
+        if (!previewOnly) playlistManager.currentOpenUserPlaylist = null
         activeBrowsedFolderSource = null
         activeBrowsedFolderPath = null
         activeQueueSource = null
         activeQueueFolderPath = null
         activeQueueFolderName = "Загруженная музыка"
-        playbackSessionManager.recordSession(
+        if (!previewOnly) recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.DOWNLOADED,
                 title = "Загруженная музыка",
@@ -402,7 +411,7 @@ class TrackListCoordinator(
                     allTrackIds = tracks.map { it.id }
                     canLoadMore = false
                     println("TrackListCoordinator: Загружено с диска ${tracks.size} треков без сетевых запросов")
-                    if (restoreTrackId != null) {
+                    if (!previewOnly && restoreTrackId != null) {
                         val target = tracks.firstOrNull { it.id == restoreTrackId } ?: tracks.firstOrNull()
                         if (target != null) {
                             playbackManager.setInitialTrack(target)
@@ -411,6 +420,8 @@ class TrackListCoordinator(
                 } else {
                     onError("На диске не найдено аудиофайлов в папке:\n${getMusicStoragePath()}")
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 onError("Ошибка чтения файлов с диска: ${e.message}")
                 AppLogger.e("TrackListCoordinator", "Ошибка чтения файлов с диска: ${e.message}")
@@ -429,7 +440,7 @@ class TrackListCoordinator(
         val title = if (!artistName.isNullOrBlank()) "Треки: $artistName" else "Треки исполнителя"
         val cacheKey = "artist_$artistId"
         if (recordPlaybackSession) {
-            playbackSessionManager.recordSession(
+            recordSession(
                 LastPlaybackSession(
                     type = LastPlaybackType.ARTIST,
                     artistId = artistId,
@@ -464,7 +475,7 @@ class TrackListCoordinator(
             !uuid.isNullOrBlank() -> "playlist_$uuid"
             else -> "playlist_${playlist.title}"
         }
-        playbackSessionManager.recordSession(
+        recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_USER_PLAYLIST,
                 uid = playlist.uid,
@@ -526,6 +537,7 @@ class TrackListCoordinator(
     fun loadAlbumTracks(albumId: Long, albumTitle: String, restoreTrackId: String? = null) {
         val title = if (albumTitle.isNotBlank()) "Альбом: $albumTitle" else "Альбом"
         val cacheKey = "album_$albumId"
+        recordSession(LastPlaybackSession(type = LastPlaybackType.ALBUM, albumId = albumId, title = albumTitle, lastTrackId = restoreTrackId))
         startPagination(
             title = title,
             cacheKey = cacheKey,
@@ -542,7 +554,7 @@ class TrackListCoordinator(
     fun loadPlaylistTracks(uid: Long, kind: Long, playlistTitle: String? = null, restoreTrackId: String? = null) {
         val title = if (!playlistTitle.isNullOrBlank()) playlistTitle else "Треки плейлиста"
         val cacheKey = "playlist_${uid}_${kind}"
-        playbackSessionManager.recordSession(
+        recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_USER_PLAYLIST,
                 uid = uid,
@@ -569,7 +581,7 @@ class TrackListCoordinator(
     fun loadPlaylistByUuid(uuid: String, playlistTitle: String? = null, restoreTrackId: String? = null) {
         val title = playlistTitle ?: "Плейлист"
         val cacheKey = "playlist_$uuid"
-        playbackSessionManager.recordSession(
+        recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_UUID,
                 uuid = uuid,
@@ -593,7 +605,7 @@ class TrackListCoordinator(
      * 🔥 Загрузка плейлиста "Мне нравится"
      */
     fun loadLikesPlaylist(restoreTrackId: String? = null) {
-        playbackSessionManager.recordSession(
+        recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_LIKES,
                 title = "Мне нравится",
@@ -617,7 +629,7 @@ class TrackListCoordinator(
      * 🔥 Загрузка истории прослушивания
      */
     fun loadHistory(restoreTrackId: String? = null) {
-        playbackSessionManager.recordSession(
+        recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.YANDEX_HISTORY,
                 title = "История прослушиваний",
@@ -643,7 +655,7 @@ class TrackListCoordinator(
     ) {
         if (isCoordinatorLoading) return
         if (!previewOnly) {
-            playbackSessionManager.recordSession(
+            recordSession(
                 LastPlaybackSession(
                     type = LastPlaybackType.LOCAL_PLAYLIST,
                     id = playlist.id,
@@ -722,9 +734,9 @@ class TrackListCoordinator(
         }
     }
 
-    fun openCustomSource(source: CustomMediaSource, restoreTrackId: String? = null) {
+    fun openCustomSource(source: CustomMediaSource, restoreTrackId: String? = null, previewOnly: Boolean = false) {
         if (isCoordinatorLoading) return
-        playbackSessionManager.recordSession(
+        if (!previewOnly) recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.CUSTOM_SOURCE,
                 sourceId = source.id,
@@ -737,7 +749,7 @@ class TrackListCoordinator(
         isDownloadedTracksScreen = true
         onSetTracksListVisible(true)
         tracksListOrigin = TracksListOrigin.HOME
-        playlistManager.currentOpenUserPlaylist = null
+        if (!previewOnly) playlistManager.currentOpenUserPlaylist = null
         val isDir = source.type == LocalSourceType.FOLDER
         activeBrowsedFolderSource = null
         activeBrowsedFolderPath = null
@@ -758,7 +770,7 @@ class TrackListCoordinator(
                     allTrackIds = tracks.map { it.id }
                     canLoadMore = false
                     println("TrackListCoordinator: Открыт пользовательский источник '${source.name}' (${tracks.size} треков)")
-                    if (restoreTrackId != null) {
+                    if (!previewOnly && restoreTrackId != null) {
                         val target = tracks.firstOrNull { it.id == restoreTrackId || it.realId == restoreTrackId } ?: tracks.firstOrNull()
                         if (target != null) {
                             playbackManager.setInitialTrack(target)
@@ -767,6 +779,8 @@ class TrackListCoordinator(
                 } else {
                     onError("В источнике '${source.name}' нет доступных аудиофайлов.")
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 onError("Ошибка чтения источника: ${e.message}")
             } finally {
@@ -786,7 +800,7 @@ class TrackListCoordinator(
         isRecursive: Boolean = true
     ) {
         if (isCoordinatorLoading) return
-        playbackSessionManager.recordSession(
+        recordSession(
             LastPlaybackSession(
                 type = LastPlaybackType.CUSTOM_FOLDER,
                 sourceId = source?.id,
@@ -855,7 +869,7 @@ class TrackListCoordinator(
     ) {
         if (isCoordinatorLoading) return
         if (!previewOnly) {
-            playbackSessionManager.recordSession(
+            recordSession(
                 LastPlaybackSession(
                     type = LastPlaybackType.CUSTOM_FOLDER,
                     sourceId = source?.id,
@@ -922,7 +936,7 @@ class TrackListCoordinator(
     ) {
         val title = folderName?.takeIf { it.isNotBlank() } ?: track.title
         if (!folderPath.isNullOrBlank()) {
-            playbackSessionManager.recordSession(
+            recordSession(
                 LastPlaybackSession(
                     type = LastPlaybackType.CUSTOM_FOLDER,
                     sourceId = source?.id,
@@ -936,7 +950,7 @@ class TrackListCoordinator(
                 )
             )
         } else if (source != null) {
-            playbackSessionManager.recordSession(
+            recordSession(
                 LastPlaybackSession(
                     type = LastPlaybackType.CUSTOM_SOURCE,
                     sourceId = source.id,
@@ -1110,6 +1124,10 @@ class TrackListCoordinator(
                 } else {
                     loadDownloadedTracksPlaylist(restoreTrackId = session.lastTrackId)
                 }
+                if (!wasTracksListVisible) onSetTracksListVisible(false)
+            }
+            LastPlaybackType.ALBUM -> {
+                session.albumId?.let { loadAlbumTracks(it, session.title.orEmpty(), session.lastTrackId) }
                 if (!wasTracksListVisible) onSetTracksListVisible(false)
             }
             LastPlaybackType.WAVE -> {

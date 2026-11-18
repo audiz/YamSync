@@ -56,6 +56,7 @@ data class PlayerBarState(
     val coverUri: String? = null,
     val isMobile: Boolean = false,
     val isQueueOpen: Boolean = false,
+    val upNextCount: Int = 0,
     val isDownloadedOrLocal: Boolean = false,
 )
 
@@ -263,10 +264,14 @@ fun DesktopPlayerBar(
                             Icons.Filled.Tune, "Эквалайзер и срезы частот", actions.onOpenEqualizer,
                             active = state.isEqualizerActive
                         )
-                        CompactPlayerAction(
-                            Icons.AutoMirrored.Filled.FormatListBulleted, "Очередь воспроизведения", actions.onOpenQueue,
-                            active = state.isQueueOpen
-                        )
+                        BadgedBox(badge = {
+                            if (state.upNextCount > 0) Badge { Text(state.upNextCount.toString()) }
+                        }) {
+                            CompactPlayerAction(
+                                Icons.AutoMirrored.Filled.FormatListBulleted, "Очередь «Далее»", actions.onOpenQueue,
+                                active = state.isQueueOpen
+                            )
+                        }
                     }
                 }
                 val rightActions: @Composable () -> Unit = {

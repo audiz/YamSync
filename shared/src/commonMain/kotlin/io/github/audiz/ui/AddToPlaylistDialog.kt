@@ -56,6 +56,7 @@ import io.github.audiz.models.PlaylistInfo
  * - ☁️ Яндекс Музыка — добавление в облачный плейлист аккаунта
  * - 📁 Сохранить как... — сохранение файла в любую папку через системное окно
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddToPlaylistDialog(
     track: FullTrackInfo,
@@ -222,6 +223,22 @@ fun AddToPlaylistDialog(
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.addToUpNext(track, first = true); onDismiss() },
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                        ) { Text("Играть следующим", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        OutlinedButton(
+                            onClick = { viewModel.addToUpNext(track); onDismiss() },
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                        ) { Text("В очередь «Далее»", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
 
                 // Переключатель вкладок: Локальные / Яндекс Музыка
                 TabRow(

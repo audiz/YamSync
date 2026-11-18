@@ -12,6 +12,7 @@ import io.github.audiz.local.LocalMediaManager
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.LastPlaybackSession
 import io.github.audiz.models.LastPlaybackType
+import io.github.audiz.models.PlaylistInfo
 import io.github.audiz.models.LocalPlaylist
 import io.github.audiz.player.PlaybackManager
 import io.github.audiz.player.PlaybackSessionManager
@@ -148,6 +149,56 @@ class LocalTrackListPreviewTest {
             fixture.awaitLoaded()
             assertEquals(origin, fixture.coordinator.tracksListOrigin)
             assertEquals(source, fixture.coordinator.activeBrowsedFolderSource)
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun downloadedPreviewKeepsPlayingTrackAndSession() = runBlocking {
+        val fixture = Fixture()
+        try {
+            withContext(Dispatchers.Main) {
+                fixture.coordinator.loadDownloadedTracksPlaylist(fixture.file.absolutePath, previewOnly = true)
+            }
+            fixture.awaitLoaded()
+            assertEquals("playing", fixture.playback.trackId)
+            assertEquals(LastPlaybackType.WAVE, fixture.sessionManager.currentSession?.type)
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun customSourcePreviewKeepsPlayingTrackAndSession() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val source = CustomMediaSource(
+                id = "file", type = LocalSourceType.SINGLE_FILE, name = "File", path = fixture.file.absolutePath
+            )
+            withContext(Dispatchers.Main) {
+                fixture.coordinator.openCustomSource(source, fixture.file.absolutePath, previewOnly = true)
+            }
+            fixture.awaitLoaded()
+            assertEquals("playing", fixture.playback.trackId)
+            assertEquals(LastPlaybackType.WAVE, fixture.sessionManager.currentSession?.type)
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun browsingAnotherPlaylistDoesNotReplacePlayingPlaylistContext() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val playingPlaylist = PlaylistInfo(title = "Playing", uid = 1, kind = 1, trackCount = 1)
+            val browsedPlaylist = PlaylistInfo(title = "Browsing", uid = 1, kind = 2, trackCount = 1)
+            withContext(Dispatchers.Main) {
+                fixture.playlists.currentOpenUserPlaylist = playingPlaylist
+                fixture.coordinator.isBrowsingPreview = true
+                fixture.coordinator.startPagination(
+                    title = browsedPlaylist.title, cacheKey = "playlist_preview_test", userPlaylist = browsedPlaylist,
+                    fetchIdsAndTracksBlock = { listOf("preview") to listOf(FullTrackInfo(id = "preview")) }
+                )
+            }
+            fixture.awaitLoaded()
+            assertEquals(playingPlaylist, fixture.playlists.currentOpenUserPlaylist)
+            assertEquals(browsedPlaylist, fixture.coordinator.viewedUserPlaylist)
+            assertEquals(LastPlaybackType.WAVE, fixture.sessionManager.currentSession?.type)
         } finally { fixture.close() }
     }
 

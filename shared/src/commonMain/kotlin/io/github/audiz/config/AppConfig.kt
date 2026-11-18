@@ -28,6 +28,7 @@ object AppConfigKeys {
     const val UI_WATCHDOG_ENABLED = "ui_watchdog_enabled"
     const val YAMSYNC_DEVICE_TOKEN = "yamsync_device_token"
     const val YAMSYNC_KNOWN_DEVICES = "yamsync_known_devices"
+    const val PLAYER_UP_NEXT = "player_up_next"
     const val PLAYER_SHUFFLE = "player_shuffle"
     const val MOBILE_PLAYER_EXPANDED = "mobile_player_expanded"
     const val TRACKS_LIST_VISIBLE = "tracks_list_visible"
