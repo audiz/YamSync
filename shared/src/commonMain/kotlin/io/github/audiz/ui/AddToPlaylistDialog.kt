@@ -3,6 +3,7 @@ package io.github.audiz.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -23,11 +24,15 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -224,19 +229,29 @@ fun AddToPlaylistDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    FlowRow(
+                    Surface(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     ) {
-                        OutlinedButton(
-                            onClick = { viewModel.addToUpNext(track, first = true); onDismiss() },
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                        ) { Text("Играть следующим", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        OutlinedButton(
-                            onClick = { viewModel.addToUpNext(track); onDismiss() },
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                        ) { Text("В очередь «Далее»", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        Column {
+                            QueueActionRow(
+                                title = "Играть следующим",
+                                icon = Icons.Filled.SkipNext,
+                                highlighted = true,
+                                onClick = { viewModel.addToUpNext(track, first = true); onDismiss() }
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            )
+                            QueueActionRow(
+                                title = "В очередь «Далее»",
+                                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                onClick = { viewModel.addToUpNext(track); onDismiss() }
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -848,4 +863,47 @@ fun AddToPlaylistDialog(
         }
     }
 }
+}
+
+@Composable
+private fun QueueActionRow(
+    title: String,
+    icon: ImageVector,
+    highlighted: Boolean = false,
+    onClick: () -> Unit
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    val background = if (highlighted) {
+        Modifier.background(Brush.horizontalGradient(listOf(accent.copy(alpha = 0.14f), accent.copy(alpha = 0.05f))))
+    } else Modifier
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(background)
+            .clickable(role = Role.Button, onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(32.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(if (highlighted) accent.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
+        }
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
