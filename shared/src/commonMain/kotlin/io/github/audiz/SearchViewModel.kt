@@ -1019,7 +1019,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                         folderName = matchingCustomSource.name,
                         source = matchingCustomSource,
                         restoreTrackId = null,
-                        isRecursive = true
+                        isRecursive = true,
+                        origin = TracksListOrigin.HOME
                     )
                 }
                 else -> {
