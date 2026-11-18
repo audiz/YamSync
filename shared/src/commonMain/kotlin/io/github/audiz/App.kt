@@ -200,10 +200,20 @@ fun App() {
                 } else null,
                 coverUri = searchViewModel.playerCoverUri ?: if (isWaveActiveOrPreloaded) currentWave?.coverUri else null,
                 isMobile = isMobileUi,
-                isQueueOpen = showUpNextDialog,
+                isQueueOpen = showUpNextDialog || (showTracksScreen && !searchViewModel.isPreviewingTrackList),
                 upNextCount = searchViewModel.upNextState.pending.size,
                 isDownloadedOrLocal = isCurrentTrackDownloadedOrLocal
             )
+
+            val openPlayingPlaylist: () -> Unit = {
+                showUpNextDialog = false
+                if (isMobileUi) {
+                    searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
+                    updateMobilePlayerExpanded(false)
+                } else {
+                    searchViewModel.openQueueView(TracksListOrigin.HOME)
+                }
+            }
 
             val playerBarActions = PlayerBarActions(
                 onVolumeChange = { searchViewModel.changeVolume(it) },
@@ -262,7 +272,13 @@ fun App() {
                     equalizerInitialTab = 0
                     showEqualizerDialog = true
                 },
-                onOpenQueue = { showUpNextDialog = true },
+                onOpenQueue = {
+                    if (searchViewModel.upNextState.pending.isEmpty()) {
+                        openPlayingPlaylist()
+                    } else {
+                        showUpNextDialog = true
+                    }
+                },
                 onOpenArtist = if (displayArtist.isNotBlank()) {
                     {
                         searchViewModel.openCurrentTrackArtist {
@@ -693,15 +709,7 @@ fun App() {
                 UpNextDialog(
                     viewModel = searchViewModel,
                     onDismiss = { showUpNextDialog = false },
-                    onOpenPlaylist = {
-                        showUpNextDialog = false
-                        if (isMobileUi) {
-                            searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
-                            updateMobilePlayerExpanded(false)
-                        } else {
-                            searchViewModel.openQueueView(TracksListOrigin.HOME)
-                        }
-                    }
+                    onOpenPlaylist = openPlayingPlaylist
                 )
             }
 
