@@ -663,7 +663,7 @@ fun MobileFullPlayerSheet(
                         }
                     }
 
-                    // Спектр почти во всю ширину обложки с небольшим отступом от нижнего края.
+                    // Спектр с мягким затуханием по краям и отступом от скруглений.
                     CoverSpectrumVisualizer(
                         isPlaying = state.isPlaying && !state.isPaused,
                         glowLeft = glowLeft,
@@ -1150,7 +1150,7 @@ fun extractAmbilightPalette(bitmap: androidx.compose.ui.graphics.ImageBitmap?): 
 }
 
 /**
- * Спектр вдоль нижнего края обложки: ширина 94%, высота до 20% её стороны.
+ * Спектр вдоль нижнего края обложки с плавным уменьшением высоты и прозрачности по краям.
  * Цвета следуют палитре обложки; клик открывает эквалайзер.
  */
 @Composable
@@ -1184,6 +1184,18 @@ fun CoverSpectrumVisualizer(
     }
 
     val numBars = AudioVisualizer.SPECTRUM_BAND_COUNT
+    val heightEnvelope = remember(numBars) {
+        FloatArray(numBars) { index ->
+            sin(PI * (index + 0.5) / numBars).toFloat().pow(0.8f)
+        }
+    }
+    val edgeOpacity = remember(numBars) {
+        FloatArray(numBars) { index ->
+            val position = (index + 0.5f) / numBars
+            val fade = (minOf(position, 1f - position) / 0.14f).coerceIn(0f, 1f)
+            fade * fade * (3f - 2f * fade)
+        }
+    }
     val barLevels = frame.levels
     val capLevels = frame.peakCaps
 
@@ -1211,7 +1223,7 @@ fun CoverSpectrumVisualizer(
             .pointerHoverIcon(if (onOpenEqualizer != null) PointerIcon.Hand else PointerIcon.Default)
     ) {
         // Размеры следуют фактической ширине квадратной обложки.
-        val bottomInset = maxWidth * 0.03f
+        val bottomInset = maxOf(maxWidth * 0.045f, coverCornerRadius * 0.45f)
         val spectrumHeight = maxWidth * 0.20f
         Canvas(
             modifier = Modifier
@@ -1224,7 +1236,7 @@ fun CoverSpectrumVisualizer(
             val maxH = size.height
             if (totalW <= 0f || maxH <= 0f) return@Canvas
 
-            val sideInset = totalW * 0.03f
+            val sideInset = maxOf(totalW * 0.035f, coverCornerRadius.toPx() / 3f)
             val availableW = totalW - 2f * sideInset
             if (availableW <= 0f) return@Canvas
             val preferredSpacing = if (numBars >= 25) 2.dp.toPx() else 4.dp.toPx()
@@ -1245,7 +1257,9 @@ fun CoverSpectrumVisualizer(
 
             for (i in 0 until numBars) {
                 val level = if (i < barLevels.size) barLevels[i] else AudioVisualizer.RESTING_LEVEL
-                val h = (maxH * level.coerceIn(0.08f, 1f)).coerceAtLeast(minOf(barW, maxH))
+                val envelope = heightEnvelope[i]
+                val opacity = edgeOpacity[i]
+                val h = (maxH * level.coerceIn(0.08f, 1f)).coerceAtLeast(minOf(barW, maxH)) * envelope
                 val x = startX + i * (barW + spacing)
                 val y = maxH - h
 
@@ -1254,17 +1268,20 @@ fun CoverSpectrumVisualizer(
                     brush = barBrush,
                     topLeft = Offset(x, y),
                     size = Size(barW, h),
-                    cornerRadius = CornerRadius(minOf(1.dp.toPx(), barW * 0.2f))
+                    cornerRadius = CornerRadius(minOf(1.dp.toPx(), barW * 0.2f)),
+                    alpha = opacity
                 )
 
                 // 2. Парящая пиковая засечка (Winamp Peak Cap, прямоугольная)
                 val capLevel = if (i < capLevels.size) capLevels[i].coerceAtLeast(level) else level
-                val targetPeakY = (maxH - (maxH * capLevel.coerceIn(0.08f, 1f))).coerceIn(0f, maxH - peakH)
-                val peakY = targetPeakY.coerceAtMost(y - 2.dp.toPx()).coerceAtLeast(0f)
+                val taperedPeakH = peakH * envelope
+                val targetPeakY = (maxH - (maxH * capLevel.coerceIn(0.08f, 1f) * envelope))
+                    .coerceIn(0f, (maxH - taperedPeakH).coerceAtLeast(0f))
+                val peakY = targetPeakY.coerceAtMost(y - 2.dp.toPx() * envelope).coerceAtLeast(0f)
                 drawRect(
-                    color = Color.White.copy(alpha = 0.88f),
+                    color = Color.White.copy(alpha = 0.88f * opacity),
                     topLeft = Offset(x, peakY),
-                    size = Size(barW, peakH)
+                    size = Size(barW, taperedPeakH)
                 )
             }
         }
