@@ -78,8 +78,8 @@ class UpdateManager {
     }
 
     companion object {
-        const val RELEASES_PAGE = "https://github.com/audiz/YamSync/releases/latest"
-        private const val LATEST_RELEASE_API = "https://api.github.com/repos/audiz/YamSync/releases/latest"
+        const val RELEASES_PAGE = "https://github.com/yamsync/YamSync/releases/latest"
+        private const val LATEST_RELEASE_API = "https://api.github.com/repos/yamsync/YamSync/releases/latest"
         private const val REQUEST_TIMEOUT_MS = 8_000L
 
         /** Числовое сравнение по частям: 1.10.0 > 1.9.0. Нечисловые версии считаются не новее. */

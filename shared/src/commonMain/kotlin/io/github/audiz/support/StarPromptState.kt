@@ -2,7 +2,7 @@ package io.github.audiz.support
 
 import kotlinx.serialization.Serializable
 
-const val PROJECT_GITHUB_URL = "https://github.com/audiz/YamSync"
+const val PROJECT_GITHUB_URL = "https://github.com/yamsync/YamSync"
 
 @Serializable
 internal data class StarPromptState(

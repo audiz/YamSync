@@ -24,5 +24,5 @@ internal fun buildTrackShareCaption(
     append("🔗 Открыть в YamSync: yamsync://track/$trackId\n")
     append("🌐 Яндекс Музыка: https://music.yandex.ru/track/$trackId\n\n")
     append("Слушайте вместе с YamSync 🎧\n")
-    append("Скачать приложение: https://github.com/audiz/YamSync/releases/latest")
+    append("Скачать приложение: https://github.com/yamsync/YamSync/releases/latest")
 }

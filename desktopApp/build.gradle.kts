@@ -40,7 +40,7 @@ compose.desktop {
                 iconFile.set(project.file("icon.png"))
                 shortcut = true
                 menuGroup = "AudioVideo"
-                debMaintainer = "github.com/audiz"
+                debMaintainer = "github.com/yamsync"
             }
 
             macOS {

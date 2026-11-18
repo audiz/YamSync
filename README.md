@@ -75,15 +75,15 @@
 
 ## 📥 Скачать клиент для Android, iOS, Windows, Linux и macOS
 
-Готовые установочные пакеты доступны на странице **[GitHub Releases](https://github.com/audiz/YamSync/releases/latest)**:
+Готовые установочные пакеты доступны на странице **[GitHub Releases](https://github.com/yamsync/YamSync/releases/latest)**:
 
 | Платформа | Формат | Описание | Ссылка на загрузку |
 | :--- | :--- | :--- | :--- |
-| 🤖 **Android** | `.apk` | Смартфоны и планшеты (Android 8.0+) | [Скачать APK](https://github.com/audiz/YamSync/releases/latest) |
-| 🪟 **Windows** | `.msi` / `.exe` | Windows 10 / 11 (x64) | [Скачать для Windows](https://github.com/audiz/YamSync/releases/latest) |
-| 🐧 **Linux** | `.deb` | Ubuntu, Debian, Linux Mint и другие дистрибутивы на базе Debian | [Скачать для Linux](https://github.com/audiz/YamSync/releases/latest) |
-| 🍏 **macOS** | `.dmg` | macOS 12+ (Apple Silicon и Intel) | [Скачать DMG](https://github.com/audiz/YamSync/releases/latest) |
-| 📱 **iOS** | `.ipa` | iPhone & iPad (iOS 15+) | [Скачать IPA](https://github.com/audiz/YamSync/releases/latest) |
+| 🤖 **Android** | `.apk` | Смартфоны и планшеты (Android 8.0+) | [Скачать APK](https://github.com/yamsync/YamSync/releases/latest) |
+| 🪟 **Windows** | `.msi` / `.exe` | Windows 10 / 11 (x64) | [Скачать для Windows](https://github.com/yamsync/YamSync/releases/latest) |
+| 🐧 **Linux** | `.deb` | Ubuntu, Debian, Linux Mint и другие дистрибутивы на базе Debian | [Скачать для Linux](https://github.com/yamsync/YamSync/releases/latest) |
+| 🍏 **macOS** | `.dmg` | macOS 12+ (Apple Silicon и Intel) | [Скачать DMG](https://github.com/yamsync/YamSync/releases/latest) |
+| 📱 **iOS** | `.ipa` | iPhone & iPad (iOS 15+) | [Скачать IPA](https://github.com/yamsync/YamSync/releases/latest) |
 
 > [!NOTE]
 > **Установка на iOS (Sideloading):**  
