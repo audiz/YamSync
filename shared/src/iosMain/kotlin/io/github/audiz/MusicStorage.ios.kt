@@ -301,7 +301,7 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
 
     val supportedExtensions = setOf("m4a", "flac", "mp3", "aac", "opus", "wav", "ogg")
     val foundTracks = mutableListOf<FullTrackInfo>()
-    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_", "-")
 
     try {
         val subpaths = fileManager.subpathsOfDirectoryAtPath(basePath, error = null) as? List<String> ?: emptyList()
@@ -676,7 +676,7 @@ actual fun exportPlaylistToM3u8(basePath: String, playlist: LocalPlaylist, track
 actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
     val fileManager = NSFileManager.defaultManager
     val foundTracks = mutableListOf<FullTrackInfo>()
-    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_", "-")
     var cachedNameIndex: Map<String, String>? = null
 
     for (rawPath in paths) {

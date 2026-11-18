@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -54,15 +55,11 @@ internal fun SearchSuggestionsMenu(
                 val interactions = remember { MutableInteractionSource() }
                 val hovered by interactions.collectIsHoveredAsState()
                 val highlight = MaterialTheme.colorScheme.primary
-                val text = buildAnnotatedString {
-                    val match = suggestion.title.indexOf(query.trim(), ignoreCase = true)
-                    if (match >= 0 && query.isNotBlank()) {
-                        append(suggestion.title.substring(0, match))
-                        withStyle(SpanStyle(color = highlight, fontWeight = FontWeight.SemiBold)) {
-                            append(suggestion.title.substring(match, match + query.trim().length))
-                        }
-                        append(suggestion.title.substring(match + query.trim().length))
-                    } else append(suggestion.title)
+                val titleText = remember(suggestion.title, query, highlight) {
+                    buildHighlightedText(suggestion.title, query, highlight)
+                }
+                val subtitleText = remember(suggestion.subtitle, query, highlight) {
+                    suggestion.subtitle?.let { buildHighlightedText(it, query, highlight) }
                 }
                 Row(
                     modifier = Modifier.padding(horizontal = 6.dp)
@@ -95,14 +92,14 @@ internal fun SearchSuggestionsMenu(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = text,
+                            text = titleText,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall
                         )
-                        if (!suggestion.subtitle.isNullOrBlank()) {
+                        if (subtitleText != null) {
                             Text(
-                                text = suggestion.subtitle,
+                                text = subtitleText,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.labelSmall,
@@ -129,4 +126,69 @@ internal fun SearchSuggestionsMenu(
             }
         }
     }
+}
+
+private fun buildHighlightedText(text: String, query: String, highlight: Color): AnnotatedString {
+    val trimmed = query.trim()
+    if (trimmed.isBlank()) return AnnotatedString(text)
+
+    val match = text.indexOf(trimmed, ignoreCase = true)
+    if (match >= 0) {
+        return buildAnnotatedString {
+            append(text.substring(0, match))
+            withStyle(SpanStyle(color = highlight, fontWeight = FontWeight.SemiBold)) {
+                append(text.substring(match, match + trimmed.length))
+            }
+            append(text.substring(match + trimmed.length))
+        }
+    }
+
+    val words = trimmed.split(" ", "-", "_").filter { it.isNotBlank() }
+    if (words.size > 1) {
+        val lower = text.lowercase()
+        val intervals = mutableListOf<IntRange>()
+        for (w in words) {
+            val wLower = w.lowercase()
+            var start = 0
+            while (start < lower.length) {
+                val idx = lower.indexOf(wLower, start)
+                if (idx < 0) break
+                intervals.add(idx until (idx + w.length))
+                start = idx + w.length
+            }
+        }
+        if (intervals.isNotEmpty()) {
+            intervals.sortBy { it.first }
+            val merged = mutableListOf<IntRange>()
+            var current = intervals[0]
+            for (i in 1 until intervals.size) {
+                val next = intervals[i]
+                if (next.first <= current.last + 1) {
+                    current = current.first..maxOf(current.last, next.last)
+                } else {
+                    merged.add(current)
+                    current = next
+                }
+            }
+            merged.add(current)
+
+            return buildAnnotatedString {
+                var lastIndex = 0
+                for (range in merged) {
+                    if (range.first > lastIndex) {
+                        append(text.substring(lastIndex, range.first))
+                    }
+                    withStyle(SpanStyle(color = highlight, fontWeight = FontWeight.SemiBold)) {
+                        append(text.substring(range.first, minOf(range.last + 1, text.length)))
+                    }
+                    lastIndex = minOf(range.last + 1, text.length)
+                }
+                if (lastIndex < text.length) {
+                    append(text.substring(lastIndex))
+                }
+            }
+        }
+    }
+
+    return AnnotatedString(text)
 }

@@ -191,7 +191,7 @@ actual fun resolveLocalPath(path: String): String {
         }
 
         // Извлекаем возможного артиста из имени файла вида "Исполнитель — Название.mp3"
-        val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+        val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_", "-")
         for (delim in delimiters) {
             if (fileName.contains(delim)) {
                 val potentialArtist = fileName.split(delim, limit = 2)[0].trim()
@@ -312,7 +312,7 @@ actual fun scanDownloadedTracks(basePath: String): List<FullTrackInfo> {
 
     val supportedExtensions = setOf("m4a", "flac", "mp3", "aac", "opus", "wav", "ogg")
     val foundTracks = mutableListOf<FullTrackInfo>()
-    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_", "-")
 
     val fileLengths = mutableMapOf<String, Long>()
 
@@ -664,7 +664,7 @@ actual fun exportPlaylistToM3u8(basePath: String, playlist: LocalPlaylist, track
 /** Преобразовать список локальных путей к файлам в список объектов FullTrackInfo с проверкой наличия на диске */
 actual fun getTracksFromLocalPaths(paths: List<String>): List<FullTrackInfo> {
     val results = mutableListOf<FullTrackInfo>()
-    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_")
+    val delimiters = listOf(" — ", " – ", " - ", "_—_", "_-_", "-")
     var cachedNameIndex: Map<String, File>? = null
 
     for (p in paths) {

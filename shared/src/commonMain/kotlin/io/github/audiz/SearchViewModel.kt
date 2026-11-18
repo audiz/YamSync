@@ -6,6 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.models.YandexMusicResponse
+import io.github.audiz.models.SearchResult
+import io.github.audiz.models.TypedResult
+import io.github.audiz.models.toTrackInfo
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.FullArtistInfo
 import io.github.audiz.models.FullAlbumInfo
@@ -881,7 +884,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     fun highlightTrack(trackId: String) {
         highlightedTrackId = trackId
         viewModelScope.launch {
-            delay(2500)
+            delay(4000)
             if (highlightedTrackId == trackId) {
                 highlightedTrackId = null
             }
@@ -889,23 +892,69 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     }
 
     private var cachedLocalTracks: List<FullTrackInfo> = emptyList()
-    private var cachedLocalTracksPath: String = ""
+    private var cachedLocalTracksKey: String = ""
     private var cachedLocalTracksVersion: Long = -1L
     private val localTracksLock = Any()
 
     fun getCachedLocalTracks(): List<FullTrackInfo> {
         val storagePath = settingsManager.musicStoragePath.trim()
-        if (storagePath.isBlank()) return emptyList()
+        val sourcesSnapshot = localMediaManager.customSources.toList()
         val currentVersion = LocalTrackResolver.globalCacheVersion
+        val currentKey = buildString {
+            append(storagePath).append(";")
+            for (src in sourcesSnapshot) {
+                append(src.id).append(":").append(src.path).append(";")
+            }
+        }
+
         synchronized(localTracksLock) {
-            if (cachedLocalTracksVersion == currentVersion && cachedLocalTracksPath == storagePath && cachedLocalTracks.isNotEmpty()) {
+            if (cachedLocalTracksVersion == currentVersion && cachedLocalTracksKey == currentKey && cachedLocalTracks.isNotEmpty()) {
                 return cachedLocalTracks
             }
-            val scanned = scanDownloadedTracks(storagePath)
-            cachedLocalTracks = scanned
-            cachedLocalTracksPath = storagePath
+
+            val allTracks = mutableListOf<FullTrackInfo>()
+            val scannedFolders = mutableSetOf<String>()
+
+            // 1. Сканируем пользовательские источники (папки, одиночные файлы, плейлисты)
+            for (src in sourcesSnapshot) {
+                try {
+                    when (src.type) {
+                        LocalSourceType.FOLDER -> {
+                            val cleanPath = src.path.trim().replace('\\', '/')
+                            if (cleanPath.isNotBlank() && scannedFolders.add(cleanPath)) {
+                                allTracks.addAll(scanDownloadedTracks(cleanPath))
+                            }
+                        }
+                        LocalSourceType.SINGLE_FILE,
+                        LocalSourceType.PLAYLIST_FILE -> {
+                            allTracks.addAll(localMediaManager.getTracksForSource(src))
+                        }
+                    }
+                } catch (e: Exception) {
+                    AppLogger.e("SearchViewModel", "Ошибка сканирования источника '${src.name}': ${e.message}")
+                }
+            }
+
+            // 2. Сканируем стандартную папку хранилища, если она ещё не была охвачена
+            val cleanStorage = storagePath.replace('\\', '/')
+            if (cleanStorage.isNotBlank()) {
+                val alreadyCovered = scannedFolders.any { folder ->
+                    cleanStorage == folder || cleanStorage.startsWith(folder.trimEnd('/') + "/")
+                }
+                if (!alreadyCovered && scannedFolders.add(cleanStorage)) {
+                    try {
+                        allTracks.addAll(scanDownloadedTracks(cleanStorage))
+                    } catch (e: Exception) {
+                        AppLogger.e("SearchViewModel", "Ошибка сканирования storagePath: ${e.message}")
+                    }
+                }
+            }
+
+            val deduplicated = allTracks.distinctBy { it.realId ?: it.id }
+            cachedLocalTracks = deduplicated
+            cachedLocalTracksKey = currentKey
             cachedLocalTracksVersion = currentVersion
-            return scanned
+            return deduplicated
         }
     }
 
@@ -943,7 +992,44 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         searchQuery = track.title
         clearSearch()
         closeArtistTracks()
-        loadDownloadedTracksPlaylist()
+
+        val filePath = (track.realId ?: track.id.removePrefix("local:")).replace('\\', '/')
+        val storagePath = settingsManager.musicStoragePath.trim().replace('\\', '/')
+
+        val matchingCustomSource = localMediaManager.customSources.firstOrNull { src ->
+            val srcPath = src.path.trim().replace('\\', '/')
+            when (src.type) {
+                LocalSourceType.FOLDER -> filePath == srcPath || filePath.startsWith(srcPath.trimEnd('/') + "/")
+                LocalSourceType.SINGLE_FILE -> filePath.equals(srcPath, ignoreCase = true)
+                LocalSourceType.PLAYLIST_FILE -> {
+                    localMediaManager.parseM3uFile(src.path).any { it.replace('\\', '/').equals(filePath, ignoreCase = true) }
+                }
+            }
+        }
+
+        val inStoragePath = storagePath.isNotBlank() && (
+            filePath == storagePath || filePath.startsWith(storagePath.trimEnd('/') + "/")
+        )
+
+        if (matchingCustomSource != null && (!inStoragePath || matchingCustomSource.path.length >= storagePath.length)) {
+            when (matchingCustomSource.type) {
+                LocalSourceType.FOLDER -> {
+                    openFolderPlaylist(
+                        folderPath = matchingCustomSource.path,
+                        folderName = matchingCustomSource.name,
+                        source = matchingCustomSource,
+                        restoreTrackId = null,
+                        isRecursive = true
+                    )
+                }
+                else -> {
+                    openCustomSource(matchingCustomSource)
+                }
+            }
+        } else {
+            loadDownloadedTracksPlaylist()
+        }
+
         requestScrollToTrack(track.id)
         highlightTrack(track.id)
     }
@@ -960,6 +1046,12 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         }
 
         if (currentAccessToken.isBlank()) {
+            val local = findMatchingLocalTracks(query)
+            if (local.isNotEmpty()) {
+                val typedResults = local.map { TypedResult("track", track = it.toTrackInfo()) }
+                searchResult = YandexMusicResponse(result = SearchResult(text = query, results = typedResults))
+                return
+            }
             errorMessage = "⚠️ Требуется авторизация. Пожалуйста, откройте настройки (шестерёнка вверху) и сохраните OAuth токен Яндекс Музыки."
             return
         }
@@ -970,8 +1062,30 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             errorMessage = null
             resetPagination()
             try {
-                searchResult = withContext(DispatcherIO) {
-                    repository.searchInstant(query)
+                val localMatches = withContext(DispatcherIO) {
+                    findMatchingLocalTracks(query)
+                }
+                val onlineResult = withContext(DispatcherIO) {
+                    try {
+                        repository.searchInstant(query)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                if (localMatches.isNotEmpty()) {
+                    val localTypedResults = localMatches.map { TypedResult("track", track = it.toTrackInfo()) }
+                    val onlineList = onlineResult?.result?.results.orEmpty()
+                    val merged = localTypedResults + onlineList
+                    val baseResult = onlineResult?.result ?: SearchResult(text = query)
+                    searchResult = (onlineResult ?: YandexMusicResponse()).copy(
+                        result = baseResult.copy(results = merged)
+                    )
+                } else if (onlineResult != null) {
+                    searchResult = onlineResult
+                } else {
+                    errorMessage = "Не удалось выполнить поиск"
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -980,6 +1094,26 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             } finally {
                 isLoading = false
             }
+        }
+    }
+
+    private fun findMatchingLocalTracks(query: String): List<FullTrackInfo> {
+        val text = query.trim()
+        if (text.isBlank()) return emptyList()
+        val queryWords = text.lowercase().split(" ", "-", "_").filter { it.isNotBlank() }
+        return getCachedLocalTracks().filter { t ->
+            val title = t.title.lowercase()
+            val artists = t.artists.joinToString(" ") { it.name }.lowercase()
+            val albums = t.albums.joinToString(" ") { it.title }.lowercase()
+            val fileName = (t.realId?.substringAfterLast('/') ?: "").lowercase()
+
+            title.contains(text, ignoreCase = true) ||
+            artists.contains(text, ignoreCase = true) ||
+            albums.contains(text, ignoreCase = true) ||
+            fileName.contains(text, ignoreCase = true) ||
+            (queryWords.size > 1 && queryWords.all { w ->
+                title.contains(w) || artists.contains(w) || fileName.contains(w) || albums.contains(w)
+            })
         }
     }
 

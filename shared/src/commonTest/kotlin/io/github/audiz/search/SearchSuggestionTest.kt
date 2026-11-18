@@ -103,6 +103,36 @@ class SearchSuggestionTest {
     }
 
     @Test
+    fun findsLocalTrackByArtistNameMultiWordAndFileName() {
+        val localTrack = FullTrackInfo(
+            id = "local:/home/nout/Music/2dcat-believe.mp3",
+            realId = "/home/nout/Music/2dcat-believe.mp3",
+            title = "Believe",
+            artists = listOf(FullArtistInfo(id = 0L, name = "2DCAT")),
+            durationMs = 291_000
+        )
+        val list = listOf(localTrack)
+
+        // 1. Поиск по имени артиста "2dcat"
+        val byArtist = buildSearchSuggestions("2dcat", emptyList(), list)
+        assertEquals(2, byArtist.size)
+        assertEquals("Believe", byArtist[0].title)
+        assertEquals(SearchSuggestionType.LOCAL_TRACK, byArtist[0].type)
+        assertEquals("2DCAT • На диске", byArtist[0].subtitle)
+        assertEquals(localTrack, byArtist[0].localTrack)
+
+        // 2. Поиск по мульти-словам "2dcat believe"
+        val byMultiWord = buildSearchSuggestions("2dcat believe", emptyList(), list)
+        assertEquals(2, byMultiWord.size)
+        assertEquals("Believe", byMultiWord[0].title)
+
+        // 3. Поиск по имени файла "2dcat-believe"
+        val byFileName = buildSearchSuggestions("2dcat-believe", emptyList(), list)
+        assertEquals(2, byFileName.size)
+        assertEquals("Believe", byFileName[0].title)
+    }
+
+    @Test
     fun keepsSearchAvailableWhenNoMatchesAreReturned() {
         assertEquals(listOf(SearchSuggestion("unknown", SearchSuggestionType.QUERY)),
             buildSearchSuggestions(" unknown ", emptyList()))

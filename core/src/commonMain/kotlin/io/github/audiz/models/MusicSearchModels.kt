@@ -183,6 +183,14 @@ fun isLocalTrackId(id: String?): Boolean {
 val FullTrackInfo.isLocal: Boolean
     get() = isLocalTrackId(id) || (realId != null && isLocalTrackId(realId))
 
+fun FullTrackInfo.toTrackInfo(): TrackInfo = TrackInfo(
+    id = id,
+    title = title,
+    durationMs = durationMs,
+    artists = artists.map { TrackArtistInfo(id = it.id, name = it.name) },
+    coverUri = coverUri
+)
+
 @Serializable
 data class FullArtistInfo(
     val id: Long = 0,

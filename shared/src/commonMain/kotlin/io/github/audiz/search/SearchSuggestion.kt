@@ -50,10 +50,21 @@ internal fun buildSearchSuggestions(
     val seen = mutableSetOf<String>()
 
     val localMatches = if (localTracks.isNotEmpty()) {
+        val queryWords = text.lowercase().split(" ", "-", "_").filter { it.isNotBlank() }
         localTracks.asSequence()
             .filter { t ->
-                t.title.contains(text, ignoreCase = true) ||
-                t.artists.any { a -> a.name.contains(text, ignoreCase = true) }
+                val title = t.title.lowercase()
+                val artists = t.artists.joinToString(" ") { it.name }.lowercase()
+                val albums = t.albums.joinToString(" ") { it.title }.lowercase()
+                val fileName = (t.realId?.substringAfterLast('/') ?: "").lowercase()
+
+                title.contains(text, ignoreCase = true) ||
+                artists.contains(text, ignoreCase = true) ||
+                albums.contains(text, ignoreCase = true) ||
+                fileName.contains(text, ignoreCase = true) ||
+                (queryWords.size > 1 && queryWords.all { w ->
+                    title.contains(w) || artists.contains(w) || fileName.contains(w) || albums.contains(w)
+                })
             }
             .take(2)
             .mapNotNull { t ->
