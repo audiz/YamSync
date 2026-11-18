@@ -888,7 +888,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     fun selectSearchSuggestion(suggestion: SearchSuggestion) {
         searchQuery = suggestion.title
-        performSearch()
+        when (suggestion.type) {
+            SearchSuggestionType.ARTIST -> suggestion.artist?.let {
+                loadArtistTracks(it.id, it.name)
+            } ?: performSearch()
+            SearchSuggestionType.TRACK,
+            SearchSuggestionType.QUERY -> performSearch()
+        }
     }
 
     fun performSearch() {
