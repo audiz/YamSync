@@ -1463,7 +1463,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         folderName: String,
         source: CustomMediaSource? = null,
         restoreTrackId: String? = null,
-        isRecursive: Boolean = true
+        isRecursive: Boolean = true,
+        origin: TracksListOrigin = if (source != null) TracksListOrigin.FOLDER_BROWSER else TracksListOrigin.HOME
     ) {
         if (restoreTrackId == null) {
             browseTrackList(
@@ -1474,9 +1475,9 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                     title = folderName,
                     isRecursive = isRecursive
                 )
-            ) { it.openFolderPlaylist(folderPath, folderName, source, isRecursive = isRecursive, previewOnly = true) }
+            ) { it.openFolderPlaylist(folderPath, folderName, source, isRecursive = isRecursive, previewOnly = true, origin = origin) }
         } else {
-            playbackListForNavigation().openFolderPlaylist(folderPath, folderName, source, restoreTrackId, isRecursive)
+            playbackListForNavigation().openFolderPlaylist(folderPath, folderName, source, restoreTrackId, isRecursive, origin = origin)
         }
     }
 

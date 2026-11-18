@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.audiz.TracksListOrigin
 import io.github.audiz.SearchViewModel
 import io.github.audiz.sync.YamSyncConnectionState
 import io.github.audiz.isPlatformPickerSupported
@@ -116,7 +117,7 @@ fun HomeHub(
                     customSources = viewModel.customMediaSources,
                     onOpenLocalPlaylist = { viewModel.openLocalPlaylist(it) },
                     onOpenFolder = { path, name, src ->
-                        viewModel.openFolderPlaylist(path, name, src, isRecursive = true)
+                        viewModel.openFolderPlaylist(path, name, src, isRecursive = true, origin = TracksListOrigin.HOME)
                     },
                     onAddFolder = {
                         val picked = pickDirectory()

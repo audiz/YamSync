@@ -524,27 +524,27 @@ fun App() {
                             tracks = searchViewModel.loadedTracks,
                             canLoadMore = searchViewModel.canLoadMore,
                             onLoadMore = { searchViewModel.loadNextPage() },
-                            onHomeClick = if (isBackGoingToFolderBrowser || isBackGoingToMobilePlayer || searchViewModel.tracksListOrigin == TracksListOrigin.SEARCH) {
+                            onHomeClick = {
+                                searchViewModel.clearSearch()
+                                searchViewModel.closeArtistTracks()
+                            },
+                            onBackClick = if (isBackGoingToFolderBrowser || isBackGoingToMobilePlayer || searchViewModel.tracksListOrigin == TracksListOrigin.SEARCH) {
                                 {
-                                    searchViewModel.clearSearch()
-                                    searchViewModel.closeArtistTracks()
+                                    if (isBackGoingToFolderBrowser) {
+                                        val targetSource = searchViewModel.activeBrowsedFolderSource
+                                        val targetPath = searchViewModel.activeBrowsedFolderPath
+                                        searchViewModel.closeArtistTracks()
+                                        searchViewModel.activeBrowsedFolderSource = targetSource
+                                        searchViewModel.activeBrowsedFolderPath = targetPath
+                                        updateShowPlaylistsDialog(true)
+                                    } else if (isBackGoingToMobilePlayer) {
+                                        searchViewModel.closeArtistTracks()
+                                        updateMobilePlayerExpanded(true)
+                                    } else {
+                                        searchViewModel.closeArtistTracks()
+                                    }
                                 }
                             } else null,
-                            onBackClick = {
-                                if (isBackGoingToFolderBrowser) {
-                                    val targetSource = searchViewModel.activeBrowsedFolderSource
-                                    val targetPath = searchViewModel.activeBrowsedFolderPath
-                                    searchViewModel.closeArtistTracks()
-                                    searchViewModel.activeBrowsedFolderSource = targetSource
-                                    searchViewModel.activeBrowsedFolderPath = targetPath
-                                    updateShowPlaylistsDialog(true)
-                                } else if (isBackGoingToMobilePlayer) {
-                                    searchViewModel.closeArtistTracks()
-                                    updateMobilePlayerExpanded(true)
-                                } else {
-                                    searchViewModel.closeArtistTracks()
-                                }
-                            },
                             isTrackDownloading = searchViewModel.isTrackDownloading,
                             downloadingTrackId = searchViewModel.downloadingTrackId,
                             onDownloadTrack = { trackId, trackTitle, artistName ->
@@ -580,6 +580,7 @@ fun App() {
                                             folderPath = searchViewModel.activeQueueFolderPath!!,
                                             folderName = searchViewModel.activeQueueFolderName ?: searchViewModel.currentScreenTitle,
                                             source = searchViewModel.activeQueueSource,
+                                            origin = searchViewModel.tracksListOrigin,
                                             isRecursive = isRec
                                         )
                                     } else {

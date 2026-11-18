@@ -1,6 +1,9 @@
 package io.github.audiz.tracklist
 
 import io.github.audiz.AppConfigKeys
+import io.github.audiz.TracksListOrigin
+import io.github.audiz.models.CustomMediaSource
+import io.github.audiz.models.LocalSourceType
 import io.github.audiz.TrackPlaySource
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.download.DownloadManager
@@ -117,6 +120,34 @@ class LocalTrackListPreviewTest {
             assertTrue(fixture.playRequests.isEmpty())
             assertEquals("playing", fixture.playback.trackId)
             assertEquals(LastPlaybackType.WAVE, fixture.sessionManager.currentSession?.type)
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun folderOpenedFromHomeReturnsHome() = checkFolderOrigin(TracksListOrigin.HOME)
+
+    @Test
+    fun folderOpenedFromBrowserReturnsToBrowser() = checkFolderOrigin(TracksListOrigin.FOLDER_BROWSER)
+
+    private fun checkFolderOrigin(origin: TracksListOrigin) = runBlocking {
+        val fixture = Fixture()
+        try {
+            val source = CustomMediaSource(
+                id = "folder", type = LocalSourceType.FOLDER,
+                name = "Local folder", path = fixture.directory.absolutePath
+            )
+            withContext(Dispatchers.Main) {
+                if (origin == TracksListOrigin.HOME) {
+                    fixture.coordinator.openFolderPlaylist(
+                        source.path, source.name, source, previewOnly = true, origin = origin
+                    )
+                } else {
+                    fixture.coordinator.openFolderPlaylist(source.path, source.name, source, previewOnly = true)
+                }
+            }
+            fixture.awaitLoaded()
+            assertEquals(origin, fixture.coordinator.tracksListOrigin)
+            assertEquals(source, fixture.coordinator.activeBrowsedFolderSource)
         } finally { fixture.close() }
     }
 

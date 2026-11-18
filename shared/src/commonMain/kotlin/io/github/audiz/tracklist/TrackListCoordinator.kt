@@ -850,7 +850,8 @@ class TrackListCoordinator(
         source: CustomMediaSource? = null,
         restoreTrackId: String? = null,
         isRecursive: Boolean = true,
-        previewOnly: Boolean = false
+        previewOnly: Boolean = false,
+        origin: TracksListOrigin = if (source != null) TracksListOrigin.FOLDER_BROWSER else TracksListOrigin.HOME
     ) {
         if (isCoordinatorLoading) return
         if (!previewOnly) {
@@ -867,7 +868,7 @@ class TrackListCoordinator(
         }
         activeBrowsedFolderSource = source
         activeBrowsedFolderPath = folderPath
-        tracksListOrigin = if (source != null) TracksListOrigin.FOLDER_BROWSER else TracksListOrigin.HOME
+        tracksListOrigin = origin
         activeQueueSource = source
         activeQueueFolderPath = folderPath
         activeQueueFolderName = folderName

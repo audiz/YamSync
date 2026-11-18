@@ -51,7 +51,7 @@ fun ArtistTracksList(
     tracks: List<FullTrackInfo>,
     canLoadMore: Boolean,
     onLoadMore: () -> Unit,
-    onBackClick: () -> Unit,
+    onBackClick: (() -> Unit)?,
     onHomeClick: (() -> Unit)? = null,
     isTrackDownloading: Boolean,
     downloadingTrackId: String?,
@@ -126,24 +126,26 @@ fun ArtistTracksList(
                 Spacer(modifier = Modifier.width(8.dp))
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onBackClick
-                ).pointerHoverIcon(PointerIcon.Hand)
-            ) {
-                TopBarIconButton(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад",
-                    outlined = true,
-                    onClick = onBackClick
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Назад", style = MaterialTheme.typography.titleSmall)
+            if (onBackClick != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onBackClick
+                    ).pointerHoverIcon(PointerIcon.Hand)
+                ) {
+                    TopBarIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Назад",
+                        outlined = true,
+                        onClick = onBackClick
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Назад", style = MaterialTheme.typography.titleSmall)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
             }
-            Spacer(modifier = Modifier.width(16.dp))
             val total = if (totalTracksCount > tracks.size) totalTracksCount else tracks.size
             Column(modifier = Modifier.weight(1f)) {
                 Text(
