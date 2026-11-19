@@ -108,4 +108,54 @@ class PlaybackManagerUpNextTest {
         assertFalse(manager.upNextQueue.state.suspended)
         assertEquals(a.id, manager.upNextQueue.state.anchorId)
     }
+
+    @Test
+    fun waveTrackEndPlaysUpNextQueueBeforeResumingWave() {
+        val w1 = FullTrackInfo(id = "w1", title = "W1")
+        val w2 = FullTrackInfo(id = "w2", title = "W2")
+        val w3 = FullTrackInfo(id = "w3", title = "W3")
+        val waveTracks = listOf(w1, w2, w3)
+        var waveIndex = 0
+        var waveFinishedCalls = 0
+        val reportedFinished = mutableListOf<String?>()
+        val playedWaveIndexes = mutableListOf<Int>()
+        val previousShuffle = loadAppConfig(AppConfigKeys.PLAYER_SHUFFLE)
+        val scope = CoroutineScope(SupervisorJob() + DeferredDispatcher())
+        val manager = PlaybackManager(scope, MusicRepository(), getMusicStoragePath = { "" },
+            getSelectedQuality = { "1" }, isRecordToDisk = { false }, getLoadedTracks = { emptyList() },
+            isWaveMode = { true },
+            onPlayWaveByIndex = { index, _ -> playedWaveIndexes += index; waveIndex = index },
+            onWaveTrackFinished = { waveFinishedCalls++ },
+            getWaveTracks = { waveTracks },
+            getWaveCurrentIndex = { waveIndex },
+            getNextWaveTrack = { waveTracks.getOrNull(waveIndex + 1) },
+            onWaveTrackFinishedReported = { reportedFinished += it })
+        try {
+            manager.queueManager.isShuffleEnabled = false
+            manager.setInitialTrack(w1)
+            manager.addToUpNext(x)
+            manager.addToUpNext(c)
+
+            // Конец трека Волны: следующим играет очередь, Волна не переключается.
+            manager.advanceAfterTrackEnd(w1.id, 0L)
+            assertEquals(x, manager.upNextQueue.state.current?.track)
+            assertEquals(listOf<String?>(w1.id), reportedFinished)
+
+            manager.setInitialTrack(x)
+            manager.advanceAfterTrackEnd(x.id, 0L)
+            assertEquals(c, manager.upNextQueue.state.current?.track)
+
+            // Очередь исчерпана: возвращаемся ровно к следующему треку Волны.
+            manager.setInitialTrack(c)
+            manager.advanceAfterTrackEnd(c.id, 0L)
+            assertEquals(listOf(1), playedWaveIndexes)
+            assertEquals(0, waveFinishedCalls)
+            // Треки очереди не учитываются как прослушивания Волны.
+            assertEquals(listOf<String?>(w1.id), reportedFinished)
+        } finally {
+            manager.release()
+            scope.cancel()
+            saveAppConfig(AppConfigKeys.PLAYER_SHUFFLE, previousShuffle.orEmpty())
+        }
+    }
 }

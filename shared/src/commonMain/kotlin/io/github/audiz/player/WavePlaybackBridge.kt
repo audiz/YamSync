@@ -29,6 +29,9 @@ interface WavePlaybackBridge {
     /** Обработка завершения трека Волны (с учетом плавного сведения/кроссфейда) */
     fun onWaveTrackFinished(crossfadeMs: Long = 0L)
 
+    /** Учёт завершения текущего трека Волны без перехода (следующим играет трек из очереди «Далее») */
+    fun reportWaveTrackFinished(trackId: String?) {}
+
     /** Запуск воспроизведения стартовой Волны */
     fun loadInitialWave(autoPlay: Boolean = false, source: TrackPlaySource = TrackPlaySource.PLAY)
 

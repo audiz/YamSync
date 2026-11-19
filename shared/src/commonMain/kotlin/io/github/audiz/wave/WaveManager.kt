@@ -17,6 +17,7 @@ import io.github.audiz.models.LastPlaybackSession
 import io.github.audiz.models.FullArtistInfo
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.player.PlaybackManager
+import io.github.audiz.player.PlaybackQueueManager
 import io.github.audiz.player.WavePlaybackBridge
 import io.github.audiz.AppConfigKeys
 import io.github.audiz.loadAppConfig
@@ -923,54 +924,15 @@ class WaveManager(
      */
     override fun onWaveTrackFinished(crossfadeMs: Long) {
         if (!isWaveMode) return
+        // Доиграл трек из очереди «Далее»: он не относится к Волне, переход определяет очередь.
+        if (playbackManager?.isPlayingUpNextTrack == true) {
+            println("🌊 Волна: доиграл трек очереди, фидбек Волне не отправляется")
+            playbackManager?.playNextTrack(source = TrackPlaySource.PLAY, crossfadeMs = crossfadeMs)
+            return
+        }
 
         val current = currentWaveTrack
-        if (current != null) {
-            if (wavePastTracks.lastOrNull()?.id != current.id) {
-                wavePastTracks.add(current)
-                if (wavePastTracks.size > 5) {
-                    wavePastTracks.removeAt(0)
-                }
-            }
-
-            // Накапливаем фидбек trackFinished для завершившегося трека Волны
-            val albumId = current.albums.firstOrNull()?.id ?: 0
-            val trackIdWithAlbum = "${current.id}:$albumId"
-            val bId = waveTrackBatchMap[current.id] ?: waveBatchId ?: ""
-            val playedSec = ((playbackManager?.durationMs ?: 0L).toDouble() / 1000.0).coerceAtLeast(0.0)
-            val lengthSec = if (current.durationMs > 0) current.durationMs.toDouble() / 1000.0 else playedSec
-            val startTs = trackStartTimestamps[current.id] ?: currentIsoUtcTimestamp()
-            val playId = trackPlayIds[current.id] ?: generatePlayUuid()
-            val radioSessionId = waveRadioSessionId ?: ynisonWaveSessionId
-
-            // Отправляем /plays со статусом finish
-            if (!radioSessionId.isNullOrBlank() && bId.isNotBlank()) {
-                scope.launch {
-                    repository.sendPlayReport(
-                        trackId = current.id,
-                        albumId = albumId.toString(),
-                        radioSessionId = radioSessionId,
-                        batchId = bId,
-                        totalPlayedSeconds = playedSec,
-                        endPositionSeconds = playedSec,
-                        trackLengthSeconds = lengthSec,
-                        startTimestamp = startTs,
-                        changeReason = "finish",
-                        playId = playId
-                    )
-                }
-            }
-
-            pendingWaveFeedbacks.add(
-                RotorFeedbackItem(
-                    batchId = bId,
-                    trackId = trackIdWithAlbum,
-                    eventType = "trackFinished",
-                    totalPlayedSeconds = playedSec,
-                    trackLengthSeconds = lengthSec
-                )
-            )
-        }
+        if (current != null) recordWaveTrackFinished(current)
 
         // Очищаем из waveFutureTracks любые вхождения текущего доигравшего трека
         while (waveFutureTracks.isNotEmpty() && waveFutureTracks.first().id == current?.id) {
@@ -1004,6 +966,66 @@ class WaveManager(
 
         println("🌊 Волна: вся пачка из ${waveTracks.size} треков доиграла. Запрашиваем следующую пачку...")
         loadNextWaveBatchAfterNaturalCompletion(current, crossfadeMs = crossfadeMs)
+    }
+
+    /** Следующим играет трек очереди «Далее»: учитываем завершение текущего трека Волны без перехода. */
+    override fun reportWaveTrackFinished(trackId: String?) {
+        if (!isWaveMode) return
+        val current = currentWaveTrack ?: return
+        if (trackId != null && !PlaybackQueueManager.isSameTrack(current, trackId)) return
+        recordWaveTrackFinished(current)
+    }
+
+    private var lastFinishedPlayId: String? = null
+
+    private fun recordWaveTrackFinished(current: FullTrackInfo) {
+        if (wavePastTracks.lastOrNull()?.id != current.id) {
+            wavePastTracks.add(current)
+            if (wavePastTracks.size > 5) {
+                wavePastTracks.removeAt(0)
+            }
+        }
+
+        // Накапливаем фидбек trackFinished для завершившегося трека Волны
+        val albumId = current.albums.firstOrNull()?.id ?: 0
+        val trackIdWithAlbum = "${current.id}:$albumId"
+        val bId = waveTrackBatchMap[current.id] ?: waveBatchId ?: ""
+        val playedSec = ((playbackManager?.durationMs ?: 0L).toDouble() / 1000.0).coerceAtLeast(0.0)
+        val lengthSec = if (current.durationMs > 0) current.durationMs.toDouble() / 1000.0 else playedSec
+        val startTs = trackStartTimestamps[current.id] ?: currentIsoUtcTimestamp()
+        val playId = trackPlayIds[current.id] ?: generatePlayUuid()
+        val radioSessionId = waveRadioSessionId ?: ynisonWaveSessionId
+        // Одно прослушивание учитывается один раз, даже если завершение пришло из нескольких источников.
+        if (playId == lastFinishedPlayId) return
+        lastFinishedPlayId = playId
+
+        // Отправляем /plays со статусом finish
+        if (!radioSessionId.isNullOrBlank() && bId.isNotBlank()) {
+            scope.launch {
+                repository.sendPlayReport(
+                    trackId = current.id,
+                    albumId = albumId.toString(),
+                    radioSessionId = radioSessionId,
+                    batchId = bId,
+                    totalPlayedSeconds = playedSec,
+                    endPositionSeconds = playedSec,
+                    trackLengthSeconds = lengthSec,
+                    startTimestamp = startTs,
+                    changeReason = "finish",
+                    playId = playId
+                )
+            }
+        }
+
+        pendingWaveFeedbacks.add(
+            RotorFeedbackItem(
+                batchId = bId,
+                trackId = trackIdWithAlbum,
+                eventType = "trackFinished",
+                totalPlayedSeconds = playedSec,
+                trackLengthSeconds = lengthSec
+            )
+        )
     }
 
     private fun replenishWaveAhead(finishedTrack: FullTrackInfo?, currentPlayingTrack: FullTrackInfo) {

@@ -151,6 +151,25 @@ class PlaybackManager(
         it.pending.isNotEmpty() || it.forward.isNotEmpty() || it.suspended || it.current?.inserted == true
     }
 
+    /** Сейчас играет трек из очереди «Далее», а не из исходного списка или Волны. */
+    val isPlayingUpNextTrack: Boolean get() = upNextQueue.state.current?.inserted == true
+
+    /**
+     * Единая точка автоперехода после окончания трека: очередь «Далее» всегда имеет приоритет над Волной.
+     * [finished] = false означает, что трек не доигран (ошибка), и о завершении Волне не сообщаем.
+     */
+    internal fun advanceAfterTrackEnd(prevId: String? = trackId, crossfadeMs: Long, finished: Boolean = true) {
+        val bridge = waveBridge
+        if (bridge?.isWaveMode == true && !hasUpNextTransition) {
+            bridge.onWaveTrackFinished(crossfadeMs)
+            return
+        }
+        if (finished && bridge?.isWaveMode == true && !isPlayingUpNextTrack) {
+            bridge.reportWaveTrackFinished(prevId)
+        }
+        playNextTrack(prevId, source = TrackPlaySource.PLAY, crossfadeMs = crossfadeMs)
+    }
+
     private fun skipFailedUpNext(id: String) {
         if (upNextQueue.state.current?.inserted == true && upNextQueue.state.current?.track?.id == id) {
             upNextQueue.discardFailedCurrent()
@@ -181,6 +200,7 @@ class PlaybackManager(
         getWaveTracks: () -> List<FullTrackInfo> = { emptyList() },
         getWaveCurrentIndex: () -> Int = { 0 },
         getNextWaveTrack: (() -> FullTrackInfo?)? = null,
+        onWaveTrackFinishedReported: ((trackId: String?) -> Unit)? = null,
         onError: (String) -> Unit = {}
     ) : this(
         scope = scope,
@@ -205,6 +225,7 @@ class PlaybackManager(
             override fun loadInitialWave(autoPlay: Boolean, source: TrackPlaySource) { onInitialWave?.invoke(autoPlay, source) }
             override fun resumeOrLoadWave(autoPlay: Boolean, source: TrackPlaySource) { onInitialWave?.invoke(autoPlay, source) }
             override fun getNextWaveTrackCandidate(): FullTrackInfo? = getNextWaveTrack?.invoke()
+            override fun reportWaveTrackFinished(trackId: String?) { onWaveTrackFinishedReported?.invoke(trackId) }
         },
         getSelectedQuality = getSelectedQuality,
         isRecordToDisk = isRecordToDisk,
@@ -322,11 +343,7 @@ class PlaybackManager(
                     transitionLead.onTransitionRequested(isNextTrackLocal(), isNextTrackPreloaded())
                 }
                 println("PlaybackManager: 📻 Аппаратный TimeObserver: автопереход к следующему треку (кроссфейд: ${effectiveCrossfadeMs}мс)")
-                if (waveBridge?.isWaveMode == true) {
-                    waveBridge.onWaveTrackFinished(effectiveCrossfadeMs)
-                } else {
-                    playNextTrack(source = TrackPlaySource.PLAY, crossfadeMs = effectiveCrossfadeMs)
-                }
+                advanceAfterTrackEnd(crossfadeMs = effectiveCrossfadeMs)
             }
         }
 
@@ -1164,11 +1181,7 @@ class PlaybackManager(
                             transitionLead.onTransitionRequested(isNextLocal, isNextPreloaded)
                         }
                         println("PlaybackManager: 📻 Автопереключение на следующий трек (кроссфейд: ${effectiveCrossfadeMs}мс, позиция: $positionMs / $totalDur мс, тишина: $isSilenceAtTail)")
-                        if (waveBridge?.isWaveMode == true && !hasUpNextTransition) {
-                            waveBridge.onWaveTrackFinished(effectiveCrossfadeMs)
-                        } else {
-                            playNextTrack(source = TrackPlaySource.PLAY, crossfadeMs = effectiveCrossfadeMs)
-                        }
+                        advanceAfterTrackEnd(crossfadeMs = effectiveCrossfadeMs)
                     }
                 } else if (!isPaused && isPlaying) {
                     if (isSeeking) {
@@ -1342,11 +1355,7 @@ class PlaybackManager(
                     } else {
                         0L // Если трек физически уже завершился (EOF) до автоперехода — играем следующий сразу на 100% громкости
                     }
-                    if (waveBridge?.isWaveMode == true && !hasUpNextTransition) {
-                        waveBridge.onWaveTrackFinished(naturalCrossfadeMs)
-                    } else {
-                        playNextTrack(prevId, source = TrackPlaySource.PLAY, crossfadeMs = naturalCrossfadeMs)
-                    }
+                    advanceAfterTrackEnd(prevId, naturalCrossfadeMs)
                 } else {
                     if (upNextQueue.state.current?.inserted == true) {
                         onError("Не удалось воспроизвести трек очереди: $prevTitle")
@@ -1363,11 +1372,7 @@ class PlaybackManager(
                         playTrackForceLQ(prevId, prevTitle, prevArtist, source = TrackPlaySource.PLAY)
                     } else {
                         onError("Ошибка: не удалось воспроизвести трек даже в LQ.")
-                        if (waveBridge?.isWaveMode == true) {
-                            waveBridge.onWaveTrackFinished(0L)
-                        } else {
-                            playNextTrack(prevId, source = TrackPlaySource.PLAY, crossfadeMs = 0L)
-                        }
+                        advanceAfterTrackEnd(prevId, 0L, finished = false)
                     }
                 }
             }
