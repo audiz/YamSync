@@ -23,6 +23,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -143,203 +144,104 @@ private fun WaveHeroCard(
     viewModel: SearchViewModel,
     modifier: Modifier = Modifier
 ) {
-    val isWaveActive = viewModel.isWaveMode
-    val isPlayingWave = isWaveActive && viewModel.playerIsPlaying && !viewModel.playerIsPaused
-    val currentWaveTitle = viewModel.currentWaveTitle?.takeIf {
-        it.isNotBlank() && !it.equals("Моя Волна", ignoreCase = true)
+    var showThemes by remember { mutableStateOf(false) }
+    val accent = MaterialTheme.colorScheme.primary
+    val personalSelected = viewModel.isWaveMode && viewModel.currentWaveSeeds.isEmpty()
+    val personalStatus = when {
+        personalSelected && viewModel.isWaveLoading -> "Загрузка…"
+        personalSelected && viewModel.playerIsPlaying && !viewModel.playerIsPaused -> "Выбрана"
+        personalSelected && viewModel.playerIsPaused -> "Продолжить"
+        else -> "Слушать"
     }
-
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val tertiaryColor = MaterialTheme.colorScheme.tertiary
-    val surfaceColor = MaterialTheme.colorScheme.surfaceVariant
 
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (isWaveActive) primaryColor.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isWaveActive) 3.dp else 1.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, if (viewModel.isWaveMode) accent.copy(alpha = 0.5f)
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            primaryColor.copy(alpha = if (isWaveActive) 0.16f else 0.08f),
-                            tertiaryColor.copy(alpha = if (isWaveActive) 0.12f else 0.04f),
-                            surfaceColor.copy(alpha = 0.15f)
-                        )
-                    )
-                )
-                .padding(12.dp)
-        ) {
-            // Верхняя часть: Иконка, Заголовок, Кнопка Play
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val compact = maxWidth < 340.dp
+            Column(
+                Modifier.fillMaxWidth()
+                    .background(Brush.linearGradient(listOf(accent.copy(alpha = 0.08f), MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f))))
+                    .padding(if (compact) 10.dp else 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Иконка Волны с мягким фоном
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isWaveActive) primaryColor else primaryColor.copy(alpha = 0.18f)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Waves,
-                        contentDescription = null,
-                        tint = if (isWaveActive) MaterialTheme.colorScheme.onPrimary else primaryColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Текстовая информация
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (currentWaveTitle != null) "Моя Волна • $currentWaveTitle" else "Моя Волна",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    val statusText = when {
-                        viewModel.isWaveLoading -> "Загрузка рекомендаций..."
-                        isPlayingWave && viewModel.playerTrackTitle.isNotBlank() ->
-                            "${viewModel.playerTrackTitle} — ${viewModel.playerArtistName}"
-                        isWaveActive -> "Нажмите Play для продолжения"
-                        else -> "Бесконечный поток под ваш вкус"
-                    }
-
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Кнопка запуска / паузы Волны
-                FilledIconButton(
-                    onClick = { viewModel.togglePlayPauseWave() },
-                    modifier = Modifier.size(38.dp).pointerHoverIcon(PointerIcon.Hand),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = primaryColor,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    if (viewModel.isWaveLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = if (isPlayingWave) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlayingWave) "Пауза" else "Слушать Волну",
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Чипы настроений и стилей с автопереносом на следующую строку (FlowRow)
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                // Основной чип «★ Персональная»
-                val isDefaultActive = isWaveActive && (viewModel.currentWaveSeeds.isEmpty() || currentWaveTitle == null)
-                FilterChip(
-                    selected = isDefaultActive,
-                    onClick = { viewModel.resetToDefaultWave() },
-                    label = {
-                        Text(
-                            "★ Персональная",
-                            fontSize = 12.sp,
-                            fontWeight = if (isDefaultActive) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    leadingIcon = if (isDefaultActive) {
-                        { Icon(Icons.Filled.Waves, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                    } else null,
-                    modifier = Modifier.height(30.dp).pointerHoverIcon(PointerIcon.Hand)
-                )
-
-                // Недавние волны (до 3 штук)
-                viewModel.recentThematicWaves.forEach { wave ->
-                    val isSelected = isWaveActive && viewModel.currentWaveSeeds == wave.seeds
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { viewModel.startThematicWave(wave.title, wave.seeds) },
-                        label = {
-                            Text(
-                                wave.title,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        modifier = Modifier.height(30.dp).pointerHoverIcon(PointerIcon.Hand)
-                    )
-                }
-
-                // Пресеты стилей
-                val defaultList = viewModel.defaultThematicWaves.filterNot { dw ->
-                    viewModel.recentThematicWaves.any { it.title == dw.title || it.seeds == dw.seeds }
-                }
-
-                defaultList.forEach { wave ->
-                    val isSelected = isWaveActive && viewModel.currentWaveSeeds == wave.seeds
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { viewModel.startThematicWave(wave.title, wave.seeds) },
-                        label = {
-                            Text(
-                                wave.title,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        modifier = Modifier.height(30.dp).pointerHoverIcon(PointerIcon.Hand)
-                    )
-                }
-
-                // Кнопка обновления пресетов
-                if (viewModel.defaultThematicWaves.isNotEmpty()) {
-                    IconButton(
-                        onClick = { viewModel.refreshDefaultThematicWaves() },
-                        modifier = Modifier.size(30.dp).pointerHoverIcon(PointerIcon.Hand)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(accent.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Другие стили",
-                            tint = primaryColor,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        Icon(Icons.Filled.Waves, null, tint = accent, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text("Моя волна", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (viewModel.isWaveLoading) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Row(
+                        Modifier.clip(RoundedCornerShape(8.dp))
+                            .clickable(role = Role.Button) { showThemes = true }
+                            .pointerHoverIcon(PointerIcon.Hand).heightIn(min = 36.dp).padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Все темы", color = accent, style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Icon(Icons.Filled.ChevronRight, null, tint = accent, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Surface(
+                    onClick = { viewModel.selectWaveTheme() },
+                    enabled = !viewModel.isWaveLoading,
+                    modifier = Modifier.fillMaxWidth().pointerHoverIcon(PointerIcon.Hand),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (personalSelected) accent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    border = BorderStroke(1.dp, if (personalSelected) accent.copy(alpha = 0.35f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                ) {
+                    Row(Modifier.heightIn(min = 40.dp).padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Filled.StarBorder, null, tint = accent, modifier = Modifier.size(20.dp))
+                        Text("Персональная", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(personalStatus, color = if (personalSelected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (viewModel.recentThematicWaves.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Недавно", modifier = Modifier.align(Alignment.CenterVertically),
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        viewModel.recentThematicWaves.take(3).forEach { theme ->
+                            val selected = viewModel.isWaveMode && viewModel.currentWaveSeeds == theme.seeds
+                            Surface(
+                                onClick = { viewModel.selectWaveTheme(theme) },
+                                enabled = !viewModel.isWaveLoading,
+                                modifier = Modifier.heightIn(min = 36.dp).pointerHoverIcon(PointerIcon.Hand),
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selected) accent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                border = BorderStroke(1.dp, if (selected) accent.copy(alpha = 0.45f)
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            ) {
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    if (selected) Icon(Icons.Filled.Check, null, tint = accent, modifier = Modifier.size(14.dp))
+                                    Text(theme.title, style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
+    if (showThemes) WaveThemesDialog(viewModel = viewModel, onDismiss = { showThemes = false })
 }
 
 // ============================================================================

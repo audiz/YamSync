@@ -215,6 +215,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     val currentWaveSeeds: List<String> get() = waveManager.currentWaveSeeds
     val recentThematicWaves: List<ThematicWavePreset> get() = waveManager.recentThematicWaves
     val defaultThematicWaves: List<ThematicWavePreset> get() = waveManager.defaultThematicWaves
+    val thematicWavePresets: List<ThematicWavePreset> get() = WaveManager.ALL_STYLE_PRESETS
 
     // 🔑 Сервис авторизации:
     val cookieService: YandexCookieService get() = settingsManager.cookieService
@@ -867,6 +868,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         if (autoPlay) playbackManager.clearUpNextForSelection()
         playbackSessionManager.recordWave(title, seeds)
         waveManager.startThematicWave(title, seeds, autoPlay = autoPlay)
+    }
+
+    fun selectWaveTheme(theme: ThematicWavePreset? = null) {
+        if (isWaveLoading) return
+        if (isWaveMode && currentWaveSeeds == theme?.seeds.orEmpty()) {
+            if (playerIsPaused || !playerIsPlaying) togglePlayPauseWave()
+            return
+        }
+        if (theme == null) resetToDefaultWave() else startThematicWave(theme.title, theme.seeds)
     }
 
     fun refreshDefaultThematicWaves() {
