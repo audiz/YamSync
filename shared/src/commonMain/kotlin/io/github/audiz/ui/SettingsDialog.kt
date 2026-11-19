@@ -17,7 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -947,13 +948,13 @@ fun SettingsDialog(
 
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    text = "Оценить проект",
+                                    text = "Поддержать проект",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Поставьте звезду на GitHub — это помогает развитию проекта и привлекает новых слушателей",
+                                    text = "Звезда на GitHub помогает развитию YamSync",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -982,38 +983,41 @@ fun SettingsDialog(
                                                 projectOpenFailed = true
                                             }
                                         },
-                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
-                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp).pointerHoverIcon(PointerIcon.Hand),
+                                        shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF24292F),
-                                            contentColor = Color.White
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                            contentColor = MaterialTheme.colorScheme.onSurface
                                         ),
-                                        border = BorderStroke(1.dp, Color(0xFF444C56)),
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp)
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Filled.Star,
+                                            imageVector = Icons.Filled.StarBorder,
                                             contentDescription = null,
-                                            tint = Color(0xFFFFC107),
+                                            tint = Color(0xFFFF922B),
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "⭐ Оценить на GitHub",
+                                            text = "Поставить звезду",
+                                            modifier = Modifier.weight(1f),
+                                            style = MaterialTheme.typography.labelLarge,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             fontWeight = FontWeight.Medium
                                         )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                                     }
 
-                                    OutlinedButton(
+                                    OutlinedIconButton(
                                         onClick = {
                                             clipboardManager.setText(AnnotatedString(io.github.audiz.support.PROJECT_GITHUB_URL))
                                             copiedLink = true
                                         },
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
-                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.size(40.dp).pointerHoverIcon(PointerIcon.Hand)
                                     ) {
                                         Icon(
                                             imageVector = if (copiedLink) Icons.Filled.Check else Icons.Filled.ContentCopy,
