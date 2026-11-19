@@ -52,6 +52,7 @@ import io.github.audiz.ui.EqualizerDialog
 import io.github.audiz.ui.MobileFullPlayerSheet
 import io.github.audiz.ui.BackHandler
 import io.github.audiz.dsp.EqualizerEngine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private data class TrackDeleteConfirmInfo(
@@ -64,6 +65,14 @@ private data class TrackDeleteConfirmInfo(
 fun App() {
     // Инициализируем вьюмодель реактивного состояния приложения
     val searchViewModel: SearchViewModel = viewModel { SearchViewModel() }
+
+    val messageHost = remember { SnackbarHostState() }
+    LaunchedEffect(searchViewModel) {
+        searchViewModel.messages.collectLatest { message ->
+            messageHost.currentSnackbarData?.dismiss()
+            messageHost.showSnackbar(message, duration = SnackbarDuration.Short)
+        }
+    }
 
     val supportScope = rememberCoroutineScope()
     val starPromptManager = remember { io.github.audiz.support.StarPromptManager() }
@@ -292,6 +301,7 @@ fun App() {
 
             Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
+                snackbarHost = { SnackbarHost(messageHost) },
                 bottomBar = {
                     Column(
                         modifier = Modifier

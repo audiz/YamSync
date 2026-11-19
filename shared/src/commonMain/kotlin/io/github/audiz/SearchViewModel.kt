@@ -42,6 +42,8 @@ import io.github.audiz.util.AppLogger
 import io.github.audiz.search.SearchSuggestion
 import io.github.audiz.search.SearchSuggestionType
 import io.github.audiz.search.buildSearchSuggestions
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -220,6 +222,13 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     var authStatusMessage: String?
         get() = settingsManager.authStatusMessage
         set(value) { settingsManager.authStatusMessage = value }
+    private val messageEvents = Channel<String>(Channel.CONFLATED)
+    val messages = messageEvents.receiveAsFlow()
+
+    private fun showMessage(message: String) {
+        messageEvents.trySend(message)
+    }
+
     var storageStatusMessage: String?
         get() = settingsManager.storageStatusMessage
         set(value) { settingsManager.storageStatusMessage = value }
@@ -316,7 +325,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 trackId = trackId,
                 albumId = albumId
             )
-            storageStatusMessage = "📋 Ссылка на трек скопирована в буфер обмена"
+            showMessage("📋 Ссылка на трек скопирована в буфер обмена")
         } catch (e: Exception) {
             errorMessage = "Ошибка при отправке трека: ${e.message}"
         }
@@ -499,7 +508,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
             stopPlayback()
         },
         onError = { errorMessage = it },
-        onStatusMessage = { storageStatusMessage = it },
+        onStatusMessage = ::showMessage,
+        onStorageStatusMessage = { storageStatusMessage = it },
         findTrackInfo = { playbackManager.findTrackInfo(it) },
         getPlayingTrackCoverUrl = { playerCoverUri }
     )
@@ -543,7 +553,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         getMusicStoragePath = { settingsManager.musicStoragePath },
         getAccessToken = { settingsManager.currentAccessToken },
         downloadManager = downloadManager,
-        onStatusMessage = { storageStatusMessage = it },
+        onStatusMessage = ::showMessage,
         onError = { errorMessage = it }
     )
 
@@ -1747,7 +1757,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
     fun addToUpNext(track: FullTrackInfo, first: Boolean = false) {
         playbackManager.addToUpNext(track, first)
-        storageStatusMessage = if (first) "Трек будет играть следующим" else "Трек добавлен в очередь «Далее»"
+        showMessage(if (first) "Трек будет играть следующим" else "Трек добавлен в очередь «Далее»")
     }
 
     fun removeFromUpNext(key: Long) {

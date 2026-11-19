@@ -23,6 +23,7 @@ import io.github.audiz.models.isLocalTrackId
 import io.github.audiz.trackFileExists
 import io.github.audiz.ui.CoverImageLoader
 import io.github.audiz.util.AudioMetadataTagger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,7 +53,8 @@ class DownloadManager(
     private val onError: (String) -> Unit = {},
     private val onStatusMessage: (String) -> Unit = {},
     private val findTrackInfo: ((String) -> FullTrackInfo?)? = null,
-    private val getPlayingTrackCoverUrl: (() -> String?)? = null
+    private val getPlayingTrackCoverUrl: (() -> String?)? = null,
+    private val onStorageStatusMessage: (String) -> Unit = onStatusMessage
 ) {
     /**
      * Вторичный конструктор для 100% обратной совместимости.
@@ -320,9 +322,11 @@ class DownloadManager(
                 val count = withContext(DispatcherIO) {
                     io.github.audiz.clearPlaylistsCache(storagePath)
                 }
-                onStatusMessage("✅ Кеш плейлистов очищен ($count файлов удалено)")
+                onStorageStatusMessage("✅ Кеш плейлистов очищен ($count файлов удалено)")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                onStatusMessage("❌ Ошибка очистки кеша: ${e.message}")
+                onStorageStatusMessage("❌ Ошибка очистки кеша: ${e.message}")
             }
         }
     }
@@ -341,9 +345,11 @@ class DownloadManager(
                 localTrackResolver.invalidateCache()
                 downloadVersion++
                 onAllTracksCleared?.invoke()
-                onStatusMessage("✅ Удалено скачанных треков: $count шт.")
+                onStorageStatusMessage("✅ Удалено скачанных треков: $count шт.")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                onStatusMessage("❌ Ошибка удаления музыки: ${e.message}")
+                onStorageStatusMessage("❌ Ошибка удаления музыки: ${e.message}")
             }
         }
     }
