@@ -5,11 +5,19 @@ import platform.Foundation.*
 import platform.UIKit.UIImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.CancellationException
+import io.github.audiz.models.isLocalTrackId
+import io.github.audiz.player.NowPlayingArtworkLoader
+import io.github.audiz.ui.CoverImageLoader
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual class SystemMediaControls {
     private var onPlayCallback: (() -> Unit)? = null
     private var onPauseCallback: (() -> Unit)? = null
@@ -21,9 +29,20 @@ actual class SystemMediaControls {
     private var onDislikeCallback: (() -> Unit)? = null
 
     private var currentPositionMs: Long = 0L
+    private var currentTrackKey: String? = null
     private var currentCoverUri: String? = null
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private var coverJob: Job? = null
+    private var currentPlaybackRate = 0.0
+    private val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+    private val artworkLoader = NowPlayingArtworkLoader<MPMediaItemArtwork>(
+        scope = scope,
+        load = ::loadIosArtwork,
+        publish = { artwork ->
+            val current = MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo
+            val updated = current?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
+            updated[MPMediaItemPropertyArtwork] = artwork
+            MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo = updated
+        }
+    )
 
     actual fun initialize(
         onPlay: () -> Unit,
@@ -141,34 +160,29 @@ actual class SystemMediaControls {
         coverUri: String?,
         isLiked: Boolean
     ) {
-        try {
-            currentCoverUri = coverUri
-            val dict = mutableMapOf<Any?, Any?>(
-                MPMediaItemPropertyTitle to title,
-                MPMediaItemPropertyArtist to artist,
-                MPMediaItemPropertyAlbumTitle to album.ifBlank { "YamSync" },
-                MPMediaItemPropertyPlaybackDuration to NSNumber(double = durationMs / 1000.0)
-            )
+        scope.launch {
+            val key = trackId ?: "$artist\u0000$title"
+            val sameTrack = currentTrackKey == key
+            currentCoverUri = coverUri?.trim()?.takeIf { it.isNotEmpty() }
+                ?: currentCoverUri.takeIf { sameTrack }
+            val sources = listOfNotNull(currentCoverUri,
+                trackId?.takeIf { isLocalTrackId(it) }).distinct()
+            val artwork = artworkLoader.update(key, sources)
+            val previous = MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo
+            val dict = if (sameTrack) previous?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
+                else mutableMapOf<Any?, Any?>()
+            currentTrackKey = key
+            if (!sameTrack) currentPositionMs = 0L
+            dict[MPMediaItemPropertyTitle] = title
+            dict[MPMediaItemPropertyArtist] = artist
+            dict[MPMediaItemPropertyAlbumTitle] = album.ifBlank { "YamSync" }
+            dict[MPMediaItemPropertyPlaybackDuration] = NSNumber(double = durationMs / 1000.0)
+            dict[MPNowPlayingInfoPropertyElapsedPlaybackTime] = NSNumber(double = currentPositionMs / 1000.0)
+            dict[MPNowPlayingInfoPropertyPlaybackRate] = NSNumber(double = currentPlaybackRate)
+            if (artwork != null) dict[MPMediaItemPropertyArtwork] = artwork
+            else dict.remove(MPMediaItemPropertyArtwork)
             MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo = dict
-
-            // Асинхронно загружаем обложку для красивого полноэкранного плеера на экране заставки iOS
-            coverJob?.cancel()
-            if (!coverUri.isNullOrBlank()) {
-                coverJob = scope.launch {
-                    val artwork = loadIosArtwork(coverUri, trackId)
-                    if (artwork != null && currentCoverUri == coverUri) {
-                        withContext(Dispatchers.Main) {
-                            try {
-                                val current = MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo
-                                val updated = (current?.toMutableMap() ?: mutableMapOf<Any?, Any?>())
-                                updated[MPMediaItemPropertyArtwork] = artwork
-                                MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo = updated
-                            } catch (_: Throwable) {}
-                        }
-                    }
-                }
-            }
-        } catch (_: Throwable) {}
+        }
     }
 
     actual fun updateLikedState(isLiked: Boolean) {
@@ -178,40 +192,26 @@ actual class SystemMediaControls {
         } catch (_: Throwable) {}
     }
 
-    private suspend fun loadIosArtwork(coverUri: String?, trackId: String?): MPMediaItemArtwork? = withContext(Dispatchers.Default) {
+    private suspend fun loadIosArtwork(source: String): MPMediaItemArtwork? = withContext(DispatcherIO) {
         try {
-            // 1. Проверяем локальный файл
-            if (trackId?.startsWith("local:") == true) {
-                val filePath = trackId.removePrefix("local:")
-                val data = NSData.dataWithContentsOfFile(filePath)
-                if (data != null) {
-                    val image = UIImage.imageWithData(data)
-                    if (image != null) {
-                        @Suppress("DEPRECATION")
-                        return@withContext MPMediaItemArtwork(image)
-                    }
-                }
+            val bytes = if (isLocalTrackId(source)) {
+                loadLocalCoverBytes(source)
+            } else {
+                val url = CoverImageLoader.formatCoverUrl(source, 600) ?: return@withContext null
+                CoverImageLoader.repository?.fetchImageBytes(url)
             }
-
-            // 2. Сетевая обложка Яндекс Музыки
-            val formattedUrl = io.github.audiz.ui.CoverImageLoader.formatCoverUrl(coverUri, 600)
-            if (!formattedUrl.isNullOrBlank()) {
-                val nsUrl = NSURL.URLWithString(formattedUrl)
-                if (nsUrl != null) {
-                    val data = NSData.dataWithContentsOfURL(nsUrl)
-                    if (data != null) {
-                        val image = UIImage.imageWithData(data)
-                        if (image != null) {
-                            @Suppress("DEPRECATION")
-                            return@withContext MPMediaItemArtwork(image)
-                        }
-                    }
-                }
+            if (bytes == null || bytes.isEmpty()) return@withContext null
+            val data = bytes.usePinned { pinned ->
+                NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
             }
-        } catch (e: Throwable) {
+            val image = UIImage.imageWithData(data) ?: return@withContext null
+            MPMediaItemArtwork(boundsSize = image.size, requestHandler = { image })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             println("SystemMediaControls iOS: Ошибка загрузки обложки: ${e.message}")
+            null
         }
-        null
     }
 
     actual fun updatePlaybackState(
@@ -219,23 +219,26 @@ actual class SystemMediaControls {
         isPaused: Boolean,
         positionMs: Long
     ) {
-        try {
+        scope.launch {
             currentPositionMs = positionMs
+            currentPlaybackRate = if (isPlaying && !isPaused) 1.0 else 0.0
             val current = MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo
             val dict = (current?.toMutableMap() ?: mutableMapOf<Any?, Any?>())
             dict[MPNowPlayingInfoPropertyElapsedPlaybackTime] = NSNumber(double = positionMs / 1000.0)
-            dict[MPNowPlayingInfoPropertyPlaybackRate] = NSNumber(double = if (isPlaying && !isPaused) 1.0 else 0.0)
+            dict[MPNowPlayingInfoPropertyPlaybackRate] = NSNumber(double = currentPlaybackRate)
             MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo = dict
-        } catch (_: Throwable) {}
+        }
     }
 
     actual fun clear() {
-        try {
-            coverJob?.cancel()
+        scope.launch {
+            artworkLoader.clear()
+            currentTrackKey = null
             currentCoverUri = null
             currentPositionMs = 0L
+            currentPlaybackRate = 0.0
             MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo = null
-        } catch (_: Throwable) {}
+        }
     }
 
     actual fun release() {

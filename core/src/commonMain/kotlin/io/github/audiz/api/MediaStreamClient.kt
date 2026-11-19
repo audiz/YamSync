@@ -11,6 +11,7 @@ import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import kotlinx.serialization.json.*
+import kotlinx.coroutines.CancellationException
 
 /**
  * 🎧 Клиент загрузки и подготовки аудиопотоков, метаданных воспроизведения и обложек
@@ -207,6 +208,8 @@ class MediaStreamClient(
                     socketTimeoutMillis = 6_000
                 }
             }.bodyAsBytes()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             println("MediaStreamClient: Ошибка загрузки изображения $url: ${e.message}")
             null
