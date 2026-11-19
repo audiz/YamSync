@@ -126,6 +126,13 @@ class UpNextQueue {
         return previous.track
     }
 
+    /** Сессия воспроизведения определяет текущий трек исходного списка после перезапуска. */
+    fun restoreOriginalTrack(track: FullTrackInfo) {
+        if (state.started && state.current?.inserted != true) {
+            state = state.copy(current = QueueVisit(track))
+        }
+    }
+
     fun normalTrackSelected(track: FullTrackInfo) {
         if (state.started && (state.current?.track?.id != track.id || state.current?.inserted == true)) {
             visit(QueueVisit(track))

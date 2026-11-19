@@ -79,8 +79,8 @@ class PlaybackManager(
         if (saved != null && upNextQueue.state == UpNextState()) {
             upNextQueue.restore(saved)
             queueManager.playedInCycleTrackIds.addAll(saved.shuffleCycle)
-            restoringUpNext = saved.current != null
-            saved.current?.track?.let { setInitialTrack(it) }
+            restoringUpNext = saved.current?.inserted == true
+            if (restoringUpNext) saved.current?.track?.let { setInitialTrack(it) }
         }
         scope.launch {
             snapshotFlow { upNextQueue.state }.collect { state ->
@@ -532,6 +532,7 @@ class PlaybackManager(
      */
     fun setInitialTrack(initial: FullTrackInfo) {
         val track = if (restoringUpNext) upNextQueue.state.current?.track ?: initial else initial
+        if (!restoringUpNext) upNextQueue.restoreOriginalTrack(initial)
         trackId = track.id
         trackTitle = track.title
         artistName = track.artists.joinToString { it.name }.ifBlank { "Unknown Artist" }

@@ -1,5 +1,12 @@
 package io.github.audiz.wave
 
+import io.github.audiz.AppConfigKeys
+import io.github.audiz.loadAppConfig
+import io.github.audiz.saveAppConfig
+import io.github.audiz.player.UpNextState
+import io.github.audiz.player.QueueVisit
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import io.github.audiz.player.PlaybackQueueSource
 import io.github.audiz.player.LocalTrackResolver
 import io.github.audiz.player.PlaybackManager
@@ -109,6 +116,58 @@ class WaveSessionRestoreTest {
         } finally {
             player.release()
             scope.cancel()
+        }
+    }
+
+    private fun withRestoredQueue(saved: UpNextState, check: (WaveManager, PlaybackManager) -> Unit) = runBlocking {
+        val previousQueue = loadAppConfig(AppConfigKeys.PLAYER_UP_NEXT)
+        val scope = CoroutineScope(SupervisorJob() + object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) = Unit
+        })
+        val repository = MusicRepository()
+        val wave = WaveManager(scope, repository, getAccessToken = { "" })
+        val player = PlaybackManager(scope, repository, localTrackResolver = LocalTrackResolver { "" },
+            queueSource = object : PlaybackQueueSource {
+                override fun getLoadedTracks(): List<FullTrackInfo> = emptyList()
+                override fun getSearchTracks(): List<FullTrackInfo> = emptyList()
+                override suspend fun loadMoreTracks(): Boolean = false
+            }, getSelectedQuality = { "1" }, isRecordToDisk = { false }, waveBridge = wave)
+        wave.attachPlayback(player)
+        try {
+            saveAppConfig(AppConfigKeys.PLAYER_UP_NEXT, Json.encodeToString(UpNextState.serializer(), saved))
+            player.restoreUpNextQueue()
+            wave.restoreSession(session)
+            check(wave, player)
+        } finally {
+            player.release()
+            scope.cancel()
+            saveAppConfig(AppConfigKeys.PLAYER_UP_NEXT, previousQueue.orEmpty())
+        }
+    }
+
+    @Test
+    fun staleOriginalTrackInQueueCannotOverrideLastSession() {
+        val stale = FullTrackInfo(id = "old", title = "Old song")
+        withRestoredQueue(UpNextState(started = true, current = QueueVisit(stale))) { wave, player ->
+            assertEquals("saved", player.trackId)
+            assertEquals("saved", wave.currentWaveTrack?.id)
+            assertEquals("saved", player.upNextQueue.state.current?.track?.id)
+            assertFalse(player.upNextQueue.state.current!!.inserted)
+            assertFalse(player.isPlaying)
+        }
+    }
+
+    @Test
+    fun activeInsertedTrackStillRestoresBeforeOriginalWave() {
+        val inserted = FullTrackInfo(id = "queued", title = "Queued song")
+        val next = FullTrackInfo(id = "next", title = "Next original song")
+        withRestoredQueue(UpNextState(started = true, suspended = true,
+            current = QueueVisit(inserted, inserted = true), resumeTrack = next, anchorId = "saved")) { wave, player ->
+            assertEquals("queued", player.trackId)
+            assertEquals("saved", wave.currentWaveTrack?.id)
+            assertEquals(next, player.upNextQueue.state.resumeTrack)
+            assertTrue(player.upNextQueue.state.current!!.inserted)
+            assertFalse(player.isPlaying)
         }
     }
 
