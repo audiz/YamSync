@@ -966,65 +966,67 @@ fun SettingsDialog(
                                     Text("Не удалось открыть браузер. Попробуйте ещё раз.", style = MaterialTheme.typography.bodySmall)
                                 }
 
-                                FlowRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Button(
-                                        onClick = {
-                                            try {
-                                                uriHandler.openUri(io.github.audiz.support.PROJECT_GITHUB_URL)
-                                                projectOpenFailed = false
-                                                actions.onProjectOpened()
-                                            } catch (e: kotlinx.coroutines.CancellationException) {
-                                                throw e
-                                            } catch (_: Exception) {
-                                                projectOpenFailed = true
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp).pointerHoverIcon(PointerIcon.Hand),
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                            contentColor = MaterialTheme.colorScheme.onSurface
-                                        ),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp)
+                                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.StarBorder,
-                                            contentDescription = null,
-                                            tint = Color(0xFFFF922B),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Поставить звезду",
-                                            modifier = Modifier.weight(1f),
-                                            style = MaterialTheme.typography.labelLarge,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    }
+                                        Button(
+                                            onClick = {
+                                                try {
+                                                    uriHandler.openUri(io.github.audiz.support.PROJECT_GITHUB_URL)
+                                                    projectOpenFailed = false
+                                                    actions.onProjectOpened()
+                                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                                    throw e
+                                                } catch (_: Exception) {
+                                                    projectOpenFailed = true
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f).height(40.dp).pointerHoverIcon(PointerIcon.Hand),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                contentColor = MaterialTheme.colorScheme.onSurface
+                                            ),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.StarBorder,
+                                                contentDescription = null,
+                                                tint = Color(0xFFFF922B),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Поставить звезду",
+                                                modifier = Modifier.weight(1f),
+                                                style = MaterialTheme.typography.labelLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        }
 
-                                    OutlinedIconButton(
-                                        onClick = {
-                                            clipboardManager.setText(AnnotatedString(io.github.audiz.support.PROJECT_GITHUB_URL))
-                                            copiedLink = true
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.size(40.dp).pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (copiedLink) Icons.Filled.Check else Icons.Filled.ContentCopy,
-                                            contentDescription = "Скопировать ссылку",
-                                            tint = if (copiedLink) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                        OutlinedIconButton(
+                                            onClick = {
+                                                clipboardManager.setText(AnnotatedString(io.github.audiz.support.PROJECT_GITHUB_URL))
+                                                copiedLink = true
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.size(40.dp).pointerHoverIcon(PointerIcon.Hand)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (copiedLink) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                                                contentDescription = "Скопировать ссылку",
+                                                tint = if (copiedLink) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }

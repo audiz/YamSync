@@ -22,6 +22,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -282,16 +284,18 @@ fun SearchInputField(
                 )
             }
         } else if (onSettingsClick != null) {
-            IconButton(
-                onClick = {
-                    keyboardController?.hide()
-                    focusManager.clearFocus()
-                    onSettingsClick()
-                },
+            Box(
                 modifier = Modifier
                     .size(42.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                    .pointerHoverIcon(PointerIcon.Hand)
+                    .clickable(role = Role.Button) {
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                        onSettingsClick()
+                    }
+                    .pointerHoverIcon(PointerIcon.Hand),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Filled.Settings,
