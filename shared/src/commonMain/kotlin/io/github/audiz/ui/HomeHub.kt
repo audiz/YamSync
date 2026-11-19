@@ -21,8 +21,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -280,7 +284,7 @@ private fun QuickAccessSection(
         QuickAccessTile(
             title = "Устройства",
             icon = Icons.Filled.Devices,
-            accentColor = Color(0xFF2DD881),
+            accentColor = Color(0xFF24C5C9),
             onClick = onOpenDevices,
             statusColor = devicesStatusColor,
             modifier = tileModifier
@@ -303,7 +307,7 @@ private fun QuickAccessSection(
             ) {
                 QuickAccessTile(
                     title = "Скачанное",
-                    icon = Icons.Filled.DownloadDone,
+                    icon = Icons.Filled.Download,
                     accentColor = Color(0xFF10B981), // Emerald
                     onClick = { viewModel.loadDownloadedTracksPlaylist() },
                     modifier = Modifier.weight(1f)
@@ -311,7 +315,7 @@ private fun QuickAccessSection(
                 QuickAccessTile(
                     title = "Любимые треки",
                     icon = Icons.Filled.Favorite,
-                    accentColor = Color(0xFFEF4444), // Rose
+                    accentColor = Color(0xFFF05A79), // Rose
                     onClick = { viewModel.loadLikesPlaylist() },
                     modifier = Modifier.weight(1f)
                 )
@@ -340,7 +344,7 @@ private fun QuickAccessSection(
                 ) {
                     QuickAccessTile(
                         title = "Скачанное",
-                        icon = Icons.Filled.DownloadDone,
+                        icon = Icons.Filled.Download,
                         accentColor = Color(0xFF10B981),
                         onClick = { viewModel.loadDownloadedTracksPlaylist() },
                         modifier = Modifier.weight(1f)
@@ -348,7 +352,7 @@ private fun QuickAccessSection(
                     QuickAccessTile(
                         title = "Любимые треки",
                         icon = Icons.Filled.Favorite,
-                        accentColor = Color(0xFFEF4444),
+                        accentColor = Color(0xFFF05A79),
                         onClick = { viewModel.loadLikesPlaylist() },
                         modifier = Modifier.weight(1f)
                     )
@@ -393,55 +397,73 @@ private fun QuickAccessTile(
     modifier: Modifier = Modifier,
     statusColor: Color? = null
 ) {
-    Card(
+    val surface = MaterialTheme.colorScheme.surface
+    val background = remember(surface, accentColor) {
+        listOf(lerp(surface, accentColor, 0.26f), lerp(surface, accentColor, 0.12f),
+            lerp(surface, accentColor, 0.20f))
+    }
+    Surface(
         modifier = modifier
-            .height(46.dp)
+            .heightIn(min = 36.dp)
+            .clip(RoundedCornerShape(12.dp))
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        color = surface,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.20f))
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .drawWithCache {
+                    val gradient = Brush.linearGradient(background,
+                        start = Offset.Zero, end = Offset(size.width, size.height))
+                    val ribbons = List(3) { index ->
+                        val y = size.height * (0.64f + index * 0.24f)
+                        Path().apply {
+                            moveTo(size.width * 0.42f, size.height)
+                            cubicTo(size.width * 0.67f, y, size.width * 0.85f, y + size.height * 0.15f,
+                                size.width, y - size.height * 0.48f)
+                            lineTo(size.width, size.height)
+                            close()
+                        }
+                    }
+                    val ribbonBrush = Brush.linearGradient(
+                        listOf(Color.Transparent, accentColor.copy(alpha = 0.13f)),
+                        start = Offset(size.width * 0.45f, size.height),
+                        end = Offset(size.width, 0f)
+                    )
+                    onDrawBehind {
+                        drawRect(gradient)
+                        ribbons.forEach { drawPath(it, ribbonBrush) }
+                        statusColor?.let { color ->
+                            drawCircle(color, radius = 2.5.dp.toPx(),
+                                center = Offset(size.width - 7.dp.toPx(), 7.dp.toPx()))
+                        }
+                    }
+                }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(accentColor.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = accentColor,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(22.dp)
                 )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            if (statusColor != null) {
-                Box(
-                    modifier = Modifier
-                        .padding(start = 6.dp)
-                        .size(8.dp)
-                        .background(statusColor, CircleShape)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
