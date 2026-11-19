@@ -213,23 +213,25 @@ private fun WaveHeroCard(
                     }
                 }
                 if (viewModel.recentThematicWaves.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        viewModel.recentThematicWaves.take(3).forEach { theme ->
-                            val selected = viewModel.isWaveMode && viewModel.currentWaveSeeds == theme.seeds
-                            Surface(
-                                onClick = { viewModel.selectWaveTheme(theme) },
-                                enabled = !viewModel.isWaveLoading,
-                                modifier = Modifier.heightIn(min = 36.dp).pointerHoverIcon(PointerIcon.Hand),
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (selected) accent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                border = BorderStroke(1.dp, if (selected) accent.copy(alpha = 0.45f)
-                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            ) {
-                                Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    if (selected) Icon(Icons.Filled.Check, null, tint = accent, modifier = Modifier.size(14.dp))
-                                    Text(theme.title, style = MaterialTheme.typography.labelMedium,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            viewModel.recentThematicWaves.take(3).forEach { theme ->
+                                val selected = viewModel.isWaveMode && viewModel.currentWaveSeeds == theme.seeds
+                                Surface(
+                                    onClick = { viewModel.selectWaveTheme(theme) },
+                                    enabled = !viewModel.isWaveLoading,
+                                    modifier = Modifier.height(36.dp).pointerHoverIcon(PointerIcon.Hand),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (selected) accent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                    border = BorderStroke(1.dp, if (selected) accent.copy(alpha = 0.45f)
+                                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                ) {
+                                    Row(Modifier.fillMaxHeight().padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        if (selected) Icon(Icons.Filled.Check, null, tint = accent, modifier = Modifier.size(14.dp))
+                                        Text(theme.title, style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
                                 }
                             }
                         }
