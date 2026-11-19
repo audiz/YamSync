@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -13,12 +14,16 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
@@ -38,6 +43,8 @@ import io.github.audiz.models.LocalPlaylist
 import io.github.audiz.models.PersonalPlaylistItemData
 import io.github.audiz.models.ThematicWavePreset
 import io.github.audiz.pickDirectory
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * 🏠 Главный экран-хаб приложения (Home Hub).
@@ -527,6 +534,7 @@ private fun ResumeSessionCard(
 // ✨ 4. ПЕРСОНАЛЬНЫЕ ПОДБОРКИ ЯНДЕКСА (горизонтальная лента)
 // ============================================================================
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun PersonalPlaylistsSection(
     items: List<PersonalPlaylistItemData>,
@@ -534,6 +542,10 @@ private fun PersonalPlaylistsSection(
     modifier: Modifier = Modifier
 ) {
     val visibleItems = items.filter { it.playlist?.canOpen == true }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val wheelStep = with(LocalDensity.current) { 40.dp.toPx() }
+    val canNavigate by remember { derivedStateOf { listState.canScrollBackward || listState.canScrollForward } }
     Column(modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -574,7 +586,14 @@ private fun PersonalPlaylistsSection(
             }
 
             LazyRow(
-                modifier = Modifier.fillMaxWidth(),
+                state = listState,
+                modifier = Modifier.fillMaxWidth().onPointerEvent(PointerEventType.Scroll, PointerEventPass.Initial) { event ->
+                    val delta = event.changes.firstOrNull()?.scrollDelta
+                    if (delta != null && abs(delta.y) > abs(delta.x)) {
+                        val moved = listState.dispatchRawDelta(delta.y * wheelStep)
+                        if (abs(moved) > 0.5f) event.changes.forEach { it.consume() }
+                    }
+                },
                 horizontalArrangement = Arrangement.spacedBy(gap)
             ) {
                 items(visibleItems, key = { it.playlist!!.stableKey }) { item ->
@@ -590,6 +609,37 @@ private fun PersonalPlaylistsSection(
                 }
             }
         }
+        if (canNavigate) {
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Подборок: ${visibleItems.size}", modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    OutlinedIconButton(
+                        onClick = {
+                            scope.launch {
+                                val previous = if (listState.firstVisibleItemScrollOffset > 0) listState.firstVisibleItemIndex
+                                    else (listState.firstVisibleItemIndex - 1).coerceAtLeast(0)
+                                listState.animateScrollToItem(previous)
+                            }
+                        },
+                        enabled = listState.canScrollBackward,
+                        modifier = Modifier.size(36.dp).pointerHoverIcon(PointerIcon.Hand)
+                    ) { Icon(Icons.Filled.ChevronLeft, "Предыдущие подборки", modifier = Modifier.size(20.dp)) }
+                    OutlinedIconButton(
+                        onClick = {
+                            scope.launch {
+                                listState.animateScrollToItem((listState.firstVisibleItemIndex + 1).coerceAtMost(visibleItems.lastIndex))
+                            }
+                        },
+                        enabled = listState.canScrollForward,
+                        modifier = Modifier.size(36.dp).pointerHoverIcon(PointerIcon.Hand)
+                    ) { Icon(Icons.Filled.ChevronRight, "Следующие подборки", modifier = Modifier.size(20.dp)) }
+                }
+            }
+        }
+
     }
 }
 
