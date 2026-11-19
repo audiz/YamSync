@@ -32,6 +32,13 @@ import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -382,20 +389,17 @@ fun MobileFullPlayerSheet(
     } else 0f
 
     val coverBitmap = rememberCoverBitmap(state.coverUri, 600)
-    val ambilightPalette = remember(coverBitmap) { extractAmbilightPalette(coverBitmap) }
+    // Палитра считается по пикселям обложки — вне UI-потока
+    val ambilightPalette by produceState<AmbilightPalette?>(null, coverBitmap) {
+        value = coverBitmap?.let { bitmap ->
+            withContext(Dispatchers.Default) { extractAmbilightPalette(bitmap) }
+        }
+    }
 
     val infiniteTransition = rememberInfiniteTransition()
     val breathingAlpha by infiniteTransition.animateFloat(
         initialValue = if (state.isPlaying && !state.isPaused) 0.65f else 0.50f,
         targetValue = if (state.isPlaying && !state.isPaused) 0.90f else 0.50f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        )
-    )
-    val breathingScale by infiniteTransition.animateFloat(
-        initialValue = if (state.isPlaying && !state.isPaused) 1.00f else 1.00f,
-        targetValue = if (state.isPlaying && !state.isPaused) 1.04f else 1.00f,
         animationSpec = infiniteRepeatable(
             animation = tween(3200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -572,38 +576,37 @@ fun MobileFullPlayerSheet(
                 val glowLeft = ambilightPalette?.left ?: MaterialTheme.colorScheme.primary
                 val glowRight = ambilightPalette?.right ?: MaterialTheme.colorScheme.secondary
 
-                Canvas(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    val w = size.width
-                    val h = size.height
-                    if (w <= 0f || h <= 0f) return@Canvas
-
-                    val maxDistance = 46.dp.toPx()
-                    val baseCornerRadius = coverCornerRadius.toPx()
-                    val steps = 24
-
-                    for (i in steps downTo 1) {
-                        val d = (i.toFloat() / steps) * maxDistance
-                        val factor = d / maxDistance
-                        // Гауссов колоколообразный спад e^(-2.2 * factor^2)
-                        val alpha = (breathingAlpha * 0.13f * exp(-2.2f * factor * factor)).coerceIn(0f, 1f)
-
-                        drawRoundRect(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    glowLeft.copy(alpha = alpha),
-                                    glowRight.copy(alpha = alpha)
-                                ),
-                                startX = -d,
-                                endX = w + d
-                            ),
-                            topLeft = Offset(-d, -d),
-                            size = Size(w + 2 * d, h + 2 * d),
-                            cornerRadius = CornerRadius(baseCornerRadius + d, baseCornerRadius + d)
-                        )
-                    }
-                }
+                // Ореол из 24 градиентных слоёв растеризуется один раз в bitmap (при смене размера
+                // или цветов), а каждый кадр выводится одной текстурой с «дышащей» прозрачностью.
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawWithCache {
+                            val w = size.width
+                            val h = size.height
+                            val maxDistance = 46.dp.toPx()
+                            val glowImage = if (w > 0f && h > 0f) {
+                                renderAmbilightGlow(
+                                    density = this,
+                                    width = w,
+                                    height = h,
+                                    maxDistance = maxDistance,
+                                    baseCornerRadius = coverCornerRadius.toPx(),
+                                    glowLeft = glowLeft,
+                                    glowRight = glowRight
+                                )
+                            } else null
+                            onDrawBehind {
+                                if (glowImage != null) {
+                                    drawImage(
+                                        image = glowImage,
+                                        topLeft = Offset(-maxDistance, -maxDistance),
+                                        alpha = breathingAlpha.coerceIn(0f, 1f)
+                                    )
+                                }
+                            }
+                        }
+                )
 
                 // 🖼️ 2. Сама чёткая карточка с обложкой альбома поверх ореола
                 Box(
@@ -1089,6 +1092,45 @@ fun MobileFullPlayerSheet(
 }
 
 /**
+ * Растеризует Ambilight-ореол (24 градиентных слоя с гауссовым спадом) в bitmap
+ * размером обложки плюс [maxDistance] с каждой стороны.
+ */
+private fun renderAmbilightGlow(
+    density: Density,
+    width: Float,
+    height: Float,
+    maxDistance: Float,
+    baseCornerRadius: Float,
+    glowLeft: Color,
+    glowRight: Color
+): ImageBitmap {
+    val imageW = (width + 2 * maxDistance).roundToInt().coerceAtLeast(1)
+    val imageH = (height + 2 * maxDistance).roundToInt().coerceAtLeast(1)
+    val image = ImageBitmap(imageW, imageH)
+    val canvas = androidx.compose.ui.graphics.Canvas(image)
+    CanvasDrawScope().draw(density, LayoutDirection.Ltr, canvas, Size(imageW.toFloat(), imageH.toFloat())) {
+        val steps = 24
+        for (i in steps downTo 1) {
+            val d = (i.toFloat() / steps) * maxDistance
+            val factor = d / maxDistance
+            // Гауссов колоколообразный спад e^(-2.2 * factor^2)
+            val alpha = (0.13f * exp(-2.2f * factor * factor)).coerceIn(0f, 1f)
+            drawRoundRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(glowLeft.copy(alpha = alpha), glowRight.copy(alpha = alpha)),
+                    startX = maxDistance - d,
+                    endX = maxDistance + width + d
+                ),
+                topLeft = Offset(maxDistance - d, maxDistance - d),
+                size = Size(width + 2 * d, height + 2 * d),
+                cornerRadius = CornerRadius(baseCornerRadius + d, baseCornerRadius + d)
+            )
+        }
+    }
+    return image
+}
+
+/**
  * 💡 Цветовая палитра для фоновой Ambilight-подсветки вокруг обложки
  */
 data class AmbilightPalette(
@@ -1200,9 +1242,6 @@ fun CoverSpectrumVisualizer(
             fade * fade * (3f - 2f * fade)
         }
     }
-    val barLevels = frame.levels
-    val capLevels = frame.peakCaps
-
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -1239,6 +1278,11 @@ fun CoverSpectrumVisualizer(
             val totalW = size.width
             val maxH = size.height
             if (totalW <= 0f || maxH <= 0f) return@Canvas
+
+            // Кадр спектра читается только здесь: обновление каждый кадр перерисовывает
+            // Canvas, не вызывая рекомпозицию BoxWithConstraints.
+            val barLevels = frame.levels
+            val capLevels = frame.peakCaps
 
             val sideInset = maxOf(totalW * 0.035f, coverCornerRadius.toPx() / 3f)
             val availableW = totalW - 2f * sideInset

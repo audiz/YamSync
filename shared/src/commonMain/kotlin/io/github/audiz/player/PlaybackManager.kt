@@ -1701,6 +1701,8 @@ class PlaybackManager(
     fun schedulePreload() {
         preloadJob?.cancel()
         val nextTrack = plannedNextTrack ?: return
+        // Обложка следующего трека нужна сразу при переключении — загружаем её заранее
+        CoverImageLoader.prefetch(nextTrack.coverUri)
         val targetTrackId = nextTrack.id
         val cleanTitle = nextTrack.title.trim()
         val cleanArtist = nextTrack.artists.joinToString { it.name }.trim()

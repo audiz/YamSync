@@ -316,7 +316,10 @@ class MprisServer(
         val member = msg.member ?: ""
         val path = msg.path ?: ""
         val sender = msg.sender
-        log("Входящий вызов: member='$member', iface='$iface', path='$path', sender='$sender'")
+        // Чтение свойств апплеты делают сотнями в секунду — не логируем их, чтобы не грузить диск и CPU
+        if (iface != "org.freedesktop.DBus.Properties" || (member != "Get" && member != "GetAll")) {
+            log("Входящий вызов: member='$member', iface='$iface', path='$path', sender='$sender'")
+        }
 
         try {
             // 1. Introspectable
@@ -360,7 +363,6 @@ class MprisServer(
                         val stream = ByteBuffer.wrap(msg.body).order(ByteOrder.LITTLE_ENDIAN)
                         val targetIface = readDbusStringSafe(stream)
                         val propName = readDbusStringSafe(stream)
-                        log("Запрос свойства: iface='$targetIface', prop='$propName'")
 
                         val knownInterfaces = setOf(
                             "org.mpris.MediaPlayer2",
@@ -407,7 +409,6 @@ class MprisServer(
                     "GetAll" -> {
                         val stream = ByteBuffer.wrap(msg.body).order(ByteOrder.LITTLE_ENDIAN)
                         val targetIface = readDbusStringSafe(stream)
-                        log("Запрос GetAll для iface='$targetIface'")
 
                         val knownInterfaces = setOf(
                             "org.mpris.MediaPlayer2",

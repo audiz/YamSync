@@ -1,20 +1,40 @@
 package io.github.audiz.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import io.github.audiz.DispatcherIO
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.getLocalCoverArtUrl
 import io.github.audiz.loadLocalCoverBytes
 import io.github.audiz.synchronized
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import org.jetbrains.compose.resources.decodeToImageBitmap
 
 /**
- * 🖼️ Загрузчик и кэш обложек альбомов и треков
+ * 🖼️ Загрузчик и кэш обложек альбомов и треков.
+ *
+ * Ключ кэша — итоговый URL нужного размера (или путь локального файла), поэтому
+ * обложки разных размеров не подменяют друг друга. Одинаковые параллельные запросы
+ * объединяются в одну загрузку, а обложку следующего трека можно загрузить заранее.
  */
 object CoverImageLoader {
+    private const val MEMORY_CACHE_LIMIT = 64
+
     private val cacheLock = Any()
-    private val memoryCache = mutableMapOf<String, ImageBitmap>()
+    private val memoryCache = LinkedHashMap<String, ImageBitmap>(MEMORY_CACHE_LIMIT, 0.75f, true)
+    private val inFlight = HashMap<String, Deferred<ImageBitmap?>>()
+    private val requestedSizes = LinkedHashSet<Int>()
+    private val loaderScope = CoroutineScope(SupervisorJob() + DispatcherIO)
+
     var repository: MusicRepository? = null
 
     /**
@@ -24,7 +44,7 @@ object CoverImageLoader {
     fun formatCoverUrl(uri: String?, size: Int = 400): String? {
         if (uri.isNullOrBlank()) return null
         var clean = uri.trim()
-        if (clean.startsWith("local:") || clean.startsWith("file:") || clean.startsWith("/")) {
+        if (isLocal(clean)) {
             return getLocalCoverArtUrl(clean) ?: clean
         }
         if (clean.contains("%%")) {
@@ -36,65 +56,95 @@ object CoverImageLoader {
         return clean
     }
 
+    private fun isLocal(uri: String): Boolean =
+        uri.startsWith("local:") || uri.startsWith("file:") || uri.startsWith("/")
+
+    /** Ключ кэша без обращения к диску: локальная обложка — по исходному пути, сетевая — по URL размера. */
+    private fun cacheKey(coverUri: String?, size: Int): String? {
+        val trimmed = coverUri?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (isLocal(trimmed)) return trimmed
+        return formatCoverUrl(trimmed, size)
+    }
+
+    /** Обложка из памяти без загрузки (null, если её ещё нет в кэше). */
+    fun peek(coverUri: String?, size: Int = 400): ImageBitmap? {
+        val key = cacheKey(coverUri, size) ?: return null
+        return synchronized(cacheLock) { memoryCache[key] }
+    }
+
     /**
      * Асинхронная загрузка обложки трека с кэшированием в оперативной памяти
      */
     suspend fun loadCover(coverUri: String?, size: Int = 400): ImageBitmap? {
-        if (coverUri.isNullOrBlank()) return null
-        val trimmed = coverUri.trim()
-        synchronized(cacheLock) { memoryCache[trimmed] }?.let { return it }
-
-        // 1. Проверяем локальные файлы
-        if (trimmed.startsWith("local:") || trimmed.startsWith("file:") || trimmed.startsWith("/")) {
-            return withContext(DispatcherIO) {
-                val bytes = loadLocalCoverBytes(trimmed)
-                if (bytes == null || bytes.isEmpty()) return@withContext null
-                try {
-                    val bitmap = bytes.decodeToImageBitmap()
-                    synchronized(cacheLock) { memoryCache[trimmed] = bitmap }
-                    bitmap
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    println("CoverImageLoader: Ошибка декодирования локальной обложки $trimmed: ${e.message}")
-                    null
-                }
+        val key = cacheKey(coverUri, size) ?: return null
+        val trimmed = coverUri!!.trim()
+        val request = synchronized(cacheLock) {
+            requestedSizes.add(size)
+            memoryCache[key]?.let { return it }
+            inFlight[key] ?: loaderScope.async { fetchAndDecode(key, trimmed) }.also { deferred ->
+                inFlight[key] = deferred
+                deferred.invokeOnCompletion { synchronized(cacheLock) { if (inFlight[key] === deferred) inFlight.remove(key) } }
             }
         }
+        return request.await()
+    }
 
-        // 2. Сетевая обложка Яндекс Музыки
-        val url = formatCoverUrl(trimmed, size) ?: return null
-        synchronized(cacheLock) { memoryCache[url] }?.let { return it }
-
-        val repo = repository ?: return null
-        val bytes = withContext(DispatcherIO) {
-            repo.fetchImageBytes(url)
-        } ?: return null
-
-        return withContext(DispatcherIO) {
-            try {
-                val bitmap = bytes.decodeToImageBitmap()
-                synchronized(cacheLock) {
-                    memoryCache[trimmed] = bitmap
-                    memoryCache[url] = bitmap
-                }
-                bitmap
-            } catch (e: Exception) {
-                println("CoverImageLoader: Ошибка декодирования изображения $url: ${e.message}")
-                null
+    /** Заранее загрузить обложку (например, следующего трека) во всех размерах, которые сейчас показывает UI. */
+    fun prefetch(coverUri: String?) {
+        if (coverUri.isNullOrBlank()) return
+        val sizes = synchronized(cacheLock) { requestedSizes.toList() }
+        for (size in sizes) {
+            val key = cacheKey(coverUri, size) ?: continue
+            val trimmed = coverUri.trim()
+            synchronized(cacheLock) {
+                if (memoryCache.containsKey(key) || inFlight.containsKey(key)) return@synchronized
+                val deferred = loaderScope.async { fetchAndDecode(key, trimmed) }
+                inFlight[key] = deferred
+                deferred.invokeOnCompletion { synchronized(cacheLock) { if (inFlight[key] === deferred) inFlight.remove(key) } }
             }
+        }
+    }
+
+    private suspend fun fetchAndDecode(key: String, trimmed: String): ImageBitmap? {
+        val bytes = try {
+            if (isLocal(trimmed)) loadLocalCoverBytes(trimmed)
+            else repository?.fetchImageBytes(key)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("CoverImageLoader: Ошибка загрузки обложки $key: ${e.message}")
+            null
+        }
+        if (bytes == null || bytes.isEmpty()) return null
+        return try {
+            val bitmap = bytes.decodeToImageBitmap()
+            synchronized(cacheLock) {
+                memoryCache[key] = bitmap
+                while (memoryCache.size > MEMORY_CACHE_LIMIT) {
+                    memoryCache.remove(memoryCache.keys.first())
+                }
+            }
+            bitmap
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("CoverImageLoader: Ошибка декодирования обложки $key: ${e.message}")
+            null
         }
     }
 }
 
 /**
- * 🎨 Composable-хэлпер для автоматической загрузки и реактивного обновления ImageBitmap
+ * 🎨 Composable-хэлпер для автоматической загрузки и реактивного обновления ImageBitmap.
+ *
+ * При смене обложки сразу показывает закэшированную картинку (без кадра со старой),
+ * а если её ещё нет — заглушку до окончания загрузки.
  */
-@androidx.compose.runtime.Composable
+@Composable
 fun rememberCoverBitmap(coverUri: String?, size: Int = 400): ImageBitmap? {
-    val bitmapState = androidx.compose.runtime.produceState<ImageBitmap?>(initialValue = null, key1 = coverUri, key2 = size) {
-        value = CoverImageLoader.loadCover(coverUri, size)
+    var bitmap by remember(coverUri, size) { mutableStateOf(CoverImageLoader.peek(coverUri, size)) }
+    LaunchedEffect(coverUri, size) {
+        if (bitmap == null) bitmap = CoverImageLoader.loadCover(coverUri, size)
     }
-    return bitmapState.value
+    return bitmap
 }
-
