@@ -1,6 +1,7 @@
 package io.github.audiz.api
 
 import io.github.audiz.models.*
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
@@ -405,24 +406,13 @@ class PlaylistsClient(
      * 🎵 Получаем персональные плейлисты пользователя (Плейлист дня, Премьера, Дежавю и др.)
      * GET https://api.music.yandex.ru/landing-blocks/personal-playlists
      */
-    suspend fun getPersonalPlaylists(): List<PersonalPlaylistItemData> {
-        return try {
-            val response: HttpResponse = client.get(ApiUrls.PERSONAL_PLAYLISTS_URL) {
-                applyAuthHeaders()
-            }
-            if (response.status.value !in 200..299) {
-                println("PlaylistsClient: Ошибка получения персональных плейлистов: статус ${response.status}")
-                return emptyList()
-            }
-            val rawText = response.bodyAsText()
-            val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
-            val parsed = json.decodeFromString<PersonalPlaylistsResponse>(rawText)
-            parsed.items.mapNotNull { it.data }
-        } catch (e: Exception) {
-            println("PlaylistsClient: Исключение при получении персональных плейлистов: ${e.message}")
-            emptyList()
+    suspend fun getPersonalPlaylists(): List<PersonalPlaylistItemData> = PersonalPlaylistLoader { url ->
+        val response = client.get(url) {
+            applyAuthHeaders()
+            timeout { requestTimeoutMillis = 8_000L }
         }
-    }
+        if (response.status.isSuccess()) response.bodyAsText() else null
+    }.load()
 
     /**
      * 🎵 Получаем пользовательские плейлисты из аккаунта Яндекс Музыки

@@ -151,42 +151,49 @@ class PlaylistManager(
     fun loadPersonalPlaylists() {
         launchSafe {
             isPersonalPlaylistsLoading = true
-            var loadedFromNetwork = false
-            val token = getAccessToken()
-            val storagePath = getMusicStoragePath()
-            if (token.isNotBlank()) {
-                try {
-                    val playlists = withContext(DispatcherIO) {
-                        repository.getPersonalPlaylists()
-                    }
-                    if (playlists.isNotEmpty()) {
-                        personalPlaylists.clear()
-                        personalPlaylists.addAll(playlists)
-                        loadedFromNetwork = true
-                        println("PlaylistManager: Загружено персональных плейлистов: ${playlists.size}")
-                        withContext(DispatcherIO) {
-                            savePersonalPlaylistsCache(storagePath, playlists)
+            try {
+                var loadedFromNetwork = false
+                val token = getAccessToken()
+                val storagePath = getMusicStoragePath()
+                if (token.isNotBlank()) {
+                    try {
+                        val playlists = withContext(DispatcherIO) {
+                            repository.getPersonalPlaylists()
                         }
+                        if (playlists.isNotEmpty()) {
+                            personalPlaylists.clear()
+                            personalPlaylists.addAll(playlists)
+                            loadedFromNetwork = true
+                            println("PlaylistManager: Загружено персональных плейлистов: ${playlists.size}")
+                            withContext(DispatcherIO) {
+                                savePersonalPlaylistsCache(storagePath, playlists)
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        println("PlaylistManager: Ошибка загрузки персональных плейлистов: ${e.message}")
                     }
-                } catch (e: Throwable) {
-                    println("PlaylistManager: Ошибка загрузки персональных плейлистов: ${e.message}")
                 }
-            }
-            if (!loadedFromNetwork && personalPlaylists.isEmpty()) {
-                try {
-                    val cached = withContext(DispatcherIO) {
-                        loadPersonalPlaylistsCache(storagePath)
+                if (!loadedFromNetwork && personalPlaylists.isEmpty()) {
+                    try {
+                        val cached = withContext(DispatcherIO) {
+                            loadPersonalPlaylistsCache(storagePath)
+                        }
+                        if (cached.isNotEmpty()) {
+                            personalPlaylists.clear()
+                            personalPlaylists.addAll(cached)
+                            println("PlaylistManager: Загружено персональных плейлистов из кеша: ${cached.size}")
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        println("PlaylistManager: Ошибка загрузки персональных плейлистов из кеша: ${e.message}")
                     }
-                    if (cached.isNotEmpty()) {
-                        personalPlaylists.clear()
-                        personalPlaylists.addAll(cached)
-                        println("PlaylistManager: Загружено персональных плейлистов из кеша: ${cached.size}")
-                    }
-                } catch (e: Throwable) {
-                    println("PlaylistManager: Ошибка загрузки персональных плейлистов из кеша: ${e.message}")
                 }
+            } finally {
+                isPersonalPlaylistsLoading = false
             }
-            isPersonalPlaylistsLoading = false
         }
     }
 

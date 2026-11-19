@@ -104,7 +104,14 @@ fun HomeHub(
             if (viewModel.personalPlaylists.isNotEmpty()) {
                 PersonalPlaylistsSection(
                     items = viewModel.personalPlaylists,
-                    onSelect = { uuid, title -> viewModel.loadPlaylistByUuid(uuid, title) },
+                    onSelect = { item ->
+                        val playlist = item.playlist!!
+                        if (playlist.playlistUuid.isNotBlank()) {
+                            viewModel.loadPlaylistByUuid(playlist.playlistUuid, item.displayTitle)
+                        } else {
+                            viewModel.loadPlaylistTracks(playlist.uid, playlist.kind, item.displayTitle)
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -523,10 +530,10 @@ private fun ResumeSessionCard(
 @Composable
 private fun PersonalPlaylistsSection(
     items: List<PersonalPlaylistItemData>,
-    onSelect: (uuid: String, title: String) -> Unit,
+    onSelect: (PersonalPlaylistItemData) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val visibleItems = items.filter { it.playlist != null }
+    val visibleItems = items.filter { it.playlist?.canOpen == true }
     Column(modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -570,21 +577,14 @@ private fun PersonalPlaylistsSection(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(gap)
             ) {
-                items(visibleItems, key = { it.playlist!!.playlistUuid }) { item ->
+                items(visibleItems, key = { it.playlist!!.stableKey }) { item ->
                     val playlist = item.playlist!!
-                    val title = playlist.title.ifBlank {
-                        when (item.playlistType) {
-                            "playlistOfTheDay" -> "Плейлист дня"
-                            "recentTracks" -> "Премьера"
-                            "neverHeard" -> "Дежавю"
-                            else -> "Подборка"
-                        }
-                    }
+                    val title = item.displayTitle
                     PersonalPlaylistCard(
                         title = title,
                         description = item.description ?: "Собрано для вас",
                         coverUri = playlist.cover?.uri,
-                        onClick = { onSelect(playlist.playlistUuid, title) },
+                        onClick = { onSelect(item) },
                         modifier = Modifier.width(cardWidth)
                     )
                 }

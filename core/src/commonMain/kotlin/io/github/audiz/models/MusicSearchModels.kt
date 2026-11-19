@@ -297,7 +297,17 @@ data class PersonalPlaylistItemData(
     val description: String? = null,
     val notify: Boolean = false,
     val idForFrom: String? = null
-)
+) {
+    val displayTitle: String get() = playlist?.title?.takeIf { it.isNotBlank() } ?: when (playlistType) {
+        "playlistOfTheDay", "daily" -> "Плейлист дня"
+        "recentTracks" -> "Премьера"
+        "neverHeard" -> "Дежавю"
+        "missedLikes" -> "Тайник"
+        "podcasts" -> "Подкасты недели"
+        "origin" -> "Плейлист с Алисой"
+        else -> "Подборка"
+    }
+}
 
 @Serializable
 data class PersonalPlaylistInfo(
@@ -306,7 +316,10 @@ data class PersonalPlaylistInfo(
     val kind: Long = 0L,
     val title: String = "",
     val cover: PersonalPlaylistCover? = null
-)
+) {
+    val canOpen: Boolean get() = playlistUuid.isNotBlank() || (uid > 0L && kind > 0L)
+    val stableKey: String get() = playlistUuid.ifBlank { "${uid}:${kind}" }
+}
 
 @Serializable
 data class PersonalPlaylistCover(

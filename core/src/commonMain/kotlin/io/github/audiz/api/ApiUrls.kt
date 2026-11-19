@@ -6,6 +6,8 @@ object ApiUrls {
     const val LANDING_LIKES_URL = "https://api.music.yandex.ru/landing-blocks/collection/playlist-with-likes"
     const val PLAYLIST_BY_UUID_URL = "https://api.music.yandex.ru/playlist" // + /{uuid}?resumeStream=false&richTracks=false
     const val HISTORY_URL = "https://api.music.yandex.ru/music-history"
+    const val PERSONAL_FEED_URL = "https://api.music.yandex.ru/feed"
+    const val GENERATED_PLAYLIST_BASE_URL = "https://api.music.yandex.ru/playlists/personal"
     const val PERSONAL_PLAYLISTS_URL = "https://api.music.yandex.ru/landing-blocks/personal-playlists"
     const val USER_PLAYLISTS_BASE_URL = "https://api.music.yandex.ru/users"
 }
