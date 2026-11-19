@@ -40,7 +40,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import io.github.audiz.getPlatform
 import io.github.audiz.search.SearchSuggestion
-import kotlinx.coroutines.delay
 
 @Composable
 fun SearchInputField(
@@ -72,7 +71,6 @@ fun SearchInputField(
     LaunchedEffect(query, isFocused, isLink, isLoading, suggestionsDismissed) {
         suggestions = emptyList()
         if (isFocused && query.isNotBlank() && !isLink && !isLoading && !suggestionsDismissed) {
-            delay(300)
             suggestions = loadSuggestions(query)
         }
     }
