@@ -214,9 +214,6 @@ private fun WaveHeroCard(
                 }
                 if (viewModel.recentThematicWaves.isNotEmpty()) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Недавно", modifier = Modifier.align(Alignment.CenterVertically),
-                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                         viewModel.recentThematicWaves.take(3).forEach { theme ->
                             val selected = viewModel.isWaveMode && viewModel.currentWaveSeeds == theme.seeds
                             Surface(
