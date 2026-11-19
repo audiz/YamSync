@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -398,10 +399,6 @@ private fun QuickAccessTile(
     statusColor: Color? = null
 ) {
     val surface = MaterialTheme.colorScheme.surface
-    val background = remember(surface, accentColor) {
-        listOf(lerp(surface, accentColor, 0.26f), lerp(surface, accentColor, 0.12f),
-            lerp(surface, accentColor, 0.20f))
-    }
     Surface(
         modifier = modifier
             .heightIn(min = 36.dp)
@@ -415,33 +412,7 @@ private fun QuickAccessTile(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .drawWithCache {
-                    val gradient = Brush.linearGradient(background,
-                        start = Offset.Zero, end = Offset(size.width, size.height))
-                    val ribbons = List(3) { index ->
-                        val y = size.height * (0.64f + index * 0.24f)
-                        Path().apply {
-                            moveTo(size.width * 0.42f, size.height)
-                            cubicTo(size.width * 0.67f, y, size.width * 0.85f, y + size.height * 0.15f,
-                                size.width, y - size.height * 0.48f)
-                            lineTo(size.width, size.height)
-                            close()
-                        }
-                    }
-                    val ribbonBrush = Brush.linearGradient(
-                        listOf(Color.Transparent, accentColor.copy(alpha = 0.13f)),
-                        start = Offset(size.width * 0.45f, size.height),
-                        end = Offset(size.width, 0f)
-                    )
-                    onDrawBehind {
-                        drawRect(gradient)
-                        ribbons.forEach { drawPath(it, ribbonBrush) }
-                        statusColor?.let { color ->
-                            drawCircle(color, radius = 2.5.dp.toPx(),
-                                center = Offset(size.width - 7.dp.toPx(), 7.dp.toPx()))
-                        }
-                    }
-                }
+                .waveCardBackground(surface, accentColor, statusColor)
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -466,6 +437,42 @@ private fun QuickAccessTile(
                     modifier = Modifier.weight(1f)
                 )
             }
+        }
+    }
+}
+
+private fun Modifier.waveCardBackground(
+    surface: Color,
+    accentColor: Color,
+    statusColor: Color? = null
+): Modifier = drawWithCache {
+    val gradient = Brush.linearGradient(
+        listOf(lerp(surface, accentColor, 0.26f), lerp(surface, accentColor, 0.12f),
+            lerp(surface, accentColor, 0.20f)),
+        start = Offset.Zero,
+        end = Offset(size.width, size.height)
+    )
+    val ribbons = List(3) { index ->
+        val y = size.height * (0.64f + index * 0.24f)
+        Path().apply {
+            moveTo(size.width * 0.42f, size.height)
+            cubicTo(size.width * 0.67f, y, size.width * 0.85f, y + size.height * 0.15f,
+                size.width, y - size.height * 0.48f)
+            lineTo(size.width, size.height)
+            close()
+        }
+    }
+    val ribbonBrush = Brush.linearGradient(
+        listOf(Color.Transparent, accentColor.copy(alpha = 0.13f)),
+        start = Offset(size.width * 0.45f, size.height),
+        end = Offset(size.width, 0f)
+    )
+    onDrawBehind {
+        drawRect(gradient)
+        ribbons.forEach { drawPath(it, ribbonBrush) }
+        statusColor?.let { color ->
+            drawCircle(color, radius = 2.5.dp.toPx(),
+                center = Offset(size.width - 7.dp.toPx(), 7.dp.toPx()))
         }
     }
 }
@@ -825,6 +832,7 @@ private fun LocalLibrarySection(
                 customSources.forEach { src ->
                     key(src.id) {
                         FolderCard(
+                            stableId = src.id,
                             title = src.name,
                             subtitle = src.path.substringAfterLast('/').ifBlank { "Папка" },
                             onClick = { onOpenFolder(src.path, src.name, src) },
@@ -846,43 +854,81 @@ private fun LocalLibrarySection(
     }
 }
 
+private val folderCardColors = listOf(Color(0xFF38BDF8), Color(0xFF22D3EE), Color(0xFF2DD4BF))
+private val playlistCardColors = listOf(
+    Color(0xFFA78BFA), Color(0xFFF472B6), Color(0xFF34D399), Color(0xFFFBBF24)
+)
+
+private fun libraryCardColor(stableId: String, colors: List<Color>): Color =
+    colors[(stableId.hashCode().toUInt() % colors.size.toUInt()).toInt()]
+
 @Composable
 private fun FolderCard(
+    stableId: String,
     title: String,
     subtitle: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    LibraryItemCard(
+        title = title,
+        subtitle = subtitle,
+        icon = Icons.Filled.Folder,
+        accentColor = remember(stableId) { libraryCardColor(stableId, folderCardColors) },
+        onClick = onClick,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun LocalPlaylistCard(
+    playlist: LocalPlaylist,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LibraryItemCard(
+        title = playlist.title,
+        subtitle = "${playlist.trackPaths.size} треков",
+        icon = Icons.AutoMirrored.Filled.QueueMusic,
+        accentColor = remember(playlist.id) { libraryCardColor(playlist.id, playlistCardColors) },
+        onClick = onClick,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun LibraryItemCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    accentColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val surface = MaterialTheme.colorScheme.surface
+    Surface(
         modifier = modifier
             .heightIn(min = 88.dp)
+            .clip(RoundedCornerShape(12.dp))
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        color = surface,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.25f))
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .waveCardBackground(surface, accentColor)
+                .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF3B82F6).copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Folder,
-                    contentDescription = null,
-                    tint = Color(0xFF3B82F6),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(26.dp)
+            )
             Column {
                 Text(
                     text = title,
@@ -894,63 +940,6 @@ private fun FolderCard(
                 )
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LocalPlaylistCard(
-    playlist: LocalPlaylist,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .heightIn(min = 88.dp)
-            .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF8B5CF6).copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
-                    contentDescription = null,
-                    tint = Color(0xFF8B5CF6),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
-            Column {
-                Text(
-                    text = playlist.title,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${playlist.trackPaths.size} треков",
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
