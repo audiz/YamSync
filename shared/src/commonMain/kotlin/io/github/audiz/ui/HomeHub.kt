@@ -420,10 +420,9 @@ private fun QuickAccessTile(
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
+                modifier = Modifier.weight(1f)
             )
             if (statusColor != null) {
-                Spacer(modifier = Modifier.weight(1f))
                 Box(
                     modifier = Modifier
                         .padding(start = 6.dp)
