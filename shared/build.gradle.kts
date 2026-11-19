@@ -105,5 +105,8 @@ android {
 
 tasks.withType<Test> {
     systemProperty("java.util.prefs.userRoot", "${layout.buildDirectory.get().asFile.absolutePath}/test-prefs")
+    // Тесты не должны регистрировать MPRIS / SMTC в пользовательской сессии: каждая регистрация
+    // оставляет «плеер» в звуковом апплете рабочего стола
+    systemProperty("yamsync.systemMediaControls.disabled", "true")
 }
 

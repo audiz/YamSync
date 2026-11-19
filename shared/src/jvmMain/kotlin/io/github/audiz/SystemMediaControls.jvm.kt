@@ -8,13 +8,18 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+
+private const val MAX_CACHED_COVERS = 20
 
 actual class SystemMediaControls {
     private var mprisServer: MprisServer? = null
     private var windowsControls: WindowsMediaControls? = null
 
-    private val isLinux = System.getProperty("os.name")?.lowercase()?.contains("linux") == true
-    private val isWindows = System.getProperty("os.name")?.lowercase()?.contains("windows") == true
+    // Отключение интеграции с системой (используется в тестах, чтобы не трогать сессию пользователя)
+    private val isDisabled = System.getProperty("yamsync.systemMediaControls.disabled") == "true"
+    private val isLinux = !isDisabled && System.getProperty("os.name")?.lowercase()?.contains("linux") == true
+    private val isWindows = !isDisabled && System.getProperty("os.name")?.lowercase()?.contains("windows") == true
 
     private data class Metadata(
         val title: String, val artist: String, val album: String, val durationMs: Long, val trackId: String?
@@ -23,9 +28,35 @@ actual class SystemMediaControls {
     private var currentMetadata: Metadata? = null
     private val artworkLoader = NowPlayingArtworkLoader<String>(
         scope = scope,
-        load = { uri -> withContext(DispatcherIO) { CoverImageLoader.formatCoverUrl(uri, 400) } },
+        load = { uri -> withContext(DispatcherIO) { resolveLocalArtUrl(uri) } },
         publish = { artUrl -> currentMetadata?.let { publishMetadata(it, artUrl) } }
     )
+
+    /**
+     * MPRIS-обложка всегда отдаётся локальным file:// URL: апплеты рабочего стола (например, Cinnamon)
+     * для http-ссылок сами запускают загрузку из своего главного процесса, а локальный файл читают асинхронно.
+     */
+    private suspend fun resolveLocalArtUrl(uri: String): String? {
+        val url = CoverImageLoader.formatCoverUrl(uri, 400) ?: return null
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return url
+        val dir = File(System.getProperty("java.io.tmpdir"), "yamsync-mpris-covers-${System.getProperty("user.name")}")
+        val file = File(dir, "${url.hashCode().toUInt().toString(16)}.img")
+        if (file.isFile && file.length() > 0L) return file.toURI().toString()
+        val bytes = CoverImageLoader.repository?.fetchImageBytes(url)?.takeIf { it.isNotEmpty() } ?: return null
+        dir.mkdirs()
+        val tmp = File(dir, file.name + ".part")
+        tmp.writeBytes(bytes)
+        if (!tmp.renameTo(file)) {
+            tmp.delete()
+            return null
+        }
+        // Держим в папке только последние обложки
+        dir.listFiles { f -> f.isFile && f.name.endsWith(".img") }
+            ?.sortedByDescending { it.lastModified() }
+            ?.drop(MAX_CACHED_COVERS)
+            ?.forEach { it.delete() }
+        return file.toURI().toString()
+    }
 
     private fun publishMetadata(metadata: Metadata, artUrl: String?) {
         mprisServer?.updateMetadata(metadata.title, metadata.artist, metadata.album,

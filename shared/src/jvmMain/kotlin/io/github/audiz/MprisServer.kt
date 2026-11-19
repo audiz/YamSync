@@ -237,10 +237,13 @@ class MprisServer(
         val assignedName = helloReply.readStringBody()
         log("Получен ответ на Hello! Назначен уникальный bus name: '$assignedName'")
 
-        // 3. Запрос имени org.mpris.MediaPlayer2.YandexMusicDownloader
+        // 3. Запрос имени org.mpris.MediaPlayer2.YandexMusicDownloader.instance<PID>
         // Флаги: 1 (ALLOW_REPLACEMENT) | 2 (REPLACE_EXISTING) | 4 (DO_NOT_QUEUE) = 7
         val reqSerial = serialCounter.getAndIncrement()
-        val busName = "org.mpris.MediaPlayer2.YandexMusicDownloader"
+        // Уникальное имя для каждого процесса (вариант из спецификации MPRIS для нескольких экземпляров):
+        // апплеты рабочего стола могут держать объекты от прошлых запусков, подписанные на общее имя,
+        // и тогда каждый наш сигнал обрабатывался бы десятки раз
+        val busName = "org.mpris.MediaPlayer2.YandexMusicDownloader.instance${ProcessHandle.current().pid()}"
         val reqBody = DbusWriter().apply {
             writeString(busName)
             writeUInt32(7)
