@@ -62,7 +62,8 @@ class PlaybackManager(
     private val isRecordToDisk: () -> Boolean,
     private val onTrackSavedToDisk: (() -> Unit)? = null,
     private val onTrackStarted: ((trackId: String, title: String, artist: String, coverUri: String?, isWave: Boolean) -> Unit)? = null,
-    private val onError: (String) -> Unit = {}
+    private val onError: (String) -> Unit = {},
+    private val onTrackMetadataChanged: ((FullTrackInfo) -> Unit)? = null
 ) {
     val upNextQueue = UpNextQueue()
     private var restoringUpNext = false
@@ -542,6 +543,21 @@ class PlaybackManager(
         coverUri = track.coverUri
         isPlaying = false
         isPaused = false
+    }
+
+    internal fun refreshRestoredTrackMetadata(track: FullTrackInfo) {
+        if (trackId != track.id) return
+        upNextQueue.restoreOriginalTrack(track)
+        if (track.durationMs > 0L) durationMs = track.durationMs
+        if (track.title.isNotBlank()) trackTitle = track.title
+        if (track.artists.isNotEmpty()) artistName = track.artists.joinToString { it.name }
+        albumId = track.albums.firstOrNull()?.id ?: albumId
+        coverUri = track.coverUri ?: coverUri
+        onTrackMetadataChanged?.invoke(track)
+        if (isPlaying || isPaused) {
+            systemMediaControls.updateMetadata(trackTitle, artistName, "", durationMs, trackId, coverUri,
+                isLiked = isTrackLiked?.invoke(trackId) == true)
+        }
     }
 
     fun sanitizeKeepSpaces(input: String): String = LocalTrackResolver.sanitizeKeepSpaces(input)
@@ -1082,6 +1098,9 @@ class PlaybackManager(
                     val audioDur = audioPlayer.getDurationMs()
                     if (audioDur > 0 && durationMs != audioDur) {
                         durationMs = audioDur
+                        trackId?.let { id ->
+                            findTrackInfo(id)?.copy(durationMs = audioDur)?.let { onTrackMetadataChanged?.invoke(it) }
+                        }
                         systemMediaControls.updateMetadata(
                             title = trackTitle,
                             artist = artistName,

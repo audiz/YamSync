@@ -16,6 +16,7 @@ import kotlinx.coroutines.cancel
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.assertFalse
 import io.github.audiz.api.MusicRepository
+import io.github.audiz.models.FullAlbumInfo
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.models.LastPlaybackSession
 import io.github.audiz.models.LastPlaybackType
@@ -106,6 +107,9 @@ class WaveSessionRestoreTest {
             assertEquals("saved", player.trackId)
             assertFalse(player.isPlaying)
             assertFalse(player.isPaused)
+            player.setInitialTrack(wave.currentWaveTrack!!.copy(durationMs = 0L))
+            player.refreshRestoredTrackMetadata(wave.currentWaveTrack!!)
+            assertEquals(180_000L, player.durationMs)
             wave.installInitialTracks(listOf(FullTrackInfo(id = "first"), FullTrackInfo(id = "second")), wave.currentWaveTrack)
             player.togglePlayPause()
             assertEquals("saved", wave.currentWaveTrack?.id)
@@ -169,6 +173,31 @@ class WaveSessionRestoreTest {
             assertTrue(player.upNextQueue.state.current!!.inserted)
             assertFalse(player.isPlaying)
         }
+    }
+
+    @Test
+    fun completeSavedMetadataRestoresWithoutRequest() {
+        val wave = WaveManager(CoroutineScope(Dispatchers.Unconfined), MusicRepository(), getAccessToken = { "" },
+            restoreTrackDetails = { error("Saved complete metadata must not require a request") })
+        val full = FullTrackInfo(id = "saved", title = "Song", durationMs = 250_000L,
+            albums = listOf(FullAlbumInfo(id = 12L, title = "Album")))
+        wave.restoreSession(session.copy(lastTrackInfo = full))
+        assertEquals(full, wave.currentWaveTrack)
+    }
+
+    @Test
+    fun incompleteLegacyMetadataIsEnrichedAndNotLostWhenRecommendationsArrive() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val full = FullTrackInfo(id = "saved", title = "Song", durationMs = 250_000L,
+            albums = listOf(FullAlbumInfo(id = 12L, title = "Album")))
+        val wave = WaveManager(scope, MusicRepository(), getAccessToken = { "" }, restoreTrackDetails = { full })
+        try {
+            val legacy = session.copy(lastDurationMs = 0L)
+            wave.restoreSession(legacy)?.join()
+            assertEquals(250_000L, wave.currentWaveTrack?.durationMs)
+            wave.installInitialTracks(listOf(FullTrackInfo(id = "next")), FullTrackInfo(id = "saved"))
+            assertEquals(full, wave.currentWaveTrack)
+        } finally { scope.cancel() }
     }
 
     @Test

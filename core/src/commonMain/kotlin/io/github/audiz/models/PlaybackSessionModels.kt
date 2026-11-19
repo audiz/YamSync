@@ -45,5 +45,6 @@ data class LastPlaybackSession(
     val lastArtistName: String? = null,
     val lastCoverUri: String? = null,
     val lastDurationMs: Long = 0L,
+    val lastTrackInfo: FullTrackInfo? = null,
     val timestamp: Long = 0L
 )

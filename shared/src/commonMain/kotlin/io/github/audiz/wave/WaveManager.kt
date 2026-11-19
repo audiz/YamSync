@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import io.github.audiz.DispatcherIO
+import kotlinx.coroutines.withContext
 import io.github.audiz.TrackPlaySource
 import io.github.audiz.api.MusicRepository
 import io.github.audiz.api.RotorFeedbackItem
@@ -41,7 +43,11 @@ class WaveManager(
     private val repository: MusicRepository,
     private val getAccessToken: () -> String,
     private val onTrackLiked: ((String) -> Unit)? = null,
-    private val onError: ((String) -> Unit)? = null
+    private val onError: ((String) -> Unit)? = null,
+    private val restoreTrackDetails: suspend (String) -> FullTrackInfo? = { id ->
+        if (getAccessToken().isBlank()) null
+        else repository.getTracksDetails(listOf(id)).result.firstOrNull { it.id == id }
+    }
 ) : WavePlaybackBridge {
     private var playbackManager: PlaybackManager? = null
 
@@ -220,9 +226,9 @@ class WaveManager(
     private var replenishmentJob: Job? = null
 
     /** Восстановить последний трек без автозапуска и загрузить продолжение волны. */
-    fun restoreSession(session: LastPlaybackSession) {
+    fun restoreSession(session: LastPlaybackSession): Job? {
         val track = session.lastTrackId?.takeIf { it.isNotBlank() }?.let { id ->
-            FullTrackInfo(
+            session.lastTrackInfo?.takeIf { it.id == id } ?: FullTrackInfo(
                 id = id,
                 title = session.lastTrackTitle.orEmpty(),
                 artists = listOf(FullArtistInfo(id = 0L, name = session.lastArtistName.orEmpty())),
@@ -240,16 +246,35 @@ class WaveManager(
         } else {
             initializeWave(autoPlay = false, source = TrackPlaySource.PLAY, restoredTrack = track)
         }
+        return if (track != null && track.durationMs <= 0L) scope.launch {
+            try {
+                val details = withContext(DispatcherIO) { restoreTrackDetails(track.id) } ?: return@launch
+                if (details.id != track.id || !isWaveMode || currentWaveTrack?.id != track.id) return@launch
+                val index = waveTracks.indexOfFirst { it.id == track.id }
+                if (index >= 0) waveTracks[index] = details
+                activeWaveTrack = details
+                playbackManager?.refreshRestoredTrackMetadata(details)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.w("WaveManager", "Не удалось уточнить метаданные восстановленного трека: ${e.message}")
+            }
+        } else null
     }
 
     internal fun installInitialTracks(tracks: List<FullTrackInfo>, restoredTrack: FullTrackInfo? = null) {
-        val selected = restoredTrack?.let { saved -> tracks.firstOrNull { it.id == saved.id } ?: saved }
+        val selected = restoredTrack?.let { saved ->
+            tracks.firstOrNull { it.id == saved.id && it.durationMs > 0L }
+                ?: currentWaveTrack?.takeIf { it.id == saved.id && it.durationMs > 0L }
+                ?: saved
+        }
         waveTracks.clear()
         if (selected != null) waveTracks.add(selected)
         waveTracks.addAll(tracks.filter { it.id != selected?.id }.distinctBy { it.id })
         waveCurrentIndex = 0
         activeWaveTrack = waveTracks.firstOrNull()
         isWaveMode = waveTracks.isNotEmpty()
+        if (restoredTrack != null && selected != null) playbackManager?.refreshRestoredTrackMetadata(selected)
     }
 
     override fun loadInitialWave(autoPlay: Boolean, source: TrackPlaySource) {
@@ -315,7 +340,6 @@ class WaveManager(
                 waveTracks.clear()
                 wavePastTracks.clear()
                 waveFutureTracks.clear()
-                activeWaveTrack = null
                 pendingWaveFeedbacks.clear()
                 waveTrackBatchMap.clear()
                 val parsedTracks = response.sequence.mapNotNull { it.track }.distinctBy { it.id }
@@ -408,7 +432,6 @@ class WaveManager(
                 waveTracks.clear()
                 wavePastTracks.clear()
                 waveFutureTracks.clear()
-                activeWaveTrack = null
                 pendingWaveFeedbacks.clear()
                 waveTrackBatchMap.clear()
 

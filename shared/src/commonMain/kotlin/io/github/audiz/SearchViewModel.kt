@@ -516,7 +516,7 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
     )
 
     // 💾 МЕНЕДЖЕР СЕССИИ ВОСПРОИЗВЕДЕНИЯ (Восстановление плейлиста или Волны при рестарте)
-    val playbackSessionManager = PlaybackSessionManager()
+    val playbackSessionManager = PlaybackSessionManager(viewModelScope)
 
     // 🎵 АУДИОПЛЕЕР (Делегирован в PlaybackManager):
     val playbackManager: PlaybackManager = PlaybackManager(
@@ -534,18 +534,26 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
         isRecordToDisk = { downloadManager.isRecordToDiskActive },
         onTrackSavedToDisk = { downloadManager.incrementDownloadVersion() },
         onTrackStarted = { trackId, title, artist, cover, isWave ->
-            if (isWave) {
-                playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
+            if (playbackManager.upNextQueue.state.current?.inserted != true) {
+                if (isWave) {
+                    playbackSessionManager.recordWave(waveManager.currentWaveTitle, waveManager.currentWaveSeeds)
+                }
+                playbackSessionManager.updateLastTrack(
+                    trackId = trackId,
+                    trackTitle = title,
+                    artistName = artist,
+                    coverUri = cover,
+                    durationMs = playbackManager.durationMs,
+                    trackInfo = playbackManager.findTrackInfo(trackId)
+                )
             }
-            if (playbackManager.upNextQueue.state.current?.inserted != true) playbackSessionManager.updateLastTrack(
-                trackId = trackId,
-                trackTitle = title,
-                artistName = artist,
-                coverUri = cover,
-                durationMs = playbackManager.durationMs
-            )
         },
-        onError = { errorMessage = it }
+        onError = { errorMessage = it },
+        onTrackMetadataChanged = { track ->
+            if (playbackManager.upNextQueue.state.current?.inserted != true) {
+                playbackSessionManager.updateTrackMetadata(track)
+            }
+        }
     )
 
     // 📂 МЕНЕДЖЕР ПЛЕЙЛИСТОВ:
