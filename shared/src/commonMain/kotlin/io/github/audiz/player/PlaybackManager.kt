@@ -654,20 +654,11 @@ class PlaybackManager(
                 val sanitizedArtist = sanitizeKeepSpaces(cleanArtist.ifBlank { "Unknown Artist" })
 
                 // 🔍 1. Проверяем, есть ли файл на диске
-                var existingFilePath: String? = null
                 val preloaded = preloadedAudio
-
-                if (preloaded?.trackId == targetTrackId && preloaded.quality == selectedQuality && preloaded.filePath != null && localFileExists(preloaded.filePath)) {
-                    existingFilePath = preloaded.filePath
-                }
-
-                if (existingFilePath == null) {
-                    existingFilePath = localTrackResolver.findLocalTrackFile(
-                        trackId = targetTrackId,
-                        artist = cleanArtist,
-                        title = cleanTitle,
-                        selectedQuality = selectedQuality
-                    )
+                val existingFilePath = withContext(DispatcherIO) {
+                    preloaded?.filePath?.takeIf {
+                        preloaded.trackId == targetTrackId && preloaded.quality == selectedQuality && localFileExists(it)
+                    } ?: localTrackResolver.findLocalTrackFile(targetTrackId, cleanArtist, cleanTitle, selectedQuality)
                 }
 
                 // Если файл найден — играем с диска без скачивания
@@ -681,7 +672,7 @@ class PlaybackManager(
                     trackTitle = cleanTitle
                     artistName = cleanArtist
                     currentPlayingFilePath = existingFilePath
-                    currentPlayingSizeBytes = getFileSize(existingFilePath).takeIf { it > 0 }
+                    currentPlayingSizeBytes = withContext(DispatcherIO) { getFileSize(existingFilePath).takeIf { it > 0 } }
                     isCurrentTrackHQ = (selectedQuality == "2") && existingFilePath.contains("HQ", ignoreCase = true)
                     val knownDuration = findTrackInfo(targetTrackId)?.durationMs?.takeIf { it > 0 } ?: 0L
                     positionMs = 0L
@@ -697,10 +688,14 @@ class PlaybackManager(
                             durationMs = playerDur
                         } else {
                             try {
-                                val localInfo = io.github.audiz.getTracksFromLocalPaths(listOf(existingFilePath)).firstOrNull()
+                                val localInfo = withContext(DispatcherIO) {
+                                    io.github.audiz.getTracksFromLocalPaths(listOf(existingFilePath)).firstOrNull()
+                                }
                                 if (localInfo != null && localInfo.durationMs > 0L) {
                                     durationMs = localInfo.durationMs
                                 }
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (_: Exception) {}
                         }
                     }
@@ -1728,12 +1723,9 @@ class PlaybackManager(
                 val sanitizedArtist = LocalTrackResolver.sanitizeKeepSpaces(cleanArtist.ifBlank { "Unknown Artist" })
 
                 // 1. Проверяем, есть ли уже файл на диске
-                val existingFilePath = localTrackResolver.findLocalTrackFile(
-                    trackId = targetTrackId,
-                    artist = cleanArtist,
-                    title = cleanTitle,
-                    selectedQuality = selectedQuality
-                )
+                val existingFilePath = withContext(DispatcherIO) {
+                    localTrackResolver.findLocalTrackFile(targetTrackId, cleanArtist, cleanTitle, selectedQuality)
+                }
 
                 if (existingFilePath != null) {
                     println("⚡ [Предзагрузка] Трек '$cleanTitle' уже есть на диске: $existingFilePath")
@@ -1763,6 +1755,8 @@ class PlaybackManager(
                                 filePath = null
                             )
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         println("⚡ [Предзагрузка] Ошибка предзагрузки стрима: ${e.message}")
                     }
@@ -1808,6 +1802,8 @@ class PlaybackManager(
                         filePath = null
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 println("⚡ [Предзагрузка] Не удалось предзагрузить трек: ${e.message}")
             }

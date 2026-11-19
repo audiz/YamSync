@@ -196,7 +196,6 @@ fun App() {
                 artistName = displayArtist,
                 isPlaying = searchViewModel.playerIsPlaying,
                 isPaused = searchViewModel.playerIsPaused,
-                currentPositionMs = searchViewModel.playerPositionMs,
                 durationMs = searchViewModel.playerDurationMs,
                 bitrate = searchViewModel.playerBitrate,
                 volume = searchViewModel.playerVolume,
@@ -334,7 +333,7 @@ fun App() {
                             isSaved = searchViewModel.isCurrentTrackSavedToDisk
                         )
                         PlayerBar(
-                            state = playerBarState,
+                            state = playerBarState.copy(currentPositionMs = searchViewModel.playerPositionMs),
                             actions = playerBarActions
                         )
                     }
@@ -661,7 +660,7 @@ fun App() {
                 ) + fadeOut(animationSpec = androidx.compose.animation.core.tween(200))
             ) {
                 MobileFullPlayerSheet(
-                    state = playerBarState,
+                    state = playerBarState.copy(currentPositionMs = searchViewModel.playerPositionMs),
                     actions = playerBarActions,
                     onDismiss = { updateMobilePlayerExpanded(false) }
                 )

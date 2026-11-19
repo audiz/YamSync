@@ -1,5 +1,10 @@
 package io.github.audiz.backend
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import io.github.audiz.dsp.AudioVisualizer
 import io.github.audiz.dsp.EqualizerEngine
 import io.github.audiz.dsp.PcmGainProcessor
@@ -20,6 +25,10 @@ import javax.sound.sampled.*
 class FfmpegAudioPumpBackend(
     private val callback: AudioBackendCallback
 ) : AudioBackend {
+
+    companion object {
+        private val processCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(2))
+    }
 
     override val name: String = "FFmpeg + JavaSound AudioPump"
 
@@ -46,8 +55,16 @@ class FfmpegAudioPumpBackend(
             isClosed = true
             pcmQueue.clear()
             try { thread?.interrupt() } catch (_: Exception) {}
-            try { proc?.inputStream?.close() } catch (_: Exception) {}
-            try { proc?.destroyForcibly() } catch (_: Exception) {}
+            proc?.let { process ->
+                processCleanupScope.launch {
+                    try { process.destroyForcibly() }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) {}
+                    try { process.inputStream.close() }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) {}
+                }
+            }
         }
     }
 

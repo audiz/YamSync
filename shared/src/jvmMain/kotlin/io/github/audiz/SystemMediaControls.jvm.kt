@@ -1,11 +1,36 @@
 package io.github.audiz
 
+import io.github.audiz.player.NowPlayingArtworkLoader
+import io.github.audiz.ui.CoverImageLoader
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
 actual class SystemMediaControls {
     private var mprisServer: MprisServer? = null
     private var windowsControls: WindowsMediaControls? = null
 
     private val isLinux = System.getProperty("os.name")?.lowercase()?.contains("linux") == true
     private val isWindows = System.getProperty("os.name")?.lowercase()?.contains("windows") == true
+
+    private data class Metadata(
+        val title: String, val artist: String, val album: String, val durationMs: Long, val trackId: String?
+    )
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var currentMetadata: Metadata? = null
+    private val artworkLoader = NowPlayingArtworkLoader<String>(
+        scope = scope,
+        load = { uri -> withContext(DispatcherIO) { CoverImageLoader.formatCoverUrl(uri, 400) } },
+        publish = { artUrl -> currentMetadata?.let { publishMetadata(it, artUrl) } }
+    )
+
+    private fun publishMetadata(metadata: Metadata, artUrl: String?) {
+        mprisServer?.updateMetadata(metadata.title, metadata.artist, metadata.album,
+            metadata.durationMs, metadata.trackId, artUrl)
+    }
 
     actual fun initialize(
         onPlay: () -> Unit,
@@ -65,8 +90,12 @@ actual class SystemMediaControls {
         isLiked: Boolean
     ) {
         if (isLinux) {
-            val artUrl = coverUri?.let { io.github.audiz.ui.CoverImageLoader.formatCoverUrl(it, 400) }
-            mprisServer?.updateMetadata(title, artist, album, durationMs, trackId, artUrl)
+            scope.launch {
+                val metadata = Metadata(title, artist, album, durationMs, trackId)
+                currentMetadata = metadata
+                val artUrl = artworkLoader.update(trackId ?: "$artist\u0000$title", listOfNotNull(coverUri))
+                publishMetadata(metadata, artUrl)
+            }
         } else if (isWindows) {
             windowsControls?.updateMetadata(title, artist, album)
         }
@@ -90,19 +119,28 @@ actual class SystemMediaControls {
 
     actual fun clear() {
         if (isLinux) {
-            mprisServer?.updatePlaybackState(false, false, 0)
+            scope.launch {
+                artworkLoader.clear()
+                currentMetadata = null
+                mprisServer?.updatePlaybackState(false, false, 0)
+            }
         } else if (isWindows) {
             windowsControls?.clear()
         }
     }
 
     actual fun release() {
-        if (isLinux) {
-            mprisServer?.stop()
-            mprisServer = null
-        } else if (isWindows) {
-            windowsControls?.stop()
-            windowsControls = null
+        scope.launch {
+            artworkLoader.clear()
+            currentMetadata = null
+            if (isLinux) {
+                mprisServer?.stop()
+                mprisServer = null
+            } else if (isWindows) {
+                windowsControls?.stop()
+                windowsControls = null
+            }
+            scope.cancel()
         }
     }
 }

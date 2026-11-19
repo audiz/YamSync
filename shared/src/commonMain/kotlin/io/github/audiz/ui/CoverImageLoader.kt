@@ -46,22 +46,20 @@ object CoverImageLoader {
 
         // 1. Проверяем локальные файлы
         if (trimmed.startsWith("local:") || trimmed.startsWith("file:") || trimmed.startsWith("/")) {
-            val bytes = withContext(DispatcherIO) {
-                loadLocalCoverBytes(trimmed)
-            }
-            if (bytes != null && bytes.isNotEmpty()) {
-                return try {
+            return withContext(DispatcherIO) {
+                val bytes = loadLocalCoverBytes(trimmed)
+                if (bytes == null || bytes.isEmpty()) return@withContext null
+                try {
                     val bitmap = bytes.decodeToImageBitmap()
-                    synchronized(cacheLock) {
-                        memoryCache[trimmed] = bitmap
-                    }
+                    synchronized(cacheLock) { memoryCache[trimmed] = bitmap }
                     bitmap
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     println("CoverImageLoader: Ошибка декодирования локальной обложки $trimmed: ${e.message}")
                     null
                 }
             }
-            return null
         }
 
         // 2. Сетевая обложка Яндекс Музыки
