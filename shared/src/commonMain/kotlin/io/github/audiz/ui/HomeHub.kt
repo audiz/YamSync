@@ -2,6 +2,11 @@ package io.github.audiz.ui
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -14,16 +19,12 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
@@ -44,7 +45,6 @@ import io.github.audiz.models.PersonalPlaylistItemData
 import io.github.audiz.models.ThematicWavePreset
 import io.github.audiz.pickDirectory
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 /**
  * 🏠 Главный экран-хаб приложения (Home Hub).
@@ -534,7 +534,6 @@ private fun ResumeSessionCard(
 // ✨ 4. ПЕРСОНАЛЬНЫЕ ПОДБОРКИ ЯНДЕКСА (горизонтальная лента)
 // ============================================================================
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun PersonalPlaylistsSection(
     items: List<PersonalPlaylistItemData>,
@@ -544,7 +543,7 @@ private fun PersonalPlaylistsSection(
     val visibleItems = items.filter { it.playlist?.canOpen == true }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val wheelStep = with(LocalDensity.current) { 40.dp.toPx() }
+    val flingBehavior = ScrollableDefaults.flingBehavior()
     val canNavigate by remember { derivedStateOf { listState.canScrollBackward || listState.canScrollForward } }
     Column(modifier = modifier) {
         Row(
@@ -587,13 +586,14 @@ private fun PersonalPlaylistsSection(
 
             LazyRow(
                 state = listState,
-                modifier = Modifier.fillMaxWidth().onPointerEvent(PointerEventType.Scroll, PointerEventPass.Initial) { event ->
-                    val delta = event.changes.firstOrNull()?.scrollDelta
-                    if (delta != null && abs(delta.y) > abs(delta.x)) {
-                        val moved = listState.dispatchRawDelta(delta.y * wheelStep)
-                        if (abs(moved) > 0.5f) event.changes.forEach { it.consume() }
+                modifier = Modifier.fillMaxWidth().draggable(
+                    state = rememberDraggableState { delta -> listState.dispatchRawDelta(-delta) },
+                    orientation = Orientation.Horizontal,
+                    onDragStarted = { listState.stopScroll() },
+                    onDragStopped = { velocity ->
+                        listState.scroll { with(flingBehavior) { performFling(-velocity) } }
                     }
-                },
+                ),
                 horizontalArrangement = Arrangement.spacedBy(gap)
             ) {
                 items(visibleItems, key = { it.playlist!!.stableKey }) { item ->
