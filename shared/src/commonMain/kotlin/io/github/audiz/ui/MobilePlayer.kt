@@ -2,10 +2,6 @@ package io.github.audiz.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -396,15 +392,27 @@ fun MobileFullPlayerSheet(
         }
     }
 
-    val infiniteTransition = rememberInfiniteTransition()
-    val breathingAlpha by infiniteTransition.animateFloat(
-        initialValue = if (state.isPlaying && !state.isPaused) 0.65f else 0.50f,
-        targetValue = if (state.isPlaying && !state.isPaused) 0.90f else 0.50f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        )
-    )
+    // «Дыхание» подсветки: только во время воспроизведения и на общей сетке ~30 fps
+    val isActivelyPlaying = state.isPlaying && !state.isPaused
+    val breathingAlphaState = remember { mutableFloatStateOf(0.50f) }
+    LaunchedEffect(isActivelyPlaying) {
+        if (!isActivelyPlaying) {
+            breathingAlphaState.floatValue = 0.50f
+            return@LaunchedEffect
+        }
+        val ticker = DecorFrameTicker()
+        var startNs = 0L
+        while (isActive) {
+            ticker.awaitFrame { frameNs, _ ->
+                if (startNs == 0L) startNs = frameNs
+                val halfCycles = (frameNs - startNs) / 3_200_000_000.0
+                val phase = (halfCycles % 2.0).toFloat()
+                val progress = if (phase < 1f) phase else 2f - phase
+                breathingAlphaState.floatValue = 0.65f + 0.25f * FastOutSlowInEasing.transform(progress)
+            }
+        }
+    }
+    val breathingAlpha by breathingAlphaState
 
     val dismissDragModifier = Modifier.pointerInput(Unit) {
         detectVerticalDragGestures(
@@ -1216,14 +1224,10 @@ fun CoverSpectrumVisualizer(
         if (!isPlaying) {
             frame = AudioVisualizer.advanceSpectrumFrame(0.016f, false)
         } else {
-            var lastTimeNs = 0L
+            val ticker = DecorFrameTicker()
             while (isActive) {
-                androidx.compose.runtime.withFrameNanos { nowNs ->
-                    val dt = if (lastTimeNs > 0L) {
-                        ((nowNs - lastTimeNs) / 1_000_000_000f).coerceIn(0.005f, 0.05f)
-                    } else 0.016f
-                    lastTimeNs = nowNs
-                    frame = AudioVisualizer.advanceSpectrumFrame(dt, true)
+                ticker.awaitFrame { _, dt ->
+                    frame = AudioVisualizer.advanceSpectrumFrame(dt.coerceIn(0.005f, 0.05f), true)
                 }
             }
         }

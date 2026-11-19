@@ -516,14 +516,10 @@ fun NowPlayingIndicator(
         if (!isPlaying) {
             frame = AudioVisualizer.advanceFrame(0.016f, false)
         } else {
-            var lastTimeNs = 0L
+            val ticker = DecorFrameTicker()
             while (isActive) {
-                androidx.compose.runtime.withFrameNanos { nowNs ->
-                    val dt = if (lastTimeNs > 0L) {
-                        ((nowNs - lastTimeNs) / 1_000_000_000f).coerceIn(0.005f, 0.05f)
-                    } else 0.016f
-                    lastTimeNs = nowNs
-                    frame = AudioVisualizer.advanceFrame(dt, true)
+                ticker.awaitFrame { _, dt ->
+                    frame = AudioVisualizer.advanceFrame(dt.coerceIn(0.005f, 0.05f), true)
                 }
             }
         }
