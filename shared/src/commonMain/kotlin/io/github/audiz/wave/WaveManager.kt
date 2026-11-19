@@ -11,6 +11,8 @@ import io.github.audiz.api.RotorFeedbackItem
 import io.github.audiz.models.RotorSessionResponse
 import io.github.audiz.api.currentIsoUtcTimestamp
 import io.github.audiz.api.generatePlayUuid
+import io.github.audiz.models.LastPlaybackSession
+import io.github.audiz.models.FullArtistInfo
 import io.github.audiz.models.FullTrackInfo
 import io.github.audiz.player.PlaybackManager
 import io.github.audiz.player.WavePlaybackBridge
@@ -217,10 +219,44 @@ class WaveManager(
     private val trackPlayIds = mutableMapOf<String, String>()
     private var replenishmentJob: Job? = null
 
-    /**
-     * 🌊 Инициализировать Мою Волну (получить Ynison session, клонировать сессию и загрузить первые 5 треков)
-     */
+    /** Восстановить последний трек без автозапуска и загрузить продолжение волны. */
+    fun restoreSession(session: LastPlaybackSession) {
+        val track = session.lastTrackId?.takeIf { it.isNotBlank() }?.let { id ->
+            FullTrackInfo(
+                id = id,
+                title = session.lastTrackTitle.orEmpty(),
+                artists = listOf(FullArtistInfo(id = 0L, name = session.lastArtistName.orEmpty())),
+                coverUri = session.lastCoverUri,
+                durationMs = session.lastDurationMs,
+                available = true
+            )
+        }
+        if (track != null) {
+            installInitialTracks(emptyList(), track)
+            playbackManager?.setInitialTrack(track)
+        }
+        if (session.waveSeeds.isNotEmpty()) {
+            startThematicWave(session.waveTitle, session.waveSeeds, autoPlay = false, restoredTrack = track)
+        } else {
+            initializeWave(autoPlay = false, source = TrackPlaySource.PLAY, restoredTrack = track)
+        }
+    }
+
+    internal fun installInitialTracks(tracks: List<FullTrackInfo>, restoredTrack: FullTrackInfo? = null) {
+        val selected = restoredTrack?.let { saved -> tracks.firstOrNull { it.id == saved.id } ?: saved }
+        waveTracks.clear()
+        if (selected != null) waveTracks.add(selected)
+        waveTracks.addAll(tracks.filter { it.id != selected?.id }.distinctBy { it.id })
+        waveCurrentIndex = 0
+        activeWaveTrack = waveTracks.firstOrNull()
+        isWaveMode = waveTracks.isNotEmpty()
+    }
+
     override fun loadInitialWave(autoPlay: Boolean, source: TrackPlaySource) {
+        initializeWave(autoPlay, source)
+    }
+
+    private fun initializeWave(autoPlay: Boolean, source: TrackPlaySource, restoredTrack: FullTrackInfo? = null) {
         currentWaveTitle = null
         currentWaveSeeds = emptyList()
         try {
@@ -269,6 +305,7 @@ class WaveManager(
                     rotorResponse = repository.createRotorSession(listOf("user:onyourwave"))
                 }
 
+                if (restoredTrack != null && (!isWaveMode || currentWaveTrack?.id != restoredTrack.id)) return@launch
                 val response = rotorResponse
                 waveRadioSessionId = response.radioSessionId ?: sid
                 waveBatchId = response.batchId
@@ -282,7 +319,7 @@ class WaveManager(
                 pendingWaveFeedbacks.clear()
                 waveTrackBatchMap.clear()
                 val parsedTracks = response.sequence.mapNotNull { it.track }.distinctBy { it.id }
-                waveTracks.addAll(parsedTracks)
+                installInitialTracks(parsedTracks, restoredTrack)
                 parsedTracks.forEach { t ->
                     response.batchId?.let { bId -> waveTrackBatchMap[t.id] = bId }
                 }
@@ -291,11 +328,6 @@ class WaveManager(
                     if (item.liked && t != null) {
                         onTrackLiked?.invoke(t.id)
                     }
-                }
-                waveCurrentIndex = 0
-                if (waveTracks.isNotEmpty()) {
-                    isWaveMode = true
-                    activeWaveTrack = parsedTracks.firstOrNull()
                 }
                 println("WaveManager: Волна инициализирована! Загружено треков: ${waveTracks.size}, batchId: $waveBatchId")
 
@@ -325,10 +357,11 @@ class WaveManager(
         title: String?,
         seeds: List<String>,
         autoPlay: Boolean = true,
-        source: TrackPlaySource = TrackPlaySource.PLAY
+        source: TrackPlaySource = TrackPlaySource.PLAY,
+        restoredTrack: FullTrackInfo? = null
     ) {
         if (seeds.isEmpty()) {
-            loadInitialWave(autoPlay = autoPlay, source = source)
+            initializeWave(autoPlay = autoPlay, source = source, restoredTrack = restoredTrack)
             return
         }
 
@@ -366,6 +399,7 @@ class WaveManager(
                     throw IllegalStateException("Для волны не найдено доступных треков")
                 }
 
+                if (restoredTrack != null && (!isWaveMode || currentWaveTrack?.id != restoredTrack.id)) return@launch
                 waveRadioSessionId = sid
                 waveBatchId = response.batchId
                 replenishmentJob?.cancel()
@@ -378,7 +412,7 @@ class WaveManager(
                 pendingWaveFeedbacks.clear()
                 waveTrackBatchMap.clear()
 
-                waveTracks.addAll(parsedTracks)
+                installInitialTracks(parsedTracks, restoredTrack)
                 parsedTracks.forEach { t ->
                     response.batchId?.let { bId -> waveTrackBatchMap[t.id] = bId }
                 }
@@ -388,9 +422,6 @@ class WaveManager(
                         onTrackLiked?.invoke(t.id)
                     }
                 }
-                waveCurrentIndex = 0
-                isWaveMode = true
-                activeWaveTrack = parsedTracks.firstOrNull()
                 println("WaveManager: Тематическая Волна запущена! Загружено треков: ${waveTracks.size}, radioSessionId: $waveRadioSessionId, batchId: $waveBatchId")
 
                 if (autoPlay && waveTracks.isNotEmpty()) {
@@ -407,7 +438,7 @@ class WaveManager(
             } finally {
                 isWaveLoading = false
                 if (fallbackToPersonal) {
-                    loadInitialWave(autoPlay = autoPlay, source = source)
+                    initializeWave(autoPlay = autoPlay, source = source, restoredTrack = restoredTrack)
                 } else if (autoPlay && waveTracks.isEmpty()) {
                     playbackManager?.resetLoadingFlags()
                 }

@@ -541,7 +541,8 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
                 trackId = trackId,
                 trackTitle = title,
                 artistName = artist,
-                coverUri = cover
+                coverUri = cover,
+                durationMs = playbackManager.durationMs
             )
         },
         onError = { errorMessage = it }
@@ -782,14 +783,15 @@ class SearchViewModel(private val repository: MusicRepository = MusicRepository(
 
             if (session == null || session.type == LastPlaybackType.WAVE) {
                 isTracksListVisible = false
-                if (currentAccessToken.isNotBlank()) {
+                if (currentAccessToken.isNotBlank() || !session?.lastTrackId.isNullOrBlank()) {
                     val seeds = session?.waveSeeds?.takeIf { it.isNotEmpty() } ?: savedWaveStyle?.seeds ?: emptyList()
                     val title = session?.waveTitle ?: savedWaveStyle?.title
-                    if (seeds.isNotEmpty()) {
-                        startThematicWave(title, seeds, autoPlay = false)
-                    } else {
-                        loadInitialWave(autoPlay = false)
-                    }
+                    waveManager.restoreSession(
+                        (session ?: LastPlaybackSession(type = LastPlaybackType.WAVE)).copy(
+                            waveTitle = title,
+                            waveSeeds = seeds
+                        )
+                    )
                 }
                 return
             }

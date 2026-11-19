@@ -509,6 +509,9 @@ class PlaybackManager(
             } else {
                 waveBridge?.resumeOrLoadWave(true, TrackPlaySource.PLAY)
             }
+        } else if (waveBridge?.isWaveMode == true && upNextQueue.state.current?.inserted != true &&
+            waveBridge.waveTracks.getOrNull(waveBridge.waveCurrentIndex)?.id == trackId) {
+            waveBridge.playWaveTrack(waveBridge.waveCurrentIndex, TrackPlaySource.PLAY)
         } else {
             isPlayLoading = true
             playTrack(
