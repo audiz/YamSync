@@ -21,6 +21,8 @@ object AppConfigKeys {
     const val EQ_PRESET = "eq_preset"
     const val SESSION_COOKIE = "session_cookie"
     const val KNOWN_LATEST_VERSION = "known_latest_version"
+    const val KNOWN_LATEST_RELEASE_URL = "known_latest_release_url"
+    const val LAST_UPDATE_CHECK_AT = "last_update_check_at"
     const val RECENT_THEMATIC_WAVES = "recent_thematic_waves"
     const val LAST_WAVE_STYLE = "last_wave_style"
     const val CUSTOM_LOCAL_SOURCES = "custom_local_sources"

@@ -17,6 +17,8 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
@@ -53,6 +55,7 @@ import io.github.audiz.ui.MobileFullPlayerSheet
 import io.github.audiz.ui.BackHandler
 import io.github.audiz.dsp.EqualizerEngine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private data class TrackDeleteConfirmInfo(
@@ -79,7 +82,15 @@ fun App() {
 
     // 🔄 Фоновая проверка новой версии (ошибки сети игнорируются)
     val updateManager = remember { io.github.audiz.update.UpdateManager() }
-    LaunchedEffect(Unit) { updateManager.checkForUpdates() }
+    LaunchedEffect(updateManager.nextCheckAt) {
+        updateManager.nextCheckAt?.let { scheduledAt ->
+            delay((scheduledAt - currentTimeMillis()).coerceAtLeast(0L))
+        }
+        updateManager.checkForUpdates()
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        supportScope.launch { updateManager.checkForUpdates() }
+    }
 
     // 🔗 Обработка входящих Deep Link ссылок
     LaunchedEffect(Unit) {
