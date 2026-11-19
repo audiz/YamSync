@@ -135,6 +135,8 @@ fun App() {
             }
 
             var showUpNextDialog by remember { mutableStateOf(false) }
+            // Окно «Далее» открыто из полноэкранного мобильного плеера: при закрытии возвращаемся в него.
+            var upNextOpenedFromPlayer by remember { mutableStateOf(false) }
             var showEqualizerDialog by remember { mutableStateOf(false) }
             var equalizerInitialTab by remember { mutableStateOf(0) }
             var showPlaylistsDialog by remember { mutableStateOf(false) }
@@ -225,8 +227,10 @@ fun App() {
             )
 
             val openPlayingPlaylist: () -> Unit = {
+                val fromPlayer = if (showUpNextDialog) upNextOpenedFromPlayer else isMobilePlayerExpanded
                 showUpNextDialog = false
-                if (isMobileUi) {
+                upNextOpenedFromPlayer = false
+                if (isMobileUi && fromPlayer) {
                     searchViewModel.openQueueView(TracksListOrigin.MOBILE_PLAYER)
                     updateMobilePlayerExpanded(false)
                 } else {
@@ -295,6 +299,7 @@ fun App() {
                     if (searchViewModel.upNextState.pending.isEmpty()) {
                         openPlayingPlaylist()
                     } else {
+                        upNextOpenedFromPlayer = isMobileUi && isMobilePlayerExpanded
                         showUpNextDialog = true
                     }
                 },
@@ -728,7 +733,11 @@ fun App() {
             if (showUpNextDialog) {
                 UpNextDialog(
                     viewModel = searchViewModel,
-                    onDismiss = { showUpNextDialog = false },
+                    onDismiss = {
+                        showUpNextDialog = false
+                        if (upNextOpenedFromPlayer) updateMobilePlayerExpanded(true)
+                        upNextOpenedFromPlayer = false
+                    },
                     onOpenPlaylist = openPlayingPlaylist
                 )
             }
