@@ -30,7 +30,7 @@ object CoverImageLoader {
     private const val MEMORY_CACHE_LIMIT = 64
 
     private val cacheLock = Any()
-    private val memoryCache = LinkedHashMap<String, ImageBitmap>(MEMORY_CACHE_LIMIT, 0.75f, true)
+    private val memoryCache = LinkedHashMap<String, ImageBitmap>()
     private val inFlight = HashMap<String, Deferred<ImageBitmap?>>()
     private val requestedSizes = LinkedHashSet<Int>()
     private val loaderScope = CoroutineScope(SupervisorJob() + DispatcherIO)
@@ -69,7 +69,13 @@ object CoverImageLoader {
     /** Обложка из памяти без загрузки (null, если её ещё нет в кэше). */
     fun peek(coverUri: String?, size: Int = 400): ImageBitmap? {
         val key = cacheKey(coverUri, size) ?: return null
-        return synchronized(cacheLock) { memoryCache[key] }
+        return synchronized(cacheLock) {
+            val bitmap = memoryCache.remove(key)
+            if (bitmap != null) {
+                memoryCache[key] = bitmap
+            }
+            bitmap
+        }
     }
 
     /**
@@ -80,7 +86,11 @@ object CoverImageLoader {
         val trimmed = coverUri!!.trim()
         val request = synchronized(cacheLock) {
             requestedSizes.add(size)
-            memoryCache[key]?.let { return it }
+            val cached = memoryCache.remove(key)
+            if (cached != null) {
+                memoryCache[key] = cached
+                return cached
+            }
             inFlight[key] ?: loaderScope.async { fetchAndDecode(key, trimmed) }.also { deferred ->
                 inFlight[key] = deferred
                 deferred.invokeOnCompletion { synchronized(cacheLock) { if (inFlight[key] === deferred) inFlight.remove(key) } }
@@ -119,6 +129,7 @@ object CoverImageLoader {
         return try {
             val bitmap = bytes.decodeToImageBitmap()
             synchronized(cacheLock) {
+                memoryCache.remove(key)
                 memoryCache[key] = bitmap
                 while (memoryCache.size > MEMORY_CACHE_LIMIT) {
                     memoryCache.remove(memoryCache.keys.first())
